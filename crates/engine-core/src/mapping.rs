@@ -109,10 +109,7 @@ impl RepresentationMapping {
                     mapped_sources.insert(source_field.clone());
                     value.clone()
                 }
-                (
-                    Some(source_field),
-                    MappingTransform::NumericAffine { scale, offset },
-                ) => {
+                (Some(source_field), MappingTransform::NumericAffine { scale, offset }) => {
                     if !scale.is_finite() || !offset.is_finite() {
                         return Err(MappingError::InvalidTransform);
                     }
@@ -189,19 +186,35 @@ impl std::fmt::Display for MappingError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidMappingIdentity => write!(formatter, "mapping identity is invalid"),
-            Self::SourceRepresentationMismatch => write!(formatter, "source representation mismatch"),
-            Self::TargetRepresentationMismatch => write!(formatter, "target representation mismatch"),
+            Self::SourceRepresentationMismatch => {
+                write!(formatter, "source representation mismatch")
+            }
+            Self::TargetRepresentationMismatch => {
+                write!(formatter, "target representation mismatch")
+            }
             Self::ExpectedSourceObject => write!(formatter, "source value must be an object"),
             Self::InvalidSource(error) => write!(formatter, "source value is invalid: {error}"),
             Self::InvalidTarget(error) => write!(formatter, "mapped target is invalid: {error}"),
             Self::UnknownTargetField(field) => write!(formatter, "unknown target field: {field}"),
-            Self::DuplicateTargetField(field) => write!(formatter, "target field mapped more than once: {field}"),
+            Self::DuplicateTargetField(field) => {
+                write!(formatter, "target field mapped more than once: {field}")
+            }
             Self::MissingSourceField(field) => write!(formatter, "missing source field: {field}"),
-            Self::ExpectedNumericSource(field) => write!(formatter, "source field is not numeric: {field}"),
-            Self::InvalidTransform => write!(formatter, "mapping transform contains non-finite parameters"),
+            Self::ExpectedNumericSource(field) => {
+                write!(formatter, "source field is not numeric: {field}")
+            }
+            Self::InvalidTransform => write!(
+                formatter,
+                "mapping transform contains non-finite parameters"
+            ),
             Self::InvalidConstant => write!(formatter, "mapping constant contains invalid data"),
-            Self::InvalidSourceTransformCombination => write!(formatter, "mapping source and transform combination is invalid"),
-            Self::NonFiniteResult(field) => write!(formatter, "mapping produced a non-finite value for {field}"),
+            Self::InvalidSourceTransformCombination => write!(
+                formatter,
+                "mapping source and transform combination is invalid"
+            ),
+            Self::NonFiniteResult(field) => {
+                write!(formatter, "mapping produced a non-finite value for {field}")
+            }
         }
     }
 }
@@ -277,10 +290,7 @@ mod tests {
             .apply(&source, &target, &source_value)
             .expect("mapping should be valid");
 
-        assert_eq!(
-            result.value.get("position"),
-            Some(&DataValue::Number(7.0))
-        );
+        assert_eq!(result.value.get("position"), Some(&DataValue::Number(7.0)));
         assert_eq!(
             result.value.get("kind"),
             Some(&DataValue::Text("point".to_owned()))
@@ -292,10 +302,7 @@ mod tests {
     #[test]
     fn rejects_invalid_target_schema_after_mapping() {
         let source = spec("source", vec![("x", ValueKind::Number)]);
-        let target = spec(
-            "target",
-            vec![("required", ValueKind::Text)],
-        );
+        let target = spec("target", vec![("required", ValueKind::Text)]);
         let mapping = RepresentationMapping {
             id: "bad-mapping".to_owned(),
             version: 1,
