@@ -52,6 +52,7 @@ impl EvaluationPolicy {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RepresentationEvaluation {
     pub evaluation_set_id: String,
+    pub policy: EvaluationPolicy,
     pub evaluated_samples: usize,
     pub valid_samples: usize,
     pub valid_fraction: f64,
@@ -157,6 +158,7 @@ impl RepresentationRegistry {
 
         let evaluation = RepresentationEvaluation {
             evaluation_set_id,
+            policy,
             evaluated_samples,
             valid_samples,
             valid_fraction,
