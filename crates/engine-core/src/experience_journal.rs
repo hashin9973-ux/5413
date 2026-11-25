@@ -297,6 +297,21 @@ impl Encoder {
     }
 
     fn put_string(&mut self, value: &str) -> Result<(), JournalError> {
+        let projected_size = self
+            .bytes
+            .len()
+            .checked_add(4)
+            .and_then(|size| size.checked_add(value.len()))
+            .ok_or(JournalError::FrameTooLarge {
+                size: usize::MAX,
+                maximum: MAX_FRAME_PAYLOAD_BYTES,
+            })?;
+        if projected_size > MAX_FRAME_PAYLOAD_BYTES {
+            return Err(JournalError::FrameTooLarge {
+                size: projected_size,
+                maximum: MAX_FRAME_PAYLOAD_BYTES,
+            });
+        }
         self.put_length(value.len())?;
         self.bytes.extend_from_slice(value.as_bytes());
         Ok(())
