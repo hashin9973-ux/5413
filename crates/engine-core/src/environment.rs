@@ -62,9 +62,7 @@ impl EnvironmentDescriptor {
         &self,
         action: &AuthorizedAction,
     ) -> Result<(), EnvironmentError> {
-        if action.environment_id() != self.id
-            || action.environment_version() != self.version
-        {
+        if action.environment_id() != self.id || action.environment_version() != self.version {
             return Err(EnvironmentError::InvalidAction(
                 "authorized action targets a different environment version".to_owned(),
             ));
