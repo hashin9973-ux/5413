@@ -23,3 +23,7 @@ cargo run -p engine-core --example simulator_demo
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the initial engineering boundaries and [docs/roadmap.md](docs/roadmap.md) for staged development.
+
+## Quality checks
+
+The Rust CI workflow runs formatting checks, Clippy with warnings denied, the workspace test suite, and the simulator example on pushes and pull requests.
