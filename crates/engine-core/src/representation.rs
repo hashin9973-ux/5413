@@ -19,6 +19,7 @@ pub struct RepresentationSpec {
     pub kind: RepresentationKind,
     pub schema: SchemaDefinition,
     pub description: String,
+    pub training_set_id: String,
     pub evidence_refs: Vec<String>,
 }
 
@@ -77,6 +78,9 @@ impl RepresentationRegistry {
         if spec.version == 0 {
             return Err(RegistryError::ZeroVersion);
         }
+        if spec.training_set_id.trim().is_empty() {
+            return Err(RegistryError::EmptyTrainingSetId);
+        }
         spec.schema
             .validate_definition()
             .map_err(RegistryError::InvalidSchema)?;
@@ -115,7 +119,7 @@ impl RepresentationRegistry {
         }
 
         let key = (id.to_owned(), version);
-        let schema = {
+        let (schema, training_set_id) = {
             let record = self
                 .records
                 .get(&key)
@@ -129,8 +133,14 @@ impl RepresentationRegistry {
                     version,
                 });
             }
-            record.spec.schema.clone()
+            (
+                record.spec.schema.clone(),
+                record.spec.training_set_id.clone(),
+            )
         };
+        if training_set_id == evaluation_set_id {
+            return Err(RegistryError::EvaluationSetLeakage);
+        }
 
         let valid_samples = validation_samples
             .iter()
@@ -236,6 +246,8 @@ pub enum RegistryError {
     NotFound { id: String, version: u64 },
     NotCandidate { id: String, version: u64 },
     EmptyEvaluationSetId,
+    EmptyTrainingSetId,
+    EvaluationSetLeakage,
     InvalidEvaluationPolicy,
     MissingEvaluation,
     EvaluationFailed,
@@ -267,6 +279,8 @@ impl std::fmt::Display for RegistryError {
                 )
             }
             Self::EmptyEvaluationSetId => write!(formatter, "evaluation set id must not be empty"),
+            Self::EmptyTrainingSetId => write!(formatter, "training set id must not be empty"),
+            Self::EvaluationSetLeakage => write!(formatter, "evaluation set must differ from training set"),
             Self::InvalidEvaluationPolicy => write!(formatter, "evaluation policy is invalid"),
             Self::MissingEvaluation => write!(formatter, "candidate has not been evaluated"),
             Self::EvaluationFailed => write!(formatter, "candidate did not pass evaluation"),
@@ -297,6 +311,7 @@ mod tests {
                 allow_additional_fields: false,
             },
             description: "A candidate state representation".to_owned(),
+            training_set_id: "training-set".to_owned(),
             evidence_refs: Vec::new(),
         }
     }
