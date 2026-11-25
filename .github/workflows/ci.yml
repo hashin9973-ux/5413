@@ -35,3 +35,6 @@ jobs:
 
       - name: Run simulator example
         run: cargo run -p engine-core --example simulator_demo
+
+      - name: Run finite-state environment example
+        run: cargo run -p engine-core --example finite_state_demo
