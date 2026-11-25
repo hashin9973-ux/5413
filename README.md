@@ -10,7 +10,7 @@ Its first environment is a simulator, but the core architecture is designed to w
 - append-only in-memory experience capture;
 - versioned, dynamically registered representations;
 - a small online transition learner;
-- a simulator example that uses only the generic environment API.
+- physics and finite-state workflow examples that use the same generic environment API.
 
 The first implementation is intentionally dependency-free. Persistence, advanced neural models, planner synthesis, and executable self-modification are future stages—not assumed capabilities of this foundation.
 
