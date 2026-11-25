@@ -9,7 +9,7 @@
 - [x] Versioned representation registry
 - [x] Baseline numeric transition learner
 - [x] Simulator adapter example
-- [ ] CI execution result verified on GitHub Actions
+- [x] CI execution result verified on GitHub Actions
 - [x] Second, structurally different environment adapter
 
 ## Milestone 2 — Reliable experience and replay
