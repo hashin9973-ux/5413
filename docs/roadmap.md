@@ -22,11 +22,13 @@
 
 ## Milestone 3 — Dynamic representation learning
 
-- Candidate representation generation
-- Evidence-backed representation scoring
-- Mapping and transformation contracts
-- Information-loss and consistency checks
-- Held-out evaluation and rollback
+- [x] Candidate representation generation from observed object structures
+- [x] Evidence-backed schema validity scoring on separately identified held-out data
+- [x] Versioned field mapping and transformation contracts
+- [x] Basic source-field loss/coverage reporting and target schema validation
+- [ ] Recursive nested-structure discovery
+- [ ] Semantic representation quality scoring beyond schema validity
+- [ ] Automated mapping discovery and held-out rollback experiments
 
 ## Milestone 4 — World models and reasoning
 
