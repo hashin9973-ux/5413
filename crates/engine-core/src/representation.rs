@@ -116,10 +116,13 @@ impl RepresentationRegistry {
 
         let key = (id.to_owned(), version);
         let schema = {
-            let record = self.records.get(&key).ok_or_else(|| RegistryError::NotFound {
-                id: id.to_owned(),
-                version,
-            })?;
+            let record = self
+                .records
+                .get(&key)
+                .ok_or_else(|| RegistryError::NotFound {
+                    id: id.to_owned(),
+                    version,
+                })?;
             if record.status != RepresentationStatus::Candidate {
                 return Err(RegistryError::NotCandidate {
                     id: id.to_owned(),
