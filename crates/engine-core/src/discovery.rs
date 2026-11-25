@@ -41,10 +41,14 @@ pub fn propose_representation(
     for (index, sample) in samples.iter().enumerate() {
         sample
             .validate_finite()
-            .map_err(|_| DiscoveryError::InvalidNumericValue { sample_index: index })?;
+            .map_err(|_| DiscoveryError::InvalidNumericValue {
+                sample_index: index,
+            })?;
         let object = sample
             .as_object()
-            .ok_or(DiscoveryError::ExpectedObjectSample { sample_index: index })?;
+            .ok_or(DiscoveryError::ExpectedObjectSample {
+                sample_index: index,
+            })?;
 
         for (field_name, value) in object {
             let observed_kind = infer_kind(value);
@@ -127,8 +131,9 @@ fn merge_kinds(left: ValueKind, right: ValueKind) -> ValueKind {
         return left;
     }
     match (left, right) {
-        (ValueKind::Integer, ValueKind::Number)
-        | (ValueKind::Number, ValueKind::Integer) => ValueKind::Number,
+        (ValueKind::Integer, ValueKind::Number) | (ValueKind::Number, ValueKind::Integer) => {
+            ValueKind::Number
+        }
         _ => ValueKind::Any,
     }
 }
@@ -147,15 +152,23 @@ impl std::fmt::Display for DiscoveryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::EmptyRepresentationId => write!(formatter, "representation id must not be empty"),
-            Self::ZeroVersion => write!(formatter, "representation version must be greater than zero"),
+            Self::ZeroVersion => write!(
+                formatter,
+                "representation version must be greater than zero"
+            ),
             Self::NoSamples => write!(formatter, "at least one sample is required"),
             Self::ExpectedObjectSample { sample_index } => {
                 write!(formatter, "sample {sample_index} is not an object")
             }
             Self::InvalidNumericValue { sample_index } => {
-                write!(formatter, "sample {sample_index} contains non-finite numeric data")
+                write!(
+                    formatter,
+                    "sample {sample_index} contains non-finite numeric data"
+                )
             }
-            Self::InvalidSchema(error) => write!(formatter, "inferred schema is invalid: {error}"),
+            Self::InvalidSchema(error) => {
+                write!(formatter, "inferred schema is invalid: {error}")
+            }
         }
     }
 }
@@ -173,10 +186,7 @@ mod tests {
                 ("position".to_owned(), DataValue::Integer(2)),
                 ("label".to_owned(), DataValue::Text("A".to_owned())),
             ]),
-            DataValue::object([(
-                "position".to_owned(),
-                DataValue::Number(3.5),
-            )]),
+            DataValue::object([("position".to_owned(), DataValue::Number(3.5))]),
         ];
 
         let proposal = propose_representation(
