@@ -1079,4 +1079,34 @@ mod tests {
         assert!(error.contains("total collection item limit"));
     }
 
+
+
+    #[test]
+    fn rejects_oversized_string_before_copying_into_the_frame_buffer() {
+        let path = test_path();
+        let mut journal = ExperienceJournal::open(&path).expect("journal should open");
+        let oversized_episode_id = "x".repeat(MAX_FRAME_PAYLOAD_BYTES);
+
+        let result = journal.append(
+            oversized_episode_id,
+            ExperienceEvent::PredictionEvaluated {
+                action_id: "a".to_owned(),
+                predicted: DataValue::Null,
+                observed: DataValue::Null,
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(JournalError::FrameTooLarge { .. })
+        ));
+        assert!(journal.is_empty());
+        drop(journal);
+        assert_eq!(
+            fs::metadata(&path).expect("journal file should exist").len(),
+            0
+        );
+        fs::remove_file(path).expect("test journal should be removed");
+    }
+
 }
