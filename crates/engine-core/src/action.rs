@@ -39,14 +39,24 @@ impl Default for ActionAuthorizationPolicy {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct AuthorizedAction {
+    environment_id: String,
+    environment_version: String,
     action_id: String,
     arguments: DataValue,
     risk: ActionRisk,
 }
 
 impl AuthorizedAction {
+    pub fn environment_id(&self) -> &str {
+        &self.environment_id
+    }
+
+    pub fn environment_version(&self) -> &str {
+        &self.environment_version
+    }
+
     pub fn action_id(&self) -> &str {
         &self.action_id
     }
@@ -94,6 +104,8 @@ impl ActionAuthorizer {
             .map_err(AuthorizationError::InvalidArguments)?;
 
         Ok(AuthorizedAction {
+            environment_id: environment.id.clone(),
+            environment_version: environment.version.clone(),
             action_id: proposal.action_id,
             arguments: proposal.arguments,
             risk: descriptor.risk,
