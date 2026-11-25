@@ -38,6 +38,7 @@ The first implementation is a deliberately small foundation. It does not claim g
 - Explicit, schema-validated field mappings with identity, affine numeric, and constant transforms; mapping reports quantify dropped source fields.
 - A per-action numeric mean-delta learner.
 - A one-dimensional particle simulator and a finite-state workflow example using the same generic adapter contract.
+- An end-to-end representation discovery, held-out evaluation, promotion, and mapping example.
 
 ## Deliberately not implemented yet
 
@@ -62,7 +63,7 @@ These are future stages, not implied properties of the current code.
 
 ## Representation lifecycle
 
-A representation proposal records its source training dataset ID and evidence references. A candidate is evaluated on a separately identified validation dataset; the registry rejects reuse of the same dataset ID and promotion is blocked until the candidate meets the minimum sample and valid-fraction policy. This is an explicit provenance guard, not cryptographic proof that datasets are disjoint: the caller remains responsible for supplying genuinely held-out samples. Promoting a newer version retires the previously active version without deleting its record. Raw experience remains the historical source of truth.
+A representation proposal records its source training dataset ID and evidence references. A candidate is evaluated on a separately identified validation dataset; the registry rejects reuse of the same dataset ID and promotion is blocked until the candidate meets the minimum sample and valid-fraction policy. The evaluation record retains the policy and measured counts for auditability. This is an explicit provenance guard, not cryptographic proof that datasets are disjoint: the caller remains responsible for supplying genuinely held-out samples. Promoting a newer version retires the previously active version without deleting its record. Raw experience remains the historical source of truth.
 
 ## Discovery and mapping scope
 
