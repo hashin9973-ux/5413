@@ -911,7 +911,6 @@ mod tests {
         fs::remove_file(path).expect("test journal should be removed");
     }
 
-
     #[test]
     fn stress_round_trips_many_records_across_repeated_reopens() {
         let path = test_path();
@@ -960,8 +959,8 @@ mod tests {
 
             if (index + 1) % 173 == 0 {
                 drop(journal);
-                journal = ExperienceJournal::open(&path)
-                    .expect("journal should survive repeated reopen");
+                journal =
+                    ExperienceJournal::open(&path).expect("journal should survive repeated reopen");
                 assert_eq!(journal.records(), expected.as_slice());
             }
         }
@@ -1049,7 +1048,9 @@ mod tests {
         encoder.put_u64(0);
         encoder.put_string("").expect("empty string should encode");
         encoder.put_u8(1);
-        encoder.put_string("").expect("empty action id should encode");
+        encoder
+            .put_string("")
+            .expect("empty action id should encode");
         encoder.put_u8(5);
         encoder.put_u32((MAX_COLLECTION_ITEMS as u32) + 1);
 
@@ -1080,7 +1081,6 @@ mod tests {
     }
 
 
-
     #[test]
     fn rejects_oversized_string_before_copying_into_the_frame_buffer() {
         let path = test_path();
@@ -1096,17 +1096,15 @@ mod tests {
             },
         );
 
-        assert!(matches!(
-            result,
-            Err(JournalError::FrameTooLarge { .. })
-        ));
+        assert!(matches!(result, Err(JournalError::FrameTooLarge { .. })));
         assert!(journal.is_empty());
         drop(journal);
         assert_eq!(
-            fs::metadata(&path).expect("journal file should exist").len(),
+            fs::metadata(&path)
+                .expect("journal file should exist")
+                .len(),
             0
         );
         fs::remove_file(path).expect("test journal should be removed");
     }
-
 }
