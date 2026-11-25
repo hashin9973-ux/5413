@@ -75,7 +75,9 @@ impl EnvironmentDescriptor {
             .iter()
             .find(|descriptor| descriptor.id == action.action_id())
             .ok_or_else(|| {
-                EnvironmentError::InvalidAction("authorized action is no longer declared".to_owned())
+                EnvironmentError::InvalidAction(
+                    "authorized action is no longer declared".to_owned(),
+                )
             })?;
 
         if descriptor.risk != action.risk() {
