@@ -246,6 +246,7 @@ fn decode_record(payload: &[u8]) -> Result<ExperienceRecord, String> {
 #[derive(Default)]
 struct Encoder {
     bytes: Vec<u8>,
+    encoded_collection_items: usize,
 }
 
 impl Encoder {
@@ -287,12 +288,20 @@ impl Encoder {
     }
 
     fn put_count(&mut self, count: usize) -> Result<(), JournalError> {
-        if count > MAX_COLLECTION_ITEMS {
+        let total = self
+            .encoded_collection_items
+            .checked_add(count)
+            .ok_or(JournalError::CollectionTooLarge {
+                size: usize::MAX,
+                maximum: MAX_COLLECTION_ITEMS,
+            })?;
+        if count > MAX_COLLECTION_ITEMS || total > MAX_COLLECTION_ITEMS {
             return Err(JournalError::CollectionTooLarge {
-                size: count,
+                size: total.max(count),
                 maximum: MAX_COLLECTION_ITEMS,
             });
         }
+        self.encoded_collection_items = total;
         self.put_length(count)
     }
 
@@ -1107,4 +1116,22 @@ mod tests {
         );
         fs::remove_file(path).expect("test journal should be removed");
     }
+
+
+    #[test]
+    fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
+        let mut encoder = Encoder::default();
+        encoder
+            .put_count(60_000)
+            .expect("first collection should fit the budget");
+        let result = encoder.put_count(40_001);
+        assert!(matches!(
+            result,
+            Err(JournalError::CollectionTooLarge {
+                maximum: MAX_COLLECTION_ITEMS,
+                ..
+            })
+        ));
+    }
+
 }
