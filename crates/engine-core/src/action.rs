@@ -149,7 +149,7 @@ impl std::error::Error for AuthorizationError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::environment::EnvironmentDescriptor;
+    use crate::environment::{EnvironmentDescriptor, EnvironmentError};
     use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
 
     fn descriptor() -> EnvironmentDescriptor {
@@ -197,5 +197,25 @@ mod tests {
             arguments: DataValue::object([("amount".to_owned(), DataValue::Integer(1))]),
         };
         assert!(authorizer.authorize(&descriptor(), proposal).is_ok());
+    }
+
+    #[test]
+    fn authorized_action_cannot_be_used_with_another_environment() {
+        let authorizer =
+            ActionAuthorizer::new(ActionAuthorizationPolicy::new(ActionRisk::Reversible));
+        let proposal = ActionProposal {
+            action_id: "mutate".to_owned(),
+            arguments: DataValue::object([("amount".to_owned(), DataValue::Integer(1))]),
+        };
+        let authorized = authorizer
+            .authorize(&descriptor(), proposal)
+            .expect("authorization should succeed for the declared environment");
+        let mut other_environment = descriptor();
+        other_environment.id = "other-environment".to_owned();
+
+        assert!(matches!(
+            other_environment.validate_authorized_action(&authorized),
+            Err(EnvironmentError::InvalidAction(_))
+        ));
     }
 }
