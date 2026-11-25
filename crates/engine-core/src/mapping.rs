@@ -246,6 +246,7 @@ mod tests {
                 allow_additional_fields: false,
             },
             description: id.to_owned(),
+            training_set_id: "mapping-training-set".to_owned(),
             evidence_refs: Vec::new(),
         }
     }
