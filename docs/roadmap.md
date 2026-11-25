@@ -14,11 +14,12 @@
 
 ## Milestone 2 — Reliable experience and replay
 
-- Durable append-only storage
-- Session/episode replay
-- Checkpoint and restore contract
-- Idempotency and duplicate observation handling
-- Versioned serialization and migrations
+- [x] Durable append-only file journal with synchronized writes and incomplete-tail recovery
+- [x] Episode replay in original append order
+- [x] Versioned record encoding and corruption detection
+- [ ] Checkpoint and restore contract
+- [ ] Idempotency keys and duplicate observation handling
+- [ ] Journal format migration routines
 
 ## Milestone 3 — Dynamic representation learning
 
