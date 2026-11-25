@@ -101,6 +101,12 @@ impl ActionAuthorizer {
     }
 }
 
+impl Default for ActionAuthorizer {
+    fn default() -> Self {
+        Self::new(ActionAuthorizationPolicy::default())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthorizationError {
     UnknownAction(String),
