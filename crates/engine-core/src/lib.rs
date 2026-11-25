@@ -19,8 +19,8 @@ pub use environment::{
 pub use experience::{ExperienceEvent, ExperienceLedger, ExperienceRecord, LedgerError};
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
 pub use representation::{
-    RepresentationKind, RepresentationRecord, RepresentationRegistry, RepresentationSpec,
-    RepresentationStatus, RegistryError,
+    RegistryError, RepresentationKind, RepresentationRecord, RepresentationRegistry,
+    RepresentationSpec, RepresentationStatus,
 };
 pub use schema::{
     FieldSpec, SchemaDefinition, SchemaDefinitionError, SchemaValidationError, ValueKind,

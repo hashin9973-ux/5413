@@ -42,11 +42,9 @@ impl DataValue {
 
     fn validate_finite_at(&self, path: &str) -> Result<(), DataValueError> {
         match self {
-            Self::Number(value) if !value.is_finite() => {
-                Err(DataValueError::NonFiniteNumber {
-                    path: path.to_owned(),
-                })
-            }
+            Self::Number(value) if !value.is_finite() => Err(DataValueError::NonFiniteNumber {
+                path: path.to_owned(),
+            }),
             Self::Sequence(values) => {
                 for (index, value) in values.iter().enumerate() {
                     value.validate_finite_at(&format!("{path}[{index}]"))?;

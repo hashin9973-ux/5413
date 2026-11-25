@@ -72,8 +72,7 @@ impl EnvironmentDescriptor {
             .observation_schemas
             .iter()
             .find(|schema| {
-                schema.id == observation.schema_id
-                    && schema.version == observation.schema_version
+                schema.id == observation.schema_id && schema.version == observation.schema_version
             })
             .ok_or_else(|| {
                 EnvironmentError::InvalidObservation(format!(
@@ -118,10 +117,7 @@ pub trait EnvironmentAdapter {
 
     fn observe(&mut self) -> Result<ObservationFrame, EnvironmentError>;
 
-    fn execute(
-        &mut self,
-        action: AuthorizedAction,
-    ) -> Result<ActionOutcome, EnvironmentError>;
+    fn execute(&mut self, action: AuthorizedAction) -> Result<ActionOutcome, EnvironmentError>;
 
     fn reset(&mut self) -> Result<LifecycleOutcome, EnvironmentError> {
         Err(EnvironmentError::UnsupportedOperation("reset"))

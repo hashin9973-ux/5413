@@ -41,10 +41,7 @@ pub struct RepresentationRegistry {
 }
 
 impl RepresentationRegistry {
-    pub fn register_candidate(
-        &mut self,
-        spec: RepresentationSpec,
-    ) -> Result<(), RegistryError> {
+    pub fn register_candidate(&mut self, spec: RepresentationSpec) -> Result<(), RegistryError> {
         if spec.id.trim().is_empty() {
             return Err(RegistryError::EmptyId);
         }
@@ -75,10 +72,13 @@ impl RepresentationRegistry {
 
     pub fn promote(&mut self, id: &str, version: u64) -> Result<(), RegistryError> {
         let key = (id.to_owned(), version);
-        let target = self.records.get(&key).ok_or_else(|| RegistryError::NotFound {
-            id: id.to_owned(),
-            version,
-        })?;
+        let target = self
+            .records
+            .get(&key)
+            .ok_or_else(|| RegistryError::NotFound {
+                id: id.to_owned(),
+                version,
+            })?;
 
         if target.status != RepresentationStatus::Candidate {
             return Err(RegistryError::NotCandidate {
@@ -147,7 +147,10 @@ impl std::fmt::Display for RegistryError {
         match self {
             Self::EmptyId => write!(formatter, "representation id must not be empty"),
             Self::ZeroVersion => {
-                write!(formatter, "representation version must be greater than zero")
+                write!(
+                    formatter,
+                    "representation version must be greater than zero"
+                )
             }
             Self::InvalidSchema(error) => {
                 write!(formatter, "invalid representation schema: {error}")
@@ -159,7 +162,10 @@ impl std::fmt::Display for RegistryError {
                 write!(formatter, "representation {id}@{version} was not found")
             }
             Self::NotCandidate { id, version } => {
-                write!(formatter, "representation {id}@{version} is not a candidate")
+                write!(
+                    formatter,
+                    "representation {id}@{version} is not a candidate"
+                )
             }
         }
     }
@@ -205,7 +211,9 @@ mod tests {
             Some(RepresentationStatus::Retired)
         );
         assert_eq!(
-            registry.active("state-model").map(|record| record.spec.version),
+            registry
+                .active("state-model")
+                .map(|record| record.spec.version),
             Some(2)
         );
     }

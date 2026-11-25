@@ -208,9 +208,7 @@ mod tests {
         ]));
         assert_eq!(
             schema().validate(&payload),
-            Err(SchemaValidationError::UnknownField(
-                "unexpected".to_owned()
-            ))
+            Err(SchemaValidationError::UnknownField("unexpected".to_owned()))
         );
     }
 

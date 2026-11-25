@@ -36,8 +36,7 @@ impl DeltaStatistics {
         let delta = value - self.mean;
         let mean = self.mean + delta / count as f64;
         let delta_after_update = value - mean;
-        let sum_squared_deviations =
-            self.sum_squared_deviations + delta * delta_after_update;
+        let sum_squared_deviations = self.sum_squared_deviations + delta * delta_after_update;
 
         if !mean.is_finite() || !sum_squared_deviations.is_finite() {
             return Err(LearningError::NonFiniteDelta(field.to_owned()));
@@ -141,9 +140,7 @@ impl NumericDeltaModel {
             let Some(current_number) = value.as_f64() else {
                 continue;
             };
-            let Some(statistics) = self
-                .statistics
-                .get(&(action_id.to_owned(), field.clone()))
+            let Some(statistics) = self.statistics.get(&(action_id.to_owned(), field.clone()))
             else {
                 continue;
             };

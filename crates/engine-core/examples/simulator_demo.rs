@@ -149,9 +149,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let descriptor = environment.descriptor().clone();
     descriptor.validate()?;
 
-    let authorizer = ActionAuthorizer::new(ActionAuthorizationPolicy::new(
-        ActionRisk::Reversible,
-    ));
+    let authorizer = ActionAuthorizer::new(ActionAuthorizationPolicy::new(ActionRisk::Reversible));
     let mut ledger = ExperienceLedger::default();
     let mut learner = NumericDeltaModel::default();
 
