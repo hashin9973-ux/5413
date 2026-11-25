@@ -33,7 +33,9 @@ The first implementation is a deliberately small foundation. It does not claim g
 - Environment and action descriptors.
 - Action-risk authorization.
 - A minimal in-memory append-only experience ledger.
-- Candidate/active/rejected/retired representation lifecycle.
+- Candidate/active/rejected/retired representation lifecycle with held-out schema validation before promotion.
+- Structural first-level schema inference from object-shaped observations.
+- Explicit, schema-validated field mappings with identity, affine numeric, and constant transforms; mapping reports quantify dropped source fields.
 - A per-action numeric mean-delta learner.
 - A one-dimensional particle simulator and a finite-state workflow example using the same generic adapter contract.
 
@@ -60,7 +62,11 @@ These are future stages, not implied properties of the current code.
 
 ## Representation lifecycle
 
-A representation is registered as a candidate, evaluated against evidence and held-out tasks, and then promoted or rejected. Promoting a newer version retires the previously active version without deleting its record. Raw experience remains the historical source of truth.
+A representation proposal records its source training dataset ID and evidence references. A candidate is evaluated on a separately identified validation dataset; the registry rejects reuse of the same dataset ID and promotion is blocked until the candidate meets the minimum sample and valid-fraction policy. This is an explicit provenance guard, not cryptographic proof that datasets are disjoint: the caller remains responsible for supplying genuinely held-out samples. Promoting a newer version retires the previously active version without deleting its record. Raw experience remains the historical source of truth.
+
+## Discovery and mapping scope
+
+The initial discovery routine infers a top-level object schema from observations. It unions field names, marks fields absent from some samples optional, widens integer/number mixtures to number, and uses Any for incompatible observed types. It does not yet infer recursive nested schemas, semantic concepts, or causal relations. A mapping specifies source and target representation versions, field transforms, and target validation. Its coverage metric reports how many observed source fields are represented in the output; it is not a semantic equivalence score.
 
 ## Numeric baseline learner
 
