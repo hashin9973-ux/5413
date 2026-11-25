@@ -895,4 +895,173 @@ mod tests {
         drop(journal);
         fs::remove_file(path).expect("test journal should be removed");
     }
+
+
+    #[test]
+    fn stress_round_trips_many_records_across_repeated_reopens() {
+        let path = test_path();
+        let mut expected = Vec::with_capacity(1_200);
+        let mut journal = ExperienceJournal::open(&path).expect("journal should open");
+
+        for index in 0..1_200_u64 {
+            let episode_id = format!("episode-{}", index % 23);
+            let event = ExperienceEvent::PredictionEvaluated {
+                action_id: format!("operator-{}", index % 11),
+                predicted: DataValue::object([
+                    ("index".to_owned(), DataValue::Integer(index as i64)),
+                    (
+                        "features".to_owned(),
+                        DataValue::Sequence(
+                            (0..8)
+                                .map(|feature| {
+                                    DataValue::Number(index as f64 + feature as f64 / 10.0)
+                                })
+                                .collect(),
+                        ),
+                    ),
+                ]),
+                observed: DataValue::object([
+                    ("accepted".to_owned(), DataValue::Bool(index % 3 == 0)),
+                    (
+                        "samples".to_owned(),
+                        DataValue::Sequence(
+                            (0..8)
+                                .map(|sample| DataValue::Integer((index + sample) as i64))
+                                .collect(),
+                        ),
+                    ),
+                ]),
+            };
+
+            let sequence = journal
+                .append(episode_id.clone(), event.clone())
+                .expect("stress append should succeed");
+            assert_eq!(sequence, index);
+            expected.push(ExperienceRecord {
+                sequence,
+                episode_id,
+                event,
+            });
+
+            if (index + 1) % 173 == 0 {
+                drop(journal);
+                journal = ExperienceJournal::open(&path)
+                    .expect("journal should survive repeated reopen");
+                assert_eq!(journal.records(), expected.as_slice());
+            }
+        }
+
+        drop(journal);
+        let journal = ExperienceJournal::open(&path).expect("final reopen should succeed");
+        assert_eq!(journal.records(), expected.as_slice());
+        assert_eq!(journal.len(), 1_200);
+
+        for episode_number in 0..23 {
+            let episode_id = format!("episode-{episode_number}");
+            let expected_episode: Vec<_> = expected
+                .iter()
+                .filter(|record| record.episode_id == episode_id)
+                .collect();
+            let replayed: Vec<_> = journal.replay_episode(&episode_id).collect();
+            assert_eq!(replayed, expected_episode);
+        }
+
+        drop(journal);
+        fs::remove_file(path).expect("stress journal should be removed");
+    }
+
+    #[test]
+    fn stress_recovers_every_incomplete_final_frame_prefix() {
+        let path = test_path();
+        {
+            let mut journal = ExperienceJournal::open(&path).expect("journal should open");
+            journal
+                .append(
+                    "episode-base",
+                    ExperienceEvent::PredictionEvaluated {
+                        action_id: "base".to_owned(),
+                        predicted: DataValue::Integer(1),
+                        observed: DataValue::Integer(1),
+                    },
+                )
+                .expect("base append should succeed");
+        }
+        let base_bytes = fs::read(&path).expect("base journal should be readable");
+
+        {
+            let mut journal = ExperienceJournal::open(&path).expect("base journal should reopen");
+            journal
+                .append(
+                    "episode-tail",
+                    ExperienceEvent::PredictionEvaluated {
+                        action_id: "tail".to_owned(),
+                        predicted: DataValue::Integer(2),
+                        observed: DataValue::Integer(2),
+                    },
+                )
+                .expect("tail append should succeed");
+        }
+        let complete_bytes = fs::read(&path).expect("complete journal should be readable");
+        assert!(complete_bytes.len() > base_bytes.len());
+
+        for cut in base_bytes.len()..complete_bytes.len() {
+            let truncated_path = test_path();
+            fs::write(&truncated_path, &complete_bytes[..cut])
+                .expect("truncated prefix should be written");
+
+            let recovered =
+                ExperienceJournal::open(&truncated_path).expect("incomplete tail should recover");
+            assert_eq!(recovered.len(), 1, "unexpected record count at byte {cut}");
+            assert_eq!(recovered.records()[0].episode_id, "episode-base");
+            drop(recovered);
+
+            let recovered_bytes =
+                fs::read(&truncated_path).expect("recovered journal should be readable");
+            assert_eq!(
+                recovered_bytes.len() as u64,
+                base_bytes.len() as u64,
+                "wrong truncation boundary at byte {cut}"
+            );
+            fs::remove_file(truncated_path).expect("truncated journal should be removed");
+        }
+
+        fs::remove_file(path).expect("source journal should be removed");
+    }
+
+    #[test]
+    fn decoder_rejects_a_single_collection_over_the_configured_limit() {
+        let mut encoder = Encoder::default();
+        encoder.put_u64(0);
+        encoder.put_string("").expect("empty string should encode");
+        encoder.put_u8(1);
+        encoder.put_string("").expect("empty action id should encode");
+        encoder.put_u8(5);
+        encoder.put_u32((MAX_COLLECTION_ITEMS as u32) + 1);
+
+        let error = decode_record(&encoder.bytes).expect_err("oversized count must be rejected");
+        assert!(error.contains("configured item limit"));
+    }
+
+    #[test]
+    fn decoder_rejects_many_nested_collections_over_the_aggregate_limit() {
+        let mut encoder = Encoder::default();
+        encoder.put_u64(0);
+        encoder.put_string("").expect("empty string should encode");
+        encoder.put_u8(1);
+        encoder.put_string("").expect("empty action id should encode");
+        encoder.put_u8(5);
+        encoder.put_u32(50_000);
+
+        for _ in 0..50_000 {
+            encoder.put_u8(5);
+            encoder.put_u32(2);
+            encoder.put_u8(0);
+            encoder.put_u8(0);
+        }
+
+        let error = decode_record(&encoder.bytes)
+            .expect_err("aggregate nested item count must be rejected");
+        assert!(error.contains("total collection item limit"));
+    }
+
 }
