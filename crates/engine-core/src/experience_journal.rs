@@ -37,6 +37,7 @@ impl ExperienceJournal {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalError> {
         let mut file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(path)?;
