@@ -22,15 +22,20 @@ pub fn propose_representation(
     version: u64,
     kind: RepresentationKind,
     description: impl Into<String>,
+    training_set_id: impl Into<String>,
     evidence_refs: Vec<String>,
     samples: &[DataValue],
 ) -> Result<RepresentationProposal, DiscoveryError> {
     let id = id.into();
+    let training_set_id = training_set_id.into();
     if id.trim().is_empty() {
         return Err(DiscoveryError::EmptyRepresentationId);
     }
     if version == 0 {
         return Err(DiscoveryError::ZeroVersion);
+    }
+    if training_set_id.trim().is_empty() {
+        return Err(DiscoveryError::EmptyTrainingSetId);
     }
     if samples.is_empty() {
         return Err(DiscoveryError::NoSamples);
@@ -99,6 +104,7 @@ pub fn propose_representation(
         kind,
         schema,
         description: description.into(),
+        training_set_id,
         evidence_refs,
     };
 
@@ -142,6 +148,7 @@ fn merge_kinds(left: ValueKind, right: ValueKind) -> ValueKind {
 pub enum DiscoveryError {
     EmptyRepresentationId,
     ZeroVersion,
+    EmptyTrainingSetId,
     NoSamples,
     ExpectedObjectSample { sample_index: usize },
     InvalidNumericValue { sample_index: usize },
@@ -156,6 +163,7 @@ impl std::fmt::Display for DiscoveryError {
                 formatter,
                 "representation version must be greater than zero"
             ),
+            Self::EmptyTrainingSetId => write!(formatter, "training set id must not be empty"),
             Self::NoSamples => write!(formatter, "at least one sample is required"),
             Self::ExpectedObjectSample { sample_index } => {
                 write!(formatter, "sample {sample_index} is not an object")
@@ -194,6 +202,7 @@ mod tests {
             1,
             RepresentationKind::Relational,
             "Inferred from observations",
+            "training-set-a",
             vec!["episode:1".to_owned(), "episode:2".to_owned()],
             &samples,
         )
@@ -235,6 +244,7 @@ mod tests {
             1,
             RepresentationKind::Custom("discovered".to_owned()),
             "Mixed state samples",
+            "training-set-b",
             Vec::new(),
             &samples,
         )
@@ -253,6 +263,7 @@ mod tests {
                 1,
                 RepresentationKind::Relational,
                 "invalid",
+                "training-set-invalid",
                 Vec::new(),
                 &samples
             ),
