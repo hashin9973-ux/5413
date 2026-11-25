@@ -31,4 +31,4 @@ See [docs/architecture.md](docs/architecture.md) for the initial engineering bou
 
 ## Quality checks
 
-The Rust CI workflow runs formatting checks, Clippy with warnings denied, the workspace test suite, and all three examples on pushes and pull requests.
+The Rust CI workflow runs formatting checks, Clippy with warnings denied, the workspace test suite, and all four examples on pushes and pull requests.
