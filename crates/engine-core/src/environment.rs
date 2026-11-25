@@ -58,6 +58,38 @@ impl EnvironmentDescriptor {
         Ok(())
     }
 
+    pub fn validate_authorized_action(
+        &self,
+        action: &AuthorizedAction,
+    ) -> Result<(), EnvironmentError> {
+        if action.environment_id() != self.id
+            || action.environment_version() != self.version
+        {
+            return Err(EnvironmentError::InvalidAction(
+                "authorized action targets a different environment version".to_owned(),
+            ));
+        }
+
+        let descriptor = self
+            .actions
+            .iter()
+            .find(|descriptor| descriptor.id == action.action_id())
+            .ok_or_else(|| {
+                EnvironmentError::InvalidAction("authorized action is no longer declared".to_owned())
+            })?;
+
+        if descriptor.risk != action.risk() {
+            return Err(EnvironmentError::InvalidAction(
+                "authorized action risk no longer matches the environment descriptor".to_owned(),
+            ));
+        }
+
+        descriptor
+            .arguments
+            .validate(action.arguments())
+            .map_err(|error| EnvironmentError::InvalidAction(error.to_string()))
+    }
+
     pub fn validate_observation(
         &self,
         observation: &ObservationFrame,
