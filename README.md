@@ -7,7 +7,7 @@ Its first environment is a simulator, but the core architecture is designed to w
 - typed, domain-neutral environment contracts;
 - schema-validated dynamic observations;
 - explicit action authorization;
-- append-only experience capture with a versioned, checksummed file journal and episode replay;
+- append-only experience capture with a versioned, checksummed file journal, bounded decoding, torn-tail recovery, and episode replay;
 - versioned, evidence-evaluated representations and explicit mappings;
 - a small online transition learner;
 - a structural schema discovery and mapping demonstration;
