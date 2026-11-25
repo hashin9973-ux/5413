@@ -327,6 +327,26 @@ mod tests {
     }
 
     #[test]
+    fn rejects_evaluation_on_training_dataset() {
+        let mut registry = RepresentationRegistry::default();
+        registry.register_candidate(spec(1)).expect("candidate");
+
+        assert_eq!(
+            registry.evaluate_candidate(
+                "state-model",
+                1,
+                "training-set",
+                &[],
+                EvaluationPolicy {
+                    minimum_validation_samples: 1,
+                    minimum_valid_fraction: 1.0,
+                },
+            ),
+            Err(RegistryError::EvaluationSetLeakage)
+        );
+    }
+
+    #[test]
     fn failed_evaluation_blocks_promotion() {
         let mut registry = RepresentationRegistry::default();
         registry.register_candidate(spec(1)).expect("candidate");
