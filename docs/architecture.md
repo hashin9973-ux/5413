@@ -35,7 +35,7 @@ The first implementation is a deliberately small foundation. It does not claim g
 - A minimal in-memory append-only experience ledger.
 - Candidate/active/rejected/retired representation lifecycle.
 - A per-action numeric mean-delta learner.
-- A one-dimensional particle simulator example using only the generic adapter contract.
+- A one-dimensional particle simulator and a finite-state workflow example using the same generic adapter contract.
 
 ## Deliberately not implemented yet
 
