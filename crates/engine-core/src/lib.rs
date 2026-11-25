@@ -4,6 +4,7 @@ pub mod action;
 pub mod discovery;
 pub mod environment;
 pub mod experience;
+pub mod experience_journal;
 pub mod learning;
 pub mod mapping;
 pub mod representation;
@@ -22,6 +23,7 @@ pub use environment::{
     ObservationFrame,
 };
 pub use experience::{ExperienceEvent, ExperienceLedger, ExperienceRecord, LedgerError};
+pub use experience_journal::{ExperienceJournal, JournalError};
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
