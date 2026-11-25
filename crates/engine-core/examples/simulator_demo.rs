@@ -107,6 +107,7 @@ impl EnvironmentAdapter for ParticleSimulator {
         &mut self,
         action: engine_core::AuthorizedAction,
     ) -> Result<ActionOutcome, EnvironmentError> {
+        self.descriptor.validate_authorized_action(&action)?;
         if action.action_id() != "advance" {
             return Err(EnvironmentError::InvalidAction(format!(
                 "unsupported action: {}",
