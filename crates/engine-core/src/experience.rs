@@ -69,10 +69,7 @@ impl ExperienceLedger {
         self.next_sequence
     }
 
-    pub(crate) fn append_record(
-        &mut self,
-        record: ExperienceRecord,
-    ) -> Result<(), LedgerError> {
+    pub(crate) fn append_record(&mut self, record: ExperienceRecord) -> Result<(), LedgerError> {
         let next_sequence = self
             .next_sequence
             .checked_add(1)
