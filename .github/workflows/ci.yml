@@ -41,3 +41,6 @@ jobs:
 
       - name: Run representation discovery example
         run: cargo run -p engine-core --example representation_discovery_demo
+
+      - name: Run persistent experience journal example
+        run: cargo run -p engine-core --example experience_journal_demo
