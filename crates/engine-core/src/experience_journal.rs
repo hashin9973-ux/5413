@@ -21,6 +21,7 @@ const FORMAT_VERSION: u16 = 1;
 const HEADER_SIZE: usize = 14;
 const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VALUE_NESTING: usize = 128;
+const MAX_COLLECTION_ITEMS: usize = 100_000;
 
 pub struct ExperienceJournal {
     file: File,
@@ -285,6 +286,16 @@ impl Encoder {
         Ok(())
     }
 
+    fn put_count(&mut self, count: usize) -> Result<(), JournalError> {
+        if count > MAX_COLLECTION_ITEMS {
+            return Err(JournalError::CollectionTooLarge {
+                size: count,
+                maximum: MAX_COLLECTION_ITEMS,
+            });
+        }
+        self.put_length(count)
+    }
+
     fn put_string(&mut self, value: &str) -> Result<(), JournalError> {
         self.put_length(value.len())?;
         self.bytes.extend_from_slice(value.as_bytes());
@@ -324,7 +335,7 @@ impl Encoder {
                 self.put_u8(2);
                 self.put_string(&outcome.action_id)?;
                 self.put_bool(outcome.completed);
-                self.put_length(outcome.observations.len())?;
+                self.put_count(outcome.observations.len())?;
                 for observation in &outcome.observations {
                     self.put_observation(observation, depth)?;
                 }
@@ -369,14 +380,14 @@ impl Encoder {
             }
             DataValue::Sequence(values) => {
                 self.put_u8(5);
-                self.put_length(values.len())?;
+                self.put_count(values.len())?;
                 for value in values {
                     self.put_value(value, depth + 1)?;
                 }
             }
             DataValue::Object(values) => {
                 self.put_u8(6);
-                self.put_length(values.len())?;
+                self.put_count(values.len())?;
                 for (key, value) in values {
                     self.put_string(key)?;
                     self.put_value(value, depth + 1)?;
@@ -394,11 +405,16 @@ impl Encoder {
 struct Decoder<'a> {
     bytes: &'a [u8],
     offset: usize,
+    decoded_collection_items: usize,
 }
 
 impl<'a> Decoder<'a> {
     fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
+        Self {
+            bytes,
+            offset: 0,
+            decoded_collection_items: 0,
+        }
     }
 
     fn remaining(&self) -> usize {
@@ -451,10 +467,21 @@ impl<'a> Decoder<'a> {
 
     fn read_count(&mut self, minimum_item_bytes: usize) -> Result<usize, String> {
         let count = self.read_u32()? as usize;
+        if count > MAX_COLLECTION_ITEMS {
+            return Err("collection length exceeds configured item limit".to_owned());
+        }
         let maximum_count = self.remaining() / minimum_item_bytes;
         if count > maximum_count {
             return Err("collection length exceeds remaining payload".to_owned());
         }
+        let total = self
+            .decoded_collection_items
+            .checked_add(count)
+            .ok_or_else(|| "decoded collection item count overflow".to_owned())?;
+        if total > MAX_COLLECTION_ITEMS {
+            return Err("record exceeds configured total collection item limit".to_owned());
+        }
+        self.decoded_collection_items = total;
         Ok(count)
     }
 
@@ -487,7 +514,7 @@ impl<'a> Decoder<'a> {
             2 => {
                 let action_id = self.read_string()?;
                 let completed = self.read_bool()?;
-                let count = self.read_count(1)?;
+                let count = self.read_count(41)?;
                 let mut observations = Vec::with_capacity(count);
                 for _ in 0..count {
                     observations.push(self.read_observation(depth)?);
@@ -572,6 +599,7 @@ pub enum JournalError {
     FrameTooLarge { size: usize, maximum: usize },
     CorruptFrame { offset: u64, reason: String },
     InvalidNumber,
+    CollectionTooLarge { size: usize, maximum: usize },
     NestingLimitExceeded,
     Poisoned,
 }
@@ -597,6 +625,10 @@ impl std::fmt::Display for JournalError {
                 )
             }
             Self::InvalidNumber => write!(formatter, "journal cannot encode a non-finite number"),
+            Self::CollectionTooLarge { size, maximum } => write!(
+                formatter,
+                "journal collection size {size} exceeds limit {maximum}"
+            ),
             Self::NestingLimitExceeded => {
                 write!(formatter, "journal value nesting limit exceeded")
             }
