@@ -38,3 +38,6 @@ jobs:
 
       - name: Run finite-state environment example
         run: cargo run -p engine-core --example finite_state_demo
+
+      - name: Run representation discovery example
+        run: cargo run -p engine-core --example representation_discovery_demo
