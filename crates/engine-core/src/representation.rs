@@ -299,6 +299,68 @@ mod tests {
     }
 
     #[test]
+    fn promotion_requires_held_out_evaluation() {
+        let mut registry = RepresentationRegistry::default();
+        registry.register_candidate(spec(1)).expect("candidate");
+        assert_eq!(
+            registry.promote("state-model", 1),
+            Err(RegistryError::MissingEvaluation)
+        );
+    }
+
+    #[test]
+    fn failed_evaluation_blocks_promotion() {
+        let mut registry = RepresentationRegistry::default();
+        registry.register_candidate(spec(1)).expect("candidate");
+        let evaluation = registry
+            .evaluate_candidate(
+                "state-model",
+                1,
+                "held-out-invalid",
+                &[DataValue::object([(
+                    "unexpected".to_owned(),
+                    DataValue::Bool(true),
+                )])],
+                EvaluationPolicy {
+                    minimum_validation_samples: 1,
+                    minimum_valid_fraction: 1.0,
+                },
+            )
+            .expect("evaluation should be recorded");
+
+        assert!(!evaluation.passed);
+        assert_eq!(evaluation.valid_samples, 0);
+        assert_eq!(
+            registry.promote("state-model", 1),
+            Err(RegistryError::EvaluationFailed)
+        );
+    }
+
+    #[test]
+    fn insufficient_validation_samples_cannot_pass() {
+        let mut registry = RepresentationRegistry::default();
+        registry.register_candidate(spec(1)).expect("candidate");
+        let evaluation = registry
+            .evaluate_candidate(
+                "state-model",
+                1,
+                "held-out-too-small",
+                &[DataValue::object([(
+                    "state".to_owned(),
+                    DataValue::Object(std::collections::BTreeMap::new()),
+                )])],
+                EvaluationPolicy {
+                    minimum_validation_samples: 2,
+                    minimum_valid_fraction: 1.0,
+                },
+            )
+            .expect("evaluation should be recorded");
+
+        assert_eq!(evaluation.valid_fraction, 1.0);
+        assert!(!evaluation.passed);
+    }
+
+    #[test]
     fn promotion_retires_previous_active_version() {
         let mut registry = RepresentationRegistry::default();
         registry.register_candidate(spec(1)).expect("candidate v1");
