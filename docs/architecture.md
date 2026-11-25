@@ -68,4 +68,4 @@ NumericDeltaModel estimates mean field deltas conditioned on action ID for numer
 
 ## Action safety
 
-The default authorization policy permits read-only actions. The simulator example opts into reversible actions. Irreversible operations require a policy that explicitly permits them; later external-action support must add capability, permission, and environment-specific safety checks before execution.
+The default authorization policy permits read-only actions. The simulator and finite-state examples opt into reversible actions. An authorized action is bound to the environment ID and version, and adapters validate that binding, the declared action, its risk, and its argument schema before applying effects. Irreversible operations require a policy that explicitly permits them; external-action support must add capability, permission, and environment-specific safety checks before execution.
