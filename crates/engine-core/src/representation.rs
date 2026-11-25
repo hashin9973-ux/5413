@@ -1,4 +1,5 @@
 use crate::schema::{SchemaDefinition, SchemaDefinitionError};
+use crate::value::DataValue;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RepresentationKind {
@@ -29,10 +30,38 @@ pub enum RepresentationStatus {
     Retired,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EvaluationPolicy {
+    pub minimum_validation_samples: usize,
+    pub minimum_valid_fraction: f64,
+}
+
+impl EvaluationPolicy {
+    pub fn validate(&self) -> Result<(), RegistryError> {
+        if self.minimum_validation_samples == 0
+            || !self.minimum_valid_fraction.is_finite()
+            || !(0.0..=1.0).contains(&self.minimum_valid_fraction)
+        {
+            return Err(RegistryError::InvalidEvaluationPolicy);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RepresentationEvaluation {
+    pub evaluation_set_id: String,
+    pub evaluated_samples: usize,
+    pub valid_samples: usize,
+    pub valid_fraction: f64,
+    pub passed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct RepresentationRecord {
     pub spec: RepresentationSpec,
     pub status: RepresentationStatus,
+    pub evaluation: Option<RepresentationEvaluation>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -65,9 +94,65 @@ impl RepresentationRegistry {
             RepresentationRecord {
                 spec,
                 status: RepresentationStatus::Candidate,
+                evaluation: None,
             },
         );
         Ok(())
+    }
+
+    pub fn evaluate_candidate(
+        &mut self,
+        id: &str,
+        version: u64,
+        evaluation_set_id: impl Into<String>,
+        validation_samples: &[DataValue],
+        policy: EvaluationPolicy,
+    ) -> Result<RepresentationEvaluation, RegistryError> {
+        policy.validate()?;
+        let evaluation_set_id = evaluation_set_id.into();
+        if evaluation_set_id.trim().is_empty() {
+            return Err(RegistryError::EmptyEvaluationSetId);
+        }
+
+        let key = (id.to_owned(), version);
+        let schema = {
+            let record = self.records.get(&key).ok_or_else(|| RegistryError::NotFound {
+                id: id.to_owned(),
+                version,
+            })?;
+            if record.status != RepresentationStatus::Candidate {
+                return Err(RegistryError::NotCandidate {
+                    id: id.to_owned(),
+                    version,
+                });
+            }
+            record.spec.schema.clone()
+        };
+
+        let valid_samples = validation_samples
+            .iter()
+            .filter(|sample| schema.validate(sample).is_ok())
+            .count();
+        let evaluated_samples = validation_samples.len();
+        let valid_fraction = if evaluated_samples == 0 {
+            0.0
+        } else {
+            valid_samples as f64 / evaluated_samples as f64
+        };
+        let passed = evaluated_samples >= policy.minimum_validation_samples
+            && valid_fraction >= policy.minimum_valid_fraction;
+
+        let evaluation = RepresentationEvaluation {
+            evaluation_set_id,
+            evaluated_samples,
+            valid_samples,
+            valid_fraction,
+            passed,
+        };
+        if let Some(record) = self.records.get_mut(&key) {
+            record.evaluation = Some(evaluation.clone());
+        }
+        Ok(evaluation)
     }
 
     pub fn promote(&mut self, id: &str, version: u64) -> Result<(), RegistryError> {
@@ -85,6 +170,13 @@ impl RepresentationRegistry {
                 id: id.to_owned(),
                 version,
             });
+        }
+        match &target.evaluation {
+            None => return Err(RegistryError::MissingEvaluation),
+            Some(evaluation) if !evaluation.passed => {
+                return Err(RegistryError::EvaluationFailed);
+            }
+            Some(_) => {}
         }
 
         for ((record_id, _), record) in &mut self.records {
@@ -140,6 +232,10 @@ pub enum RegistryError {
     VersionAlreadyExists { id: String, version: u64 },
     NotFound { id: String, version: u64 },
     NotCandidate { id: String, version: u64 },
+    EmptyEvaluationSetId,
+    InvalidEvaluationPolicy,
+    MissingEvaluation,
+    EvaluationFailed,
 }
 
 impl std::fmt::Display for RegistryError {
@@ -167,6 +263,10 @@ impl std::fmt::Display for RegistryError {
                     "representation {id}@{version} is not a candidate"
                 )
             }
+            Self::EmptyEvaluationSetId => write!(formatter, "evaluation set id must not be empty"),
+            Self::InvalidEvaluationPolicy => write!(formatter, "evaluation policy is invalid"),
+            Self::MissingEvaluation => write!(formatter, "candidate has not been evaluated"),
+            Self::EvaluationFailed => write!(formatter, "candidate did not pass evaluation"),
         }
     }
 }
@@ -202,8 +302,38 @@ mod tests {
     fn promotion_retires_previous_active_version() {
         let mut registry = RepresentationRegistry::default();
         registry.register_candidate(spec(1)).expect("candidate v1");
+        registry
+            .evaluate_candidate(
+                "state-model",
+                1,
+                "held-out-a",
+                &[DataValue::object([(
+                    "state".to_owned(),
+                    DataValue::Object(std::collections::BTreeMap::new()),
+                )])],
+                EvaluationPolicy {
+                    minimum_validation_samples: 1,
+                    minimum_valid_fraction: 1.0,
+                },
+            )
+            .expect("evaluate v1");
         registry.promote("state-model", 1).expect("promote v1");
         registry.register_candidate(spec(2)).expect("candidate v2");
+        registry
+            .evaluate_candidate(
+                "state-model",
+                2,
+                "held-out-b",
+                &[DataValue::object([(
+                    "state".to_owned(),
+                    DataValue::Object(std::collections::BTreeMap::new()),
+                )])],
+                EvaluationPolicy {
+                    minimum_validation_samples: 1,
+                    minimum_valid_fraction: 1.0,
+                },
+            )
+            .expect("evaluate v2");
         registry.promote("state-model", 2).expect("promote v2");
 
         assert_eq!(
