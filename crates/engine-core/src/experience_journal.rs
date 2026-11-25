@@ -149,9 +149,8 @@ fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
             return Err(JournalError::UnsupportedVersion(version));
         }
 
-        let payload_length = u32::from_le_bytes([
-            header[6], header[7], header[8], header[9],
-        ]) as usize;
+        let payload_length =
+            u32::from_le_bytes([header[6], header[7], header[8], header[9]]) as usize;
         if payload_length > MAX_FRAME_PAYLOAD_BYTES {
             return Err(JournalError::FrameTooLarge {
                 size: payload_length,
@@ -159,9 +158,8 @@ fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
             });
         }
 
-        let expected_checksum = u32::from_le_bytes([
-            header[10], header[11], header[12], header[13],
-        ]);
+        let expected_checksum =
+            u32::from_le_bytes([header[10], header[11], header[12], header[13]]);
         let mut payload = vec![0_u8; payload_length];
         match file.read_exact(&mut payload) {
             Ok(()) => {}
@@ -179,9 +177,8 @@ fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
             });
         }
 
-        let record = decode_record(&payload).map_err(|reason| {
-            JournalError::CorruptFrame { offset, reason }
-        })?;
+        let record = decode_record(&payload)
+            .map_err(|reason| JournalError::CorruptFrame { offset, reason })?;
         ledger.append_record(record).map_err(JournalError::Ledger)?;
 
         offset = offset
@@ -216,11 +213,9 @@ fn encode_frame(record: &ExperienceRecord) -> Result<Vec<u8>, JournalError> {
         });
     }
 
-    let payload_length = u32::try_from(payload.len()).map_err(|_| {
-        JournalError::FrameTooLarge {
-            size: payload.len(),
-            maximum: MAX_FRAME_PAYLOAD_BYTES,
-        }
+    let payload_length = u32::try_from(payload.len()).map_err(|_| JournalError::FrameTooLarge {
+        size: payload.len(),
+        maximum: MAX_FRAME_PAYLOAD_BYTES,
     })?;
     let mut frame = Vec::with_capacity(HEADER_SIZE + payload.len());
     frame.extend_from_slice(&FRAME_MAGIC);
@@ -296,7 +291,11 @@ impl Encoder {
         Ok(())
     }
 
-    fn put_observation(&mut self, value: &ObservationFrame, depth: usize) -> Result<(), JournalError> {
+    fn put_observation(
+        &mut self,
+        value: &ObservationFrame,
+        depth: usize,
+    ) -> Result<(), JournalError> {
         self.put_string(&value.environment_id)?;
         self.put_string(&value.session_id)?;
         self.put_string(&value.episode_id)?;
@@ -480,9 +479,7 @@ impl<'a> Decoder<'a> {
 
     fn read_event(&mut self, depth: usize) -> Result<ExperienceEvent, String> {
         match self.read_u8()? {
-            0 => Ok(ExperienceEvent::Observation(
-                self.read_observation(depth)?,
-            )),
+            0 => Ok(ExperienceEvent::Observation(self.read_observation(depth)?)),
             1 => Ok(ExperienceEvent::ActionProposed {
                 action_id: self.read_string()?,
                 arguments: self.read_value(depth + 1)?,
@@ -588,10 +585,16 @@ impl std::fmt::Display for JournalError {
                 write!(formatter, "unsupported journal format version: {version}")
             }
             Self::FrameTooLarge { size, maximum } => {
-                write!(formatter, "journal frame size {size} exceeds limit {maximum}")
+                write!(
+                    formatter,
+                    "journal frame size {size} exceeds limit {maximum}"
+                )
             }
             Self::CorruptFrame { offset, reason } => {
-                write!(formatter, "corrupt journal frame at byte {offset}: {reason}")
+                write!(
+                    formatter,
+                    "corrupt journal frame at byte {offset}: {reason}"
+                )
             }
             Self::InvalidNumber => write!(formatter, "journal cannot encode a non-finite number"),
             Self::NestingLimitExceeded => {
@@ -647,11 +650,14 @@ mod tests {
             schema_id: "state".to_owned(),
             schema_version: 2,
             payload: DataValue::object([
-                ("nested".to_owned(), DataValue::Sequence(vec![
-                    DataValue::Integer(-7),
-                    DataValue::Number(0.25),
-                    DataValue::BlobRef("blob-1".to_owned()),
-                ])),
+                (
+                    "nested".to_owned(),
+                    DataValue::Sequence(vec![
+                        DataValue::Integer(-7),
+                        DataValue::Number(0.25),
+                        DataValue::BlobRef("blob-1".to_owned()),
+                    ]),
+                ),
                 ("ready".to_owned(), DataValue::Bool(true)),
             ]),
         }
@@ -748,9 +754,7 @@ mod tests {
                 .expect("second append should succeed");
         }
 
-        let original_length = fs::metadata(&path)
-            .expect("metadata should exist")
-            .len();
+        let original_length = fs::metadata(&path).expect("metadata should exist").len();
         let file = OpenOptions::new()
             .write(true)
             .open(&path)
