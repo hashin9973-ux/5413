@@ -4,7 +4,7 @@
 
 The engine core is environment-independent. Environment-specific protocols and domain knowledge belong in adapters and optional extensions, not in the core crate.
 
-The first implementation is a deliberately small foundation. It does not claim general intelligence, causal discovery, durable memory, or autonomous code modification.
+The first implementation is a deliberately small foundation. It does not claim general intelligence, causal discovery, autonomous code modification, or durable semantic memory.
 
 ## Boundaries
 
@@ -32,7 +32,7 @@ The first implementation is a deliberately small foundation. It does not claim g
 - Dynamic object schemas and validation.
 - Environment and action descriptors.
 - Action-risk authorization.
-- A minimal in-memory append-only experience ledger.
+- An append-only experience ledger plus a dependency-free file journal with a versioned binary frame format, CRC-32 corruption detection, synchronized appends, incomplete-tail recovery, ledger reconstruction, and episode replay.
 - Candidate/active/rejected/retired representation lifecycle with held-out schema validation before promotion.
 - Structural first-level schema inference from object-shaped observations.
 - Explicit, schema-validated field mappings with identity, affine numeric, and constant transforms; mapping reports quantify dropped source fields.
@@ -42,7 +42,7 @@ The first implementation is a deliberately small foundation. It does not claim g
 
 ## Deliberately not implemented yet
 
-- Durable event storage and schema migrations.
+- Checkpoint/restore semantics, idempotent ingestion, and journal schema migration tooling.
 - Async/streaming adapters and multiple concurrent sessions.
 - Tensor/image/audio payload storage and modality-specific encoders.
 - General neural or symbolic reasoning implementations.
@@ -76,3 +76,8 @@ NumericDeltaModel estimates mean field deltas conditioned on action ID for numer
 ## Action safety
 
 The default authorization policy permits read-only actions. The simulator and finite-state examples opt into reversible actions. An authorized action is bound to the environment ID and version, and adapters validate that binding, the declared action, its risk, and its argument schema before applying effects. Irreversible operations require a policy that explicitly permits them; external-action support must add capability, permission, and environment-specific safety checks before execution.
+
+
+## Experience journal guarantees and limits
+
+`ExperienceJournal` is a single-writer append-only file journal. Each record is length-framed and carries format version 1 plus a CRC-32 checksum. An append is added to the in-memory ledger only after the frame write and `File::sync_all` succeed. Reopening rebuilds the ledger and preserves global sequence order; `replay_episode` filters that order by episode ID. An incomplete final frame is truncated to the last complete frame, while complete-frame checksum/encoding/sequence errors and unknown format versions fail closed. CRC-32 is for accidental corruption detection, not tamper resistance. This initial implementation does not provide cross-process writer coordination, idempotency keys, checkpoint compaction, format migration routines, or a guarantee beyond the sync semantics of the host filesystem and storage hardware. After an I/O error during append, the journal instance is poisoned and must be reopened because commit status may be ambiguous.
