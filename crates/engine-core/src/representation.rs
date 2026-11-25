@@ -280,7 +280,9 @@ impl std::fmt::Display for RegistryError {
             }
             Self::EmptyEvaluationSetId => write!(formatter, "evaluation set id must not be empty"),
             Self::EmptyTrainingSetId => write!(formatter, "training set id must not be empty"),
-            Self::EvaluationSetLeakage => write!(formatter, "evaluation set must differ from training set"),
+            Self::EvaluationSetLeakage => {
+                write!(formatter, "evaluation set must differ from training set")
+            }
             Self::InvalidEvaluationPolicy => write!(formatter, "evaluation policy is invalid"),
             Self::MissingEvaluation => write!(formatter, "candidate has not been evaluated"),
             Self::EvaluationFailed => write!(formatter, "candidate did not pass evaluation"),
