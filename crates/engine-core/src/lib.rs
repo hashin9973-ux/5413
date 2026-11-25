@@ -14,12 +14,12 @@ pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
     AuthorizationError, AuthorizedAction,
 };
+pub use discovery::{
+    propose_representation, DiscoveryError, DiscoverySummary, RepresentationProposal,
+};
 pub use environment::{
     ActionOutcome, EnvironmentAdapter, EnvironmentDescriptor, EnvironmentError, LifecycleOutcome,
     ObservationFrame,
-};
-pub use discovery::{
-    propose_representation, DiscoveryError, DiscoverySummary, RepresentationProposal,
 };
 pub use experience::{ExperienceEvent, ExperienceLedger, ExperienceRecord, LedgerError};
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
