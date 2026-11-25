@@ -11,10 +11,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ("distance".to_owned(), DataValue::Integer(2)),
             ("category".to_owned(), DataValue::Text("near".to_owned())),
         ]),
-        DataValue::object([(
-            "distance".to_owned(),
-            DataValue::Number(4.0),
-        )]),
+        DataValue::object([("distance".to_owned(), DataValue::Number(4.0))]),
     ];
 
     let proposal = propose_representation(
@@ -92,9 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             FieldMapping {
                 source_field: None,
                 target_field: "context".to_owned(),
-                transform: MappingTransform::Constant(DataValue::Text(
-                    "normalized".to_owned(),
-                )),
+                transform: MappingTransform::Constant(DataValue::Text("normalized".to_owned())),
             },
         ],
     };
