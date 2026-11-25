@@ -288,13 +288,12 @@ impl Encoder {
     }
 
     fn put_count(&mut self, count: usize) -> Result<(), JournalError> {
-        let total = self
-            .encoded_collection_items
-            .checked_add(count)
-            .ok_or(JournalError::CollectionTooLarge {
+        let total = self.encoded_collection_items.checked_add(count).ok_or(
+            JournalError::CollectionTooLarge {
                 size: usize::MAX,
                 maximum: MAX_COLLECTION_ITEMS,
-            })?;
+            },
+        )?;
         if count > MAX_COLLECTION_ITEMS || total > MAX_COLLECTION_ITEMS {
             return Err(JournalError::CollectionTooLarge {
                 size: total.max(count),
@@ -1073,7 +1072,9 @@ mod tests {
         encoder.put_u64(0);
         encoder.put_string("").expect("empty string should encode");
         encoder.put_u8(1);
-        encoder.put_string("").expect("empty action id should encode");
+        encoder
+            .put_string("")
+            .expect("empty action id should encode");
         encoder.put_u8(5);
         encoder.put_u32(50_000);
 
@@ -1088,7 +1089,6 @@ mod tests {
             .expect_err("aggregate nested item count must be rejected");
         assert!(error.contains("total collection item limit"));
     }
-
 
     #[test]
     fn rejects_oversized_string_before_copying_into_the_frame_buffer() {
@@ -1116,7 +1116,6 @@ mod tests {
         );
         fs::remove_file(path).expect("test journal should be removed");
     }
-
 
     #[test]
     fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
