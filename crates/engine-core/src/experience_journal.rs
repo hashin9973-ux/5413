@@ -922,10 +922,10 @@ mod tests {
     #[test]
     fn stress_round_trips_many_records_across_repeated_reopens() {
         let path = test_path();
-        let mut expected = Vec::with_capacity(1_200);
+        let mut expected = Vec::with_capacity(10_000);
         let mut journal = ExperienceJournal::open(&path).expect("journal should open");
 
-        for index in 0..1_200_u64 {
+        for index in 0..10_000_u64 {
             let episode_id = format!("episode-{}", index % 23);
             let event = ExperienceEvent::PredictionEvaluated {
                 action_id: format!("operator-{}", index % 11),
@@ -965,7 +965,7 @@ mod tests {
                 event,
             });
 
-            if (index + 1) % 173 == 0 {
+            if (index + 1) % 997 == 0 {
                 drop(journal);
                 journal =
                     ExperienceJournal::open(&path).expect("journal should survive repeated reopen");
@@ -976,7 +976,7 @@ mod tests {
         drop(journal);
         let journal = ExperienceJournal::open(&path).expect("final reopen should succeed");
         assert_eq!(journal.records(), expected.as_slice());
-        assert_eq!(journal.len(), 1_200);
+        assert_eq!(journal.len(), 10_000);
 
         for episode_number in 0..23 {
             let episode_id = format!("episode-{episode_number}");
