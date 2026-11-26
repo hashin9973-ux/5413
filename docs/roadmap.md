@@ -1,5 +1,7 @@
 # Development roadmap
 
+The roadmap distinguishes implemented capabilities from research directions. A checked box means code and tests exist in the repository; it does not imply a production-grade or universally general solution.
+
 ## Milestone 1 — Environment-independent foundation
 
 - [x] Typed environment descriptors and observation contracts
@@ -9,18 +11,20 @@
 - [x] Versioned representation registry
 - [x] Baseline numeric transition learner
 - [x] Simulator adapter example
-- [x] CI execution result verified on GitHub Actions
 - [x] Second, structurally different environment adapter
+- [x] CI execution with formatting, linting, tests, and runnable examples
 
 ## Milestone 2 — Reliable experience and replay
 
 - [x] Durable append-only file journal with synchronized writes and incomplete-tail recovery
 - [x] Episode replay in original append order
 - [x] Versioned record encoding and corruption detection
-- [ ] Checkpoint and restore contract
-- [x] Durable idempotency keys and duplicate retry suppression (per single-writer journal)
+- [ ] Checkpoint and deterministic restore contract
+- [x] Durable idempotency keys and duplicate retry suppression (single-writer contract)
 - [x] Fault-injected partial-write and sync-failure recovery tests
 - [ ] Journal format rewrite/migration tooling (v1 read compatibility is implemented)
+- [ ] Indexed event retrieval and bounded-memory segment compaction
+- [ ] Model artifact persistence and provenance registry
 
 ## Milestone 3 — Dynamic representation learning
 
@@ -28,42 +32,59 @@
 - [x] Evidence-backed schema validity scoring on separately identified held-out data
 - [x] Versioned field mapping and transformation contracts
 - [x] Basic source-field loss/coverage reporting and target schema validation
-- [ ] Recursive nested-structure discovery
+- [x] Recursive structural profiling of nested objects and sequences
+- [ ] Compile recursive structural profiles into recursively validated schemas
 - [ ] Semantic representation quality scoring beyond schema validity
 - [ ] Automated mapping discovery and held-out rollback experiments
+- [ ] Temporal, relational, and entity-level representation learning
 
-## Milestone 4 — World models and reasoning
+## Milestone 4 — Predictive world models
 
-- Interchangeable prediction model interface
-- Temporal and relational models
-- Symbolic and statistical inference strategies
-- Competing hypotheses and uncertainty
-- Intervention-aware causal evaluation
+- [x] Interchangeable predictive-model interface with model identity and training dataset provenance
+- [x] Action-conditioned statistical delta model
+- [x] Contextual numeric ridge-regression model with dynamically discovered features
+- [x] Empirical model ensemble with separate aleatoric and disagreement-based epistemic uncertainty estimates
+- [x] Held-out model evaluation with MAE, RMSE, spread, empirical coverage, and dataset-ID leakage guard
+- [ ] Temporal sequence models and relational dynamics
+- [ ] Symbolic transition-rule induction and competing hypotheses
+- [ ] Better calibrated predictive distributions and proper scoring rules
+- [ ] Persisted, versioned model artifacts and reproducible training manifests
 
-## Milestone 5 — Autonomous experimentation
+## Milestone 5 — Experimentation and planning
 
-- Goal and attention management
-- Experiment design and resource budgets
-- Action planning and authorization
-- Curiosity and expected information gain
-- Safe exploration policies
+- [x] Candidate experiment ranking using model disagreement, task utility, estimated cost, and declared action risk
+- [x] Bounded beam-search planner over model-predicted states
+- [x] Planner-side action-schema and risk authorization checks
+- [ ] Exact expected information gain and posterior-aware experiment design
+- [ ] Controlled causal interventions with confounder-aware evaluation
+- [ ] Goal predicates, hard constraints, resource budgets, and terminal conditions
+- [ ] Receding-horizon execution runtime with observation and prediction-error feedback
+- [ ] Safe exploration policies with explicit reset and recovery contracts
 
-## Milestone 6 — Meta-learning
+## Milestone 6 — Cross-environment generalization
 
-- Strategy definition and versioning
-- Strategy execution as constrained operator graphs
-- Strategy selection and composition
-- Held-out learning-efficiency benchmarks
-- Candidate strategy promotion and rollback
+- [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
+- [ ] Sample-efficiency curves against random and passive-learning baselines
+- [ ] Calibration, robustness, and out-of-distribution benchmark suites
+- [ ] Transfer evaluation against independent-learning baselines
+- [ ] Environment adaptation without environment-specific changes in the intelligence core
 
-## Milestone 7 — Controlled algorithm improvement
+## Milestone 7 — Meta-learning
 
-- Operator proposals
-- Sandboxed implementation experiments
-- Reproducible build and benchmark pipeline
-- Security review and regression gates
-- Explicit promotion to trusted operator registry
+- [ ] Typed, versioned learning-strategy definitions
+- [ ] Constrained operator graphs for Observe → Transform → Learn → Evaluate → Select → Plan
+- [ ] Strategy selection conditioned on measured environment characteristics
+- [ ] Held-out learning-efficiency benchmarks and candidate rollback
+- [ ] Persistent strategy memory and provenance
+
+## Milestone 8 — Controlled algorithm improvement
+
+- [ ] Operator proposals from measured failure analysis
+- [ ] Sandboxed implementation experiments
+- [ ] Reproducible build and benchmark pipeline
+- [ ] Security review and regression gates
+- [ ] Explicit promotion to a trusted operator registry
 
 ## Exit criteria for generality
 
-A new environment must be integrated through an adapter and its declared schemas/actions. It must not require physics-specific or other domain-specific changes to the intelligence core. Transfer must be measured against independent-learning baselines, not inferred from shared interface compatibility alone.
+A new environment must be integrated through an adapter and its declared schemas/actions. It must not require physics-specific or other domain-specific changes to the intelligence core. Transfer must be measured against independent-learning baselines, not inferred from shared interface compatibility alone. Autonomous execution must remain behind explicit authorization, bounded resource policies, observable outcomes, and rollback-capable state transitions.

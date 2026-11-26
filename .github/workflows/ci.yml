@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   quality:
-    name: Format, lint, test, and example
+    name: Format, lint, test, and examples
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -44,3 +44,6 @@ jobs:
 
       - name: Run persistent experience journal example
         run: cargo run -p engine-core --example experience_journal_demo
+
+      - name: Run world-model planning example
+        run: cargo run -p engine-core --example world_model_demo
