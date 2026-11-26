@@ -442,11 +442,21 @@ impl std::fmt::Display for ExperimentSelectionError {
             Self::InvalidHypothesis => write!(formatter, "hypothesis posterior is invalid"),
             Self::DuplicateCandidate => write!(formatter, "experiment candidate ID is duplicated"),
             Self::InvalidEnvironment => write!(formatter, "environment descriptor is invalid"),
-            Self::InvalidState => write!(formatter, "model-exploration state must be a finite object"),
-            Self::InsufficientEnsembleDiversity => write!(formatter, "model-disagreement exploration requires at least two predictive models"),
-            Self::NoEligibleActions => write!(formatter, "no model-exploration action passed prediction and safety constraints"),
+            Self::InvalidState => {
+                write!(formatter, "model-exploration state must be a finite object")
+            }
+            Self::InsufficientEnsembleDiversity => write!(
+                formatter,
+                "model-disagreement exploration requires at least two predictive models"
+            ),
+            Self::NoEligibleActions => write!(
+                formatter,
+                "no model-exploration action passed prediction and safety constraints"
+            ),
             Self::CounterOverflow => write!(formatter, "rejected-candidate counter overflowed"),
-            Self::WorldModel(error) => write!(formatter, "model-disagreement prediction failed: {error}"),
+            Self::WorldModel(error) => {
+                write!(formatter, "model-disagreement prediction failed: {error}")
+            }
             Self::NumericalOverflow => write!(
                 formatter,
                 "experiment information-gain calculation overflowed"
@@ -527,62 +537,103 @@ mod tests {
         use crate::world_model::{ActionDeltaModel, PredictiveModel};
 
         let mut first = ActionDeltaModel::new("explore-model-a", 1).expect("first model");
-        first.fit(
-            "explore-train-a",
-            &[
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
-                },
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(11.0))]),
-                },
-                TransitionSample {
-                    action_id: "wait".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                },
-                TransitionSample {
-                    action_id: "wait".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
-                },
-            ],
-        ).expect("fit first model");
+        first
+            .fit(
+                "explore-train-a",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(10.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(11.0),
+                        )]),
+                    },
+                    TransitionSample {
+                        action_id: "wait".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                    },
+                    TransitionSample {
+                        action_id: "wait".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(10.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(10.0),
+                        )]),
+                    },
+                ],
+            )
+            .expect("fit first model");
 
         let mut second = ActionDeltaModel::new("explore-model-b", 1).expect("second model");
-        second.fit(
-            "explore-train-b",
-            &[
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(3.0))]),
-                },
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(13.0))]),
-                },
-                TransitionSample {
-                    action_id: "wait".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                },
-                TransitionSample {
-                    action_id: "wait".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
-                },
-            ],
-        ).expect("fit second model");
+        second
+            .fit(
+                "explore-train-b",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(3.0))]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(10.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(13.0),
+                        )]),
+                    },
+                    TransitionSample {
+                        action_id: "wait".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                    },
+                    TransitionSample {
+                        action_id: "wait".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(10.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(10.0),
+                        )]),
+                    },
+                ],
+            )
+            .expect("fit second model");
         EnsembleWorldModel::new(vec![
             Box::new(first) as Box<dyn PredictiveModel>,
             Box::new(second) as Box<dyn PredictiveModel>,
-        ]).expect("ensemble")
+        ])
+        .expect("ensemble")
     }
 
     #[test]
@@ -610,7 +661,9 @@ mod tests {
         ];
         let ranking = rank_model_disagreement_actions(
             &environment,
-            ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
+            ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(
+                ActionRisk::Reversible,
+            )),
             &model,
             &state,
             &candidates,
@@ -623,7 +676,8 @@ mod tests {
                 risk_weight: 0.0,
             },
             |_| 0.0,
-        ).expect("rank exploration actions");
+        )
+        .expect("rank exploration actions");
         assert_eq!(ranking.ranked_actions[0].candidate_id, "advance");
         assert!(ranking.ranked_actions[0].model_disagreement > 0.0);
         assert_eq!(ranking.ranked_actions[1].candidate_id, "wait");
@@ -641,8 +695,7 @@ mod tests {
             },
             resource_cost: 0.0,
         };
-        let mut only = crate::world_model::ActionDeltaModel::new("only-model", 1)
-            .expect("model");
+        let mut only = crate::world_model::ActionDeltaModel::new("only-model", 1).expect("model");
         only.fit(
             "only-training",
             &[
@@ -657,14 +710,18 @@ mod tests {
                     after: DataValue::object([("position".to_owned(), DataValue::Number(2.0))]),
                 },
             ],
-        ).expect("fit");
+        )
+        .expect("fit");
         let one_model = EnsembleWorldModel::new(vec![
             Box::new(only) as Box<dyn crate::world_model::PredictiveModel>
-        ]).expect("single model ensemble");
+        ])
+        .expect("single model ensemble");
         assert_eq!(
             rank_model_disagreement_actions(
                 &environment,
-                ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
+                ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(
+                    ActionRisk::Reversible
+                )),
                 &one_model,
                 &state,
                 std::slice::from_ref(&candidate),
@@ -675,16 +732,18 @@ mod tests {
         );
 
         let mut irreversible_environment = environment;
-        irreversible_environment.actions.push(crate::action::ActionDescriptor {
-            id: "delete".to_owned(),
-            arguments: crate::schema::SchemaDefinition {
-                id: "empty-delete".to_owned(),
-                version: 1,
-                fields: Vec::new(),
-                allow_additional_fields: false,
-            },
-            risk: ActionRisk::Irreversible,
-        });
+        irreversible_environment
+            .actions
+            .push(crate::action::ActionDescriptor {
+                id: "delete".to_owned(),
+                arguments: crate::schema::SchemaDefinition {
+                    id: "empty-delete".to_owned(),
+                    version: 1,
+                    fields: Vec::new(),
+                    allow_additional_fields: false,
+                },
+                risk: ActionRisk::Irreversible,
+            });
         let delete = ModelExplorationCandidate {
             id: "delete".to_owned(),
             action: ActionProposal {
@@ -696,7 +755,9 @@ mod tests {
         assert_eq!(
             rank_model_disagreement_actions(
                 &irreversible_environment,
-                ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(ActionRisk::Irreversible)),
+                ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(
+                    ActionRisk::Irreversible
+                )),
                 &exploration_model(),
                 &state,
                 &[delete],

@@ -54,14 +54,14 @@ pub use environment::{
 };
 pub use experience::{ExperienceEvent, ExperienceLedger, ExperienceRecord, LedgerError};
 pub use experience_journal::{ExperienceJournal, IdempotentAppendOutcome, JournalError};
-pub use experimentation::{
-    rank_experiments, ExperimentCandidate, ExperimentError, ExperimentPolicy, ExperimentRanking,
-    ExperimentScore,
-};
 pub use experiment_selection::{
     rank_model_disagreement_actions, ExperimentSelectionError, ExperimentSelectionPolicy,
     ModelExplorationCandidate, ModelExplorationPolicy, ModelExplorationRanking,
     RankedExplorationAction,
+};
+pub use experimentation::{
+    rank_experiments, ExperimentCandidate, ExperimentError, ExperimentPolicy, ExperimentRanking,
+    ExperimentScore,
 };
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
 pub use mapping::{
