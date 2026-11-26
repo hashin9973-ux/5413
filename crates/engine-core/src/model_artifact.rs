@@ -11,6 +11,7 @@ use crate::experience_journal::{
 use crate::representation::{RegistryError, RepresentationRegistry};
 use crate::reasoning::{HypothesisPolicy, HypothesisRegistry, ReasoningError};
 use crate::meta_learning::{OperatorCatalogue, StrategyError, StrategyRegistry};
+use crate::model_registry::{ModelCandidateSpec, ModelRegistry, ModelRegistryError};
 use crate::value::DataValue;
 use crate::world_model::{restore_predictive_model, PredictiveModel, WorldModelError};
 use std::collections::BTreeMap;
@@ -210,6 +211,48 @@ impl ModelArtifactStore {
         TransferBenchmark::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
     }
 
+    /// Registers only a candidate whose artifact loads and matches its declared identity.
+    pub fn register_model_candidate(
+        &self,
+        registry: &mut ModelRegistry,
+        spec: ModelCandidateSpec,
+    ) -> Result<(), ModelArtifactError> {
+        let model = self.load_model(&spec.model_artifact_ref)?;
+        if model.identity().id != spec.id || model.identity().version != spec.version {
+            return Err(ModelArtifactError::ModelIdentityMismatch);
+        }
+        registry.register_candidate(spec).map_err(ModelArtifactError::ModelRegistry)
+    }
+
+    pub fn put_model_registry(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        registry: &ModelRegistry,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        for record in registry.iter() {
+            let model = self.load_model(&record.spec.model_artifact_ref)?;
+            if model.identity().id != record.spec.id || model.identity().version != record.spec.version {
+                return Err(ModelArtifactError::ModelIdentityMismatch);
+            }
+        }
+        self.put(artifact_ref, registry.to_artifact_value())
+    }
+
+    pub fn load_model_registry(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<ModelRegistry, ModelArtifactError> {
+        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        let registry = ModelRegistry::from_artifact_value(artifact).map_err(ModelArtifactError::ModelRegistry)?;
+        for record in registry.iter() {
+            let model = self.load_model(&record.spec.model_artifact_ref)?;
+            if model.identity().id != record.spec.id || model.identity().version != record.spec.version {
+                return Err(ModelArtifactError::ModelIdentityMismatch);
+            }
+        }
+        Ok(registry)
+    }
+
     pub fn get(&self, artifact_ref: &str) -> Option<&DataValue> {
         self.artifacts.get(artifact_ref)
     }
@@ -368,6 +411,7 @@ pub enum ModelArtifactError {
     Strategy(StrategyError),
     Causal(CausalError),
     Benchmark(BenchmarkError),
+    ModelRegistry(ModelRegistryError),
     InvalidReference,
     InvalidArtifact,
     NotFound,
@@ -394,6 +438,8 @@ impl std::fmt::Display for ModelArtifactError {
             Self::Strategy(error) => write!(formatter, "strategy registry artifact is invalid: {error}"),
             Self::Causal(error) => write!(formatter, "causal study artifact is invalid: {error}"),
             Self::Benchmark(error) => write!(formatter, "transfer benchmark artifact is invalid: {error}"),
+            Self::ModelRegistry(error) => write!(formatter, "model registry artifact is invalid: {error}"),
+            Self::ModelIdentityMismatch => write!(formatter, "model artifact identity does not match its registry specification"),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
@@ -830,6 +876,60 @@ mod tests {
             assert_eq!(restored, benchmark);
             assert!((restored.summarize("prediction-rmse").expect("summary").mean_improvement - 0.2).abs() < 1e-12);
         }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
+    fn model_registry_requires_matching_persisted_model_artifacts() {
+        use crate::model_registry::{
+            ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRegistry,
+            ModelStatus,
+        };
+        let path = test_path();
+        let mut model = ActionDeltaModel::new("registered-model", 1).expect("model");
+        model.fit("training-v1", &[
+            sample("advance", 0.0, 1.0),
+            sample("advance", 2.0, 3.0),
+        ]).expect("fit");
+        let mut store = ModelArtifactStore::open(&path).expect("open");
+        store.put_model("registered-model-v1", &model).expect("put model");
+        let mut registry = ModelRegistry::default();
+        store.register_model_candidate(
+            &mut registry,
+            ModelCandidateSpec {
+                id: "registered-model".to_owned(),
+                version: 1,
+                model_artifact_ref: "registered-model-v1".to_owned(),
+                environment_id: "counter".to_owned(),
+                environment_version: "v1".to_owned(),
+                training_dataset_id: "training-v1".to_owned(),
+            },
+        ).expect("register candidate");
+        let policy = ModelPromotionPolicy {
+            minimum_evaluation_samples: 2,
+            minimum_improvement: 0.0,
+            resource_cost_weight: 0.0,
+            require_calibrated_uncertainty: false,
+        };
+        registry.evaluate_candidate(
+            "registered-model",
+            1,
+            ModelEvaluation {
+                evaluation_dataset_id: "holdout-v1".to_owned(),
+                metric_id: "rmse".to_owned(),
+                direction: crate::benchmark::ScoreDirection::LowerIsBetter,
+                sample_count: 5,
+                score: 0.0,
+                resource_cost: 1.0,
+                uncertainty_calibrated: true,
+            },
+            policy,
+        ).expect("evaluate");
+        registry.promote("registered-model", 1, policy).expect("promote");
+        store.put_model_registry("model-registry-v1", &registry).expect("persist registry");
+        let restored = store.load_model_registry("model-registry-v1").expect("restore registry");
+        assert_eq!(restored, registry);
+        assert_eq!(restored.active("registered-model").map(|record| record.status), Some(ModelStatus::Active));
         std::fs::remove_file(path).expect("remove artifact file");
     }
 
