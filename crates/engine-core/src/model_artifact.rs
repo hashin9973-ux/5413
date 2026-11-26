@@ -809,11 +809,7 @@ mod tests {
 
     fn fault_injecting_storage(
         path: &std::path::Path,
-    ) -> (
-        FaultInjectingStorage,
-        Arc<AtomicBool>,
-        Arc<AtomicBool>,
-    ) {
+    ) -> (FaultInjectingStorage, Arc<AtomicBool>, Arc<AtomicBool>) {
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
