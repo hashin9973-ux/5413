@@ -15,7 +15,8 @@ The current implementation provides the first integrated learning loop, not gene
 5. **Experimentation:** ranks caller-supplied candidate actions using model disagreement, expected utility, cost, and declared risk.
 6. **Planning:** searches over model-predicted states while checking action schemas and risk policy.
 7. **Evaluation:** scores held-out predictions and blocks dataset-ID reuse.
-8. **Execution boundary:** callers must re-authorize a selected proposal immediately before passing it to an environment adapter.
+8. **Receding-horizon runtime:** observes, plans, records intent, reauthorizes, executes one step, observes again, and records prediction error.
+9. **Execution boundary:** adapters remain responsible for enforcing environment invariants.
 
 ## Invariants
 
@@ -50,6 +51,7 @@ The current implementation provides the first integrated learning loop, not gene
 - Bounded beam-search planning over caller-supplied action proposals with risk/schema checks, configurable uncertainty penalties, and a caller-supplied utility function. The planner returns proposals and predicted states; the caller must re-authorize before execution.
 - Immutable, checksummed model-artifact storage with explicit versioned serialization and restoration for the built-in statistical and contextual linear models.
 - Representation-registry state can be serialized and stored as immutable artifacts, preserving schema definitions, evaluation evidence, and lifecycle state with strict restore-time invariants.
+- Receding-horizon runtime with one-step replanning, durable pre-action intents, immediate reauthorization, outcome persistence, and numeric prediction-error metrics.
 - Runnable examples for a particle simulator, finite-state workflow, representation discovery/mapping, persistent journal replay, and a synthetic world-model/experiment/planning loop.
 
 ## Predictive-model semantics and limitations
@@ -66,7 +68,7 @@ The held-out evaluator reports empirical interval coverage only for estimates ma
 
 The experiment ranker treats model disagreement relative to estimated outcome spread as an information-gain proxy. It is not exact expected information gain and does not perform Bayesian posterior updates. Utility and cost estimates are supplied by the caller. It will not invent environment actions or arguments.
 
-The planner uses bounded beam search over caller-provided action proposals. It evaluates a caller-supplied scalar utility function on predicted states and penalizes uncertainty, including a configurable penalty for uncalibrated predictions. It is not a general constraint solver, does not provide terminal-state guarantees, and does not execute actions. Every selected proposal must pass through the normal authorization and environment validation path again at execution time.
+The planner uses bounded beam search over caller-provided action proposals. It evaluates a caller-supplied scalar utility function on predicted states and penalizes uncertainty, including a configurable penalty for uncalibrated predictions. The runtime executes only the first action of each plan, records durable idempotency intent before calling the adapter, reauthorizes immediately before execution, observes the actual next state, and records prediction error. It does not provide terminal-state guarantees or synthesize action arguments. If an adapter call fails after intent is recorded, side-effect status is ambiguous and the execution ID is blocked from automatic retry. This is an at-most-once safety policy, not an exactly-once guarantee. A caller must reconcile ambiguous executions using adapter-specific evidence.
 
 ## Deliberately not implemented yet
 
@@ -77,7 +79,7 @@ The planner uses bounded beam search over caller-provided action proposals. It e
 - Temporal, relational, neural, and symbolic world models.
 - Causal identification, controlled intervention analysis, and exact expected information gain.
 - Cross-environment transfer benchmarks and independently measured generalization.
-- Goal/attention management, resource-constrained execution, and a persistent autonomous executive runtime.
+- Online model refitting from runtime feedback, goal/attention management, resource-constrained execution, and a persistent autonomous executive supervisor.
 - Meta-learning strategy graphs, strategy memory, sandboxed operator synthesis, and executable self-improvement.
 
 These are roadmap items, not implied properties of the current implementation.

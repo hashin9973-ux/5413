@@ -12,6 +12,7 @@ pub mod mapping;
 pub mod model_artifact;
 pub mod planning;
 pub mod representation;
+pub mod runtime;
 pub mod schema;
 pub mod structure;
 pub mod value;
@@ -48,6 +49,10 @@ pub use planning::{plan, Plan, PlanStep, PlanningConfig, PlanningError};
 pub use representation::{
     EvaluationPolicy, RegistryError, RepresentationEvaluation, RepresentationKind,
     RepresentationRecord, RepresentationRegistry, RepresentationSpec, RepresentationStatus,
+};
+pub use runtime::{
+    run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,
+    RuntimeStepReport, RuntimeTermination,
 };
 pub use schema::{
     FieldSpec, SchemaDefinition, SchemaDefinitionError, SchemaValidationError, ValueKind,

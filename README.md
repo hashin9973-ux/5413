@@ -17,15 +17,16 @@ The current implementation includes:
 - held-out prediction evaluation with a dataset-ID leakage guard;
 - disagreement-based experiment ranking with declared action-risk, utility, and cost constraints;
 - bounded beam-search planning that scores predicted states and checks candidate actions against the environment's action policy;
+- a receding-horizon runtime that replans from fresh observations, durably journals action intents before adapter effects, reauthorizes before execution, and records prediction error against observed outcomes;
 - examples for physics simulation, finite-state workflows, representation discovery, persistent journaling, and the world-model/experiment/planning loop.
 
 The implementation remains dependency-free and forbids unsafe Rust in the core crate.
 
 ## Current boundaries
 
-This is a meaningful first intelligence loop, not a claim of general intelligence. Predictive models currently emit numeric next-state estimates. The contextual model is a batch ridge-regression baseline, and the ensemble is empirical rather than Bayesian. The experiment selector uses a disagreement-based information proxy rather than exact expected information gain. Planning is bounded beam search over caller-supplied action proposals; it does not execute actions, synthesize arguments, or guarantee goal satisfaction. Plans must be re-authorized immediately before execution.
+This is a meaningful first intelligence loop, not a claim of general intelligence. Predictive models currently emit numeric next-state estimates. The contextual model is a batch ridge-regression baseline, and the ensemble is empirical rather than Bayesian. The experiment selector uses a disagreement-based information proxy rather than exact expected information gain. Planning is bounded beam search over caller-supplied action proposals; the runtime executes one action at a time and replans from fresh observations. It does not synthesize arguments or guarantee goal satisfaction. Durable intent keys block automatic retries after ambiguous adapter failures; this is a conservative at-most-once policy, not exactly-once external execution.
 
-Temporal and relational models, causal identification, cross-environment transfer evaluation, a persistent executive runtime, and meta-learning strategy synthesis remain future work. Model artifact references are caller-supplied stable identifiers, not cryptographic content hashes; artifact compaction is not implemented.
+Temporal and relational models, causal identification, cross-environment transfer evaluation, online model updates from runtime feedback, a persistent executive supervisor, and meta-learning strategy synthesis remain future work. Model artifact references are caller-supplied stable identifiers, not cryptographic content hashes; artifact compaction is not implemented.
 
 ## Development
 

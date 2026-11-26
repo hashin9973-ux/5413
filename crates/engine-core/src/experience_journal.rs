@@ -182,6 +182,12 @@ impl ExperienceJournal {
         Ok(sequence)
     }
 
+    /// Checks whether an idempotency key has already been committed.
+    /// This is not a reservation; callers must still append with append_idempotent.
+    pub fn has_idempotency_key(&self, key: &str) -> bool {
+        self.idempotency_index.contains_key(key)
+    }
+
     pub fn records(&self) -> &[ExperienceRecord] {
         self.ledger.records()
     }

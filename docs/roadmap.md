@@ -60,7 +60,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Exact expected information gain and posterior-aware experiment design
 - [ ] Controlled causal interventions with confounder-aware evaluation
 - [ ] Goal predicates, hard constraints, resource budgets, and terminal conditions
-- [ ] Receding-horizon execution runtime with observation and prediction-error feedback
+- [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
 - [ ] Safe exploration policies with explicit reset and recovery contracts
 
 ## Milestone 6 — Cross-environment generalization
