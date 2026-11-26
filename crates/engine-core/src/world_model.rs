@@ -1,4 +1,5 @@
-use crate::learning::{LearningError, NumericDeltaModel, TransitionSample};
+use crate::experience::ExperienceRecord;
+use crate::learning::{extract_transition_samples, LearningError, NumericDeltaModel, TransitionSample};
 use crate::value::DataValue;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -706,6 +707,51 @@ fn parse_artifact_u64(value: Option<&DataValue>) -> Result<u64, WorldModelError>
     match value {
         Some(DataValue::Text(value)) => value.parse().map_err(|_| WorldModelError::InvalidArtifact),
         _ => Err(WorldModelError::InvalidArtifact),
+    }
+}
+
+/// A predictive model that can be fitted from validated transition samples.
+///
+/// The default episode helper uses the journal's conservative transition
+/// reconstruction rules; incomplete or mismatched actions are not trained on.
+pub trait TrainablePredictiveModel: PredictiveModel {
+    fn fit_samples(
+        &mut self,
+        dataset_id: &str,
+        samples: &[TransitionSample],
+    ) -> Result<ModelFitReport, WorldModelError>;
+
+    fn fit_from_episode(
+        &mut self,
+        dataset_id: &str,
+        records: &[ExperienceRecord],
+        episode_id: &str,
+    ) -> Result<ModelFitReport, WorldModelError> {
+        let samples = extract_transition_samples(records, episode_id);
+        if samples.is_empty() {
+            return Err(WorldModelError::NoCompletedTransitions);
+        }
+        self.fit_samples(dataset_id, &samples)
+    }
+}
+
+impl TrainablePredictiveModel for ActionDeltaModel {
+    fn fit_samples(
+        &mut self,
+        dataset_id: &str,
+        samples: &[TransitionSample],
+    ) -> Result<ModelFitReport, WorldModelError> {
+        ActionDeltaModel::fit(self, dataset_id, samples)
+    }
+}
+
+impl TrainablePredictiveModel for ContextualLinearModel {
+    fn fit_samples(
+        &mut self,
+        dataset_id: &str,
+        samples: &[TransitionSample],
+    ) -> Result<ModelFitReport, WorldModelError> {
+        ContextualLinearModel::fit(self, dataset_id, samples)
     }
 }
 
