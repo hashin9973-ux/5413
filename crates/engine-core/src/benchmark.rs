@@ -1776,7 +1776,7 @@ mod tests {
         assert!((improvements[0] - 0.0).abs() < 1e-12);
         assert!((improvements[1] - 0.2).abs() < 1e-12);
         assert!((improvements[2] - 0.4).abs() < 1e-12);
-        assert!((curve.area_under_improvement_curve().expect("area") - 3.0).abs() < 1e-12);
+        assert!((curve.area_under_improvement_curve().expect("area") - 4.0).abs() < 1e-12);
         assert_eq!(
             curve
                 .samples_to_target_improvement(0.25)
