@@ -1065,7 +1065,10 @@ impl StrategyDagSynthesisPolicy {
     pub fn validate(&self) -> Result<(), StrategySynthesisError> {
         if self.external_inputs.is_empty()
             || self.outputs.is_empty()
-            || self.external_inputs.keys().any(|name| name.trim().is_empty())
+            || self
+                .external_inputs
+                .keys()
+                .any(|name| name.trim().is_empty())
             || self.outputs.keys().any(|name| name.trim().is_empty())
             || self.maximum_nodes == 0
             || self.maximum_candidates == 0
@@ -1244,7 +1247,15 @@ fn enumerate_strategy_inputs(
         let port = &ports[index];
         for value in available.values().filter(|value| value.kind == port.kind) {
             current.insert(port.name.clone(), value.binding.clone());
-            visit(ports, available, index + 1, current, results, maximum, truncated);
+            visit(
+                ports,
+                available,
+                index + 1,
+                current,
+                results,
+                maximum,
+                truncated,
+            );
             current.remove(&port.name);
             if *truncated {
                 return;
@@ -1991,30 +2002,57 @@ mod tests {
     #[test]
     fn synthesizes_multi_input_dags_that_merge_independent_branches() {
         let mut catalogue = OperatorCatalogue::default();
-        catalogue.register(OperatorSpec {
-            id: "encode-label".to_owned(),
-            inputs: vec![PortSpec { name: "raw".to_owned(), kind: ValueKind::Number }],
-            outputs: vec![PortSpec { name: "label".to_owned(), kind: ValueKind::Text }],
-            cost_units: 2,
-            deterministic: true,
-        }).expect("register label encoder");
-        catalogue.register(OperatorSpec {
-            id: "classify-state".to_owned(),
-            inputs: vec![PortSpec { name: "raw".to_owned(), kind: ValueKind::Number }],
-            outputs: vec![PortSpec { name: "flag".to_owned(), kind: ValueKind::Boolean }],
-            cost_units: 3,
-            deterministic: true,
-        }).expect("register classifier");
-        catalogue.register(OperatorSpec {
-            id: "combine-features".to_owned(),
-            inputs: vec![
-                PortSpec { name: "label".to_owned(), kind: ValueKind::Text },
-                PortSpec { name: "flag".to_owned(), kind: ValueKind::Boolean },
-            ],
-            outputs: vec![PortSpec { name: "features".to_owned(), kind: ValueKind::Object }],
-            cost_units: 4,
-            deterministic: true,
-        }).expect("register combiner");
+        catalogue
+            .register(OperatorSpec {
+                id: "encode-label".to_owned(),
+                inputs: vec![PortSpec {
+                    name: "raw".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                outputs: vec![PortSpec {
+                    name: "label".to_owned(),
+                    kind: ValueKind::Text,
+                }],
+                cost_units: 2,
+                deterministic: true,
+            })
+            .expect("register label encoder");
+        catalogue
+            .register(OperatorSpec {
+                id: "classify-state".to_owned(),
+                inputs: vec![PortSpec {
+                    name: "raw".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                outputs: vec![PortSpec {
+                    name: "flag".to_owned(),
+                    kind: ValueKind::Boolean,
+                }],
+                cost_units: 3,
+                deterministic: true,
+            })
+            .expect("register classifier");
+        catalogue
+            .register(OperatorSpec {
+                id: "combine-features".to_owned(),
+                inputs: vec![
+                    PortSpec {
+                        name: "label".to_owned(),
+                        kind: ValueKind::Text,
+                    },
+                    PortSpec {
+                        name: "flag".to_owned(),
+                        kind: ValueKind::Boolean,
+                    },
+                ],
+                outputs: vec![PortSpec {
+                    name: "features".to_owned(),
+                    kind: ValueKind::Object,
+                }],
+                cost_units: 4,
+                deterministic: true,
+            })
+            .expect("register combiner");
         let result = synthesize_strategy_dags(
             &catalogue,
             StrategyDagSynthesisPolicy {
@@ -2029,16 +2067,22 @@ mod tests {
                 maximum_expansions: 100,
                 allow_nondeterministic: false,
             },
-        ).expect("DAG synthesis");
+        )
+        .expect("DAG synthesis");
         assert!(!result.candidates.is_empty());
         assert!(result.candidates.iter().any(|candidate| {
             candidate.graph.nodes.len() == 3
-                && candidate.graph.nodes.iter().any(|node| {
-                    node.operator_id == "combine-features" && node.inputs.len() == 2
-                })
+                && candidate
+                    .graph
+                    .nodes
+                    .iter()
+                    .any(|node| node.operator_id == "combine-features" && node.inputs.len() == 2)
         }));
         for candidate in &result.candidates {
-            candidate.graph.validate(&catalogue).expect("synthesized graph validates");
+            candidate
+                .graph
+                .validate(&catalogue)
+                .expect("synthesized graph validates");
             assert!(candidate.cost_units <= 9);
             assert!(candidate.graph.nodes.len() <= 3);
         }
@@ -2047,16 +2091,27 @@ mod tests {
     #[test]
     fn multi_input_synthesis_respects_expansion_and_determinism_limits() {
         let mut catalogue = OperatorCatalogue::default();
-        catalogue.register(OperatorSpec {
-            id: "nondeterministic-combine".to_owned(),
-            inputs: vec![
-                PortSpec { name: "left".to_owned(), kind: ValueKind::Number },
-                PortSpec { name: "right".to_owned(), kind: ValueKind::Number },
-            ],
-            outputs: vec![PortSpec { name: "out".to_owned(), kind: ValueKind::Number }],
-            cost_units: 1,
-            deterministic: false,
-        }).expect("register");
+        catalogue
+            .register(OperatorSpec {
+                id: "nondeterministic-combine".to_owned(),
+                inputs: vec![
+                    PortSpec {
+                        name: "left".to_owned(),
+                        kind: ValueKind::Number,
+                    },
+                    PortSpec {
+                        name: "right".to_owned(),
+                        kind: ValueKind::Number,
+                    },
+                ],
+                outputs: vec![PortSpec {
+                    name: "out".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                cost_units: 1,
+                deterministic: false,
+            })
+            .expect("register");
         let result = synthesize_strategy_dags(
             &catalogue,
             StrategyDagSynthesisPolicy {
@@ -2071,7 +2126,8 @@ mod tests {
                 maximum_expansions: 1,
                 allow_nondeterministic: false,
             },
-        ).expect("synthesis");
+        )
+        .expect("synthesis");
         assert!(result.candidates.is_empty());
         assert_eq!(result.expanded_states, 0);
         assert!(!result.truncated);
