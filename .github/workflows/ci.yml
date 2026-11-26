@@ -47,3 +47,7 @@ jobs:
 
       - name: Run world-model planning example
         run: cargo run -p engine-core --example world_model_demo
+
+      - name: Run autonomous research example
+        run: cargo run -p engine-core --example autonomous_research_demo
+

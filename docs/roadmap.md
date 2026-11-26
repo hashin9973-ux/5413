@@ -43,6 +43,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 ## Milestone 4 — Predictive world models
 
 - [x] Interchangeable predictive-model interface with model identity and training dataset provenance
+- [x] Versioned model artifact storage and restore for built-in statistical/contextual models
+- [x] Model registry with held-out promotion gates, resource penalty, calibration requirement, and rollback by version retirement
 - [x] Action-conditioned statistical delta model
 - [x] Contextual numeric ridge-regression model with dynamically discovered features
 - [x] Empirical model ensemble with separate aleatoric and disagreement-based epistemic uncertainty estimates
@@ -57,11 +59,13 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Candidate experiment ranking using model disagreement, task utility, estimated cost, and declared action risk
 - [x] Bounded beam-search planner over model-predicted states
 - [x] Planner-side action-schema and risk authorization checks
-- [ ] Exact expected information gain and posterior-aware experiment design
+- [x] Exact binary-outcome expected information gain and posterior-aware hypothesis updates under caller-supplied likelihoods
+- [ ] Multi-outcome experimental design and online calibration of likelihoods
 - [ ] Controlled causal interventions with confounder-aware evaluation
 - [ ] Goal predicates, hard constraints, resource budgets, and terminal conditions
 - [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
+- [x] Bounded one-step research-cycle orchestration linking experiment selection, authorized runtime execution, durable evidence, episode training, held-out evaluation, and model promotion
 - [ ] Safe exploration policies with explicit reset and recovery contracts
 
 ## Milestone 6 — Reasoning and evidence
@@ -90,8 +94,9 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 ## Milestone 8 — Meta-learning
 
-- [ ] Typed, versioned learning-strategy definitions
-- [ ] Constrained operator graphs for Observe → Transform → Learn → Evaluate → Select → Plan
+- [x] Typed, versioned declarative strategy definitions and DAG validation
+- [x] Same-heldout strategy evaluation, resource weighting, guarded candidate promotion, and version retirement
+- [ ] Trusted strategy operator execution and bounded composition/synthesis
 - [ ] Strategy selection conditioned on measured environment characteristics
 - [ ] Held-out learning-efficiency benchmarks and candidate rollback
 - [ ] Persistent strategy memory and provenance
