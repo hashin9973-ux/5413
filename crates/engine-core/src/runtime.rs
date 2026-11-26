@@ -93,6 +93,32 @@ where
     A: EnvironmentAdapter,
     F: Fn(&DataValue) -> f64,
 {
+    run_receding_horizon_with_selector(
+        adapter,
+        model,
+        config,
+        journal,
+        |_, _| Ok(candidate_actions.to_vec()),
+        utility,
+    )
+}
+
+/// Executes a bounded episode while obtaining candidate actions from the latest
+/// validated observation. The selector is called again after every action and
+/// observation, allowing active exploration to adapt to newly measured state.
+pub fn run_receding_horizon_with_selector<A, F, S>(
+    adapter: &mut A,
+    model: &EnsembleWorldModel,
+    config: RuntimeConfig,
+    journal: &mut ExperienceJournal,
+    mut select_actions: S,
+    utility: F,
+) -> Result<RuntimeReport, RuntimeError>
+where
+    A: EnvironmentAdapter,
+    F: Fn(&DataValue) -> f64,
+    S: FnMut(&EnvironmentDescriptor, &DataValue) -> Result<Vec<ActionProposal>, String>,
+{
     config.validate()?;
     let descriptor = adapter.descriptor().clone();
     descriptor
@@ -131,12 +157,19 @@ where
             return Err(RuntimeError::EnvironmentDescriptorChanged);
         }
 
+        let candidate_actions = select_actions(&descriptor, &current_observation.payload)
+            .map_err(RuntimeError::ActionSelection)?;
+        if candidate_actions.is_empty() {
+            return Err(RuntimeError::ActionSelection(
+                "selector returned no eligible action proposals".to_owned(),
+            ));
+        }
         let selected_plan = plan(
             &descriptor,
             config.authorizer,
             model,
             &current_observation.payload,
-            candidate_actions,
+            &candidate_actions,
             config.planning,
             &utility,
         )
@@ -312,6 +345,7 @@ pub enum RuntimeError {
     Environment(String),
     EnvironmentDescriptorChanged,
     Authorization(String),
+    ActionSelection(String),
     Planning(PlanningError),
     PlannerReturnedEmptyPlan,
     ExecutionOutcomeAmbiguous(String),
@@ -336,6 +370,7 @@ impl std::fmt::Display for RuntimeError {
             Self::Environment(message) => write!(formatter, "environment operation failed: {message}"),
             Self::EnvironmentDescriptorChanged => write!(formatter, "environment descriptor changed during execution"),
             Self::Authorization(message) => write!(formatter, "action authorization failed: {message}"),
+            Self::ActionSelection(message) => write!(formatter, "action selector failed: {message}"),
             Self::Planning(error) => write!(formatter, "planning failed: {error}"),
             Self::PlannerReturnedEmptyPlan => write!(formatter, "planner returned no first step"),
             Self::ExecutionOutcomeAmbiguous(message) => write!(formatter, "adapter execution failed after durable intent; side-effect status is ambiguous: {message}"),
