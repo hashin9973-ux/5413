@@ -1661,7 +1661,9 @@ mod tests {
             .expect("large-magnitude transfer matrix");
         let cell = matrix.cell("source", "target").expect("source-target cell");
         assert_eq!(cell.mean_improvement, 0.0);
-        assert!((cell.standard_error.expect("matrix standard error") / 1.0e308 - 1.0).abs() < 1.0e-12);
+        assert!(
+            (cell.standard_error.expect("matrix standard error") / 1.0e308 - 1.0).abs() < 1.0e-12
+        );
         assert_eq!(cell.mean_resource_cost, 1.5e308);
     }
 
