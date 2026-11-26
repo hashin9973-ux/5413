@@ -52,6 +52,7 @@ The current implementation provides the first integrated learning loop, not gene
 - Immutable, checksummed model-artifact storage with explicit versioned serialization and restoration for the built-in statistical and contextual linear models.
 - Representation-registry state can be serialized and stored as immutable artifacts, preserving schema definitions, evaluation evidence, and lifecycle state with strict restore-time invariants.
 - Receding-horizon runtime with one-step replanning, durable pre-action intents, immediate reauthorization, outcome persistence, and numeric prediction-error metrics.
+- Evidence-backed `HypothesisRegistry`: typed claims, unique evidence references, explicit dataset provenance, log-likelihood-ratio updates, posterior confidence, decision thresholds, and strict artifact round-trip validation.
 - `extract_transition_samples` reconstructs completed state/action/next-state samples by episode, using the latest valid observation after a matching completed action; incomplete/mismatched actions and invalid state values are not trained on.
 - Runnable examples for a particle simulator, finite-state workflow, representation discovery/mapping, persistent journal replay, and a synthetic world-model/experiment/planning loop.
 
@@ -67,7 +68,7 @@ The held-out evaluator reports empirical interval coverage only for estimates ma
 
 ## Experimentation and planning semantics
 
-The experiment ranker treats model disagreement relative to estimated outcome spread as an information-gain proxy. It is not exact expected information gain and does not perform Bayesian posterior updates. Utility and cost estimates are supplied by the caller. It will not invent environment actions or arguments.
+The hypothesis registry combines caller-supplied log likelihood ratios in log-odds space, under an explicit conditional-independence assumption. It prevents duplicate evidence references and direct reuse of the hypothesis source dataset, but it cannot determine whether evidence is truly independent or whether a caller-supplied likelihood ratio is statistically justified. Its statuses are decision thresholds, not proof. The experiment ranker treats model disagreement relative to estimated outcome spread as an information-gain proxy. It is not exact expected information gain and does not perform Bayesian posterior updates. Utility and cost estimates are supplied by the caller. It will not invent environment actions or arguments.
 
 The planner uses bounded beam search over caller-provided action proposals. It evaluates a caller-supplied scalar utility function on predicted states and penalizes uncertainty, including a configurable penalty for uncalibrated predictions. The runtime executes only the first action of each plan, records durable idempotency intent before calling the adapter, reauthorizes immediately before execution, observes the actual next state, and records prediction error. It does not provide terminal-state guarantees or synthesize action arguments. If an adapter call fails after intent is recorded, side-effect status is ambiguous and the execution ID is blocked from automatic retry. This is an at-most-once safety policy, not an exactly-once guarantee. A caller must reconcile ambiguous executions using adapter-specific evidence.
 

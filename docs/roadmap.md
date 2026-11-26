@@ -64,7 +64,16 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
 - [ ] Safe exploration policies with explicit reset and recovery contracts
 
-## Milestone 6 — Cross-environment generalization
+## Milestone 6 — Reasoning and evidence
+
+- [x] Typed hypothesis claims and competing hypothesis registry
+- [x] Unique evidence references, provenance dataset IDs, and log-likelihood-ratio accumulation
+- [x] Posterior confidence and explicit support/refutation/inconclusive thresholds
+- [x] Strict versioned snapshot serialization and restore validation
+- [ ] Causal identification from randomized interventions and confounder-aware estimators
+- [ ] Automatic hypothesis generation and expected information gain over candidate experiments
+
+## Milestone 7 — Cross-environment generalization
 
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
 - [ ] Sample-efficiency curves against random and passive-learning baselines
@@ -72,7 +81,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Transfer evaluation against independent-learning baselines
 - [ ] Environment adaptation without environment-specific changes in the intelligence core
 
-## Milestone 7 — Meta-learning
+## Milestone 8 — Meta-learning
 
 - [ ] Typed, versioned learning-strategy definitions
 - [ ] Constrained operator graphs for Observe → Transform → Learn → Evaluate → Select → Plan
@@ -80,7 +89,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Held-out learning-efficiency benchmarks and candidate rollback
 - [ ] Persistent strategy memory and provenance
 
-## Milestone 8 — Controlled algorithm improvement
+## Milestone 9 — Controlled algorithm improvement
 
 - [ ] Operator proposals from measured failure analysis
 - [ ] Sandboxed implementation experiments
