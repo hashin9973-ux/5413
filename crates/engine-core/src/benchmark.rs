@@ -918,12 +918,10 @@ impl LearningEfficiencyBenchmark {
                 mean_and_standard_error(&areas)?;
             let target_budgets: Vec<usize> = curves
                 .iter()
-                .filter_map(|curve| {
-                    curve
-                        .samples_to_target_improvement(target_improvement)
-                        .ok()
-                        .flatten()
-                })
+                .map(|curve| curve.samples_to_target_improvement(target_improvement))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
                 .collect();
             let target_reach_rate = target_budgets.len() as f64 / curves.len() as f64;
             let mean_samples_to_target = if target_budgets.is_empty() {
@@ -1811,7 +1809,7 @@ mod tests {
             benchmark.record(learning_curve("duplicate-seed", 1, [0.2, 0.5, 0.7])),
             Err(BenchmarkError::DuplicateLearningSeed)
         );
-        let summaries = benchmark.summarize("success-rate", 0.35).expect("summaries");
+        let summaries = benchmark.summarize("success-rate", 0.45).expect("summaries");
         assert_eq!(summaries.len(), 1);
         let summary = &summaries[0];
         assert_eq!(summary.seed_count, 2);
