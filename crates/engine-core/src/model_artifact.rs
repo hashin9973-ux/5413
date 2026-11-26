@@ -436,6 +436,7 @@ pub enum ModelArtifactError {
     Causal(CausalError),
     Benchmark(BenchmarkError),
     ModelRegistry(ModelRegistryError),
+    ModelIdentityMismatch,
     InvalidReference,
     InvalidArtifact,
     NotFound,

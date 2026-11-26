@@ -53,12 +53,12 @@ pub fn extract_transition_samples(
                 }
                 current_state = Some(observation.payload.clone());
             }
-            ExperienceEvent::ActionProposed(proposal) => {
+            ExperienceEvent::ActionProposed { action_id, .. } => {
                 if let Some(previous) = pending.take() {
                     append_completed_transition(previous, &mut samples);
                 }
                 pending = current_state.clone().map(|before| PendingTransition {
-                    action_id: proposal.action_id.clone(),
+                    action_id: action_id.clone(),
                     before,
                     completed: false,
                     observed_after: None,
@@ -472,10 +472,10 @@ mod transition_extraction_tests {
     }
 
     fn proposal(action_id: &str) -> ExperienceEvent {
-        ExperienceEvent::ActionProposed(ActionProposal {
+        ExperienceEvent::ActionProposed {
             action_id: action_id.to_owned(),
             arguments: DataValue::Null,
-        })
+        }
     }
 
     fn outcome(action_id: &str, completed: bool) -> ExperienceEvent {

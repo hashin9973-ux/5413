@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn few_shot_transfer_curve_rejects_non_monotonic_shots() {
-        let mut curve = FewShotTransferCurve {
+        let curve = FewShotTransferCurve {
             source_environment_id: "source".to_owned(),
             target_environment_id: "target".to_owned(),
             source_training_dataset_id: "train".to_owned(),

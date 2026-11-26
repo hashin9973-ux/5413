@@ -1071,6 +1071,7 @@ pub enum WorldModelError {
     Learning(String),
     InvalidArtifact,
     UnsupportedArtifactVersion,
+    NoCompletedTransitions,
     UnknownModelType(String),
 }
 
@@ -1143,6 +1144,10 @@ impl std::fmt::Display for WorldModelError {
             Self::UnsupportedArtifactVersion => write!(
                 formatter,
                 "predictive model artifact version is unsupported"
+            ),
+            Self::NoCompletedTransitions => write!(
+                formatter,
+                "episode contains no completed action transitions with valid subsequent observations"
             ),
             Self::UnknownModelType(model_type) => write!(
                 formatter,

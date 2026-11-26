@@ -121,7 +121,7 @@ impl PairedRandomizedStudy {
             pair_count: self.pairs.len(),
             treatment_mean,
             control_mean,
-            mean_effect: mean_effect,
+            mean_effect,
             standard_error,
             normal_approximation_95_percent_interval: (lower, upper),
         })

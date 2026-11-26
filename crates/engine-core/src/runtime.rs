@@ -6,7 +6,7 @@
 
 use crate::action::{ActionAuthorizer, ActionProposal};
 use crate::environment::{
-    ActionOutcome, EnvironmentAdapter, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
+    ActionOutcome, EnvironmentAdapter, EnvironmentDescriptor, ObservationFrame,
 };
 use crate::experience::ExperienceEvent;
 use crate::experience_journal::{ExperienceJournal, IdempotentAppendOutcome, JournalError};
@@ -158,7 +158,10 @@ where
         match journal.append_idempotent(
             intent_key.as_str(),
             &config.episode_id,
-            ExperienceEvent::ActionProposed(proposal.clone()),
+            ExperienceEvent::ActionProposed {
+                action_id: proposal.action_id.clone(),
+                arguments: proposal.arguments.clone(),
+            },
         )? {
             IdempotentAppendOutcome::Appended { .. } => {}
             IdempotentAppendOutcome::AlreadyPresent { .. } => {
@@ -350,7 +353,7 @@ impl std::error::Error for RuntimeError {}
 mod tests {
     use super::*;
     use crate::action::{ActionAuthorizationPolicy, ActionDescriptor, ActionRisk};
-    use crate::environment::EnvironmentDescriptor;
+    use crate::environment::{EnvironmentDescriptor, EnvironmentError};
     use crate::learning::TransitionSample;
     use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
     use crate::world_model::{ActionDeltaModel, PredictiveModel};
