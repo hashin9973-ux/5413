@@ -119,8 +119,8 @@ impl PairedRandomizedStudy {
         if policy.maximum_assignments == 0 {
             return Err(CausalError::InvalidInferencePolicy);
         }
-        let shift = u32::try_from(self.pairs.len())
-            .map_err(|_| CausalError::AssignmentCountOverflow)?;
+        let shift =
+            u32::try_from(self.pairs.len()).map_err(|_| CausalError::AssignmentCountOverflow)?;
         let assignment_count = 1_u64
             .checked_shl(shift)
             .ok_or(CausalError::AssignmentCountOverflow)?;
@@ -172,8 +172,7 @@ impl PairedRandomizedStudy {
             observed_absolute_mean_effect: observed_statistic,
             assignment_count,
             extreme_assignment_count,
-            exact_two_sided_p_value: extreme_assignment_count as f64
-                / assignment_count as f64,
+            exact_two_sided_p_value: extreme_assignment_count as f64 / assignment_count as f64,
         })
     }
 
@@ -894,9 +893,21 @@ mod tests {
             outcome_label: "score".to_owned(),
             assignment_design: AssignmentDesign::Randomized,
             pairs: vec![
-                PairedOutcome { pair_id: "p1".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
-                PairedOutcome { pair_id: "p2".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
-                PairedOutcome { pair_id: "p3".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+                PairedOutcome {
+                    pair_id: "p1".to_owned(),
+                    control_outcome: 0.0,
+                    treatment_outcome: 1.0,
+                },
+                PairedOutcome {
+                    pair_id: "p2".to_owned(),
+                    control_outcome: 0.0,
+                    treatment_outcome: 1.0,
+                },
+                PairedOutcome {
+                    pair_id: "p3".to_owned(),
+                    control_outcome: 0.0,
+                    treatment_outcome: 1.0,
+                },
             ],
         };
         let inference = study
@@ -921,9 +932,21 @@ mod tests {
             outcome_label: "score".to_owned(),
             assignment_design: AssignmentDesign::Randomized,
             pairs: vec![
-                PairedOutcome { pair_id: "p1".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
-                PairedOutcome { pair_id: "p2".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
-                PairedOutcome { pair_id: "p3".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+                PairedOutcome {
+                    pair_id: "p1".to_owned(),
+                    control_outcome: 0.0,
+                    treatment_outcome: 1.0,
+                },
+                PairedOutcome {
+                    pair_id: "p2".to_owned(),
+                    control_outcome: 0.0,
+                    treatment_outcome: 1.0,
+                },
+                PairedOutcome {
+                    pair_id: "p3".to_owned(),
+                    control_outcome: 0.0,
+                    treatment_outcome: 1.0,
+                },
             ],
         };
         assert_eq!(
@@ -935,7 +958,10 @@ mod tests {
                 maximum_assignments: 7,
                 attest_independent_fair_pair_swaps: true,
             }),
-            Err(CausalError::AssignmentBudgetExceeded { required: 8, maximum: 7 })
+            Err(CausalError::AssignmentBudgetExceeded {
+                required: 8,
+                maximum: 7
+            })
         );
     }
 
