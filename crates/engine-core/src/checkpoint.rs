@@ -45,9 +45,13 @@ impl CheckpointSnapshot {
         self.state
             .validate_finite()
             .map_err(|_| CheckpointError::InvalidSnapshot)?;
-        if self.model_artifact_refs.iter().any(|(model_id, artifact_ref)| {
-            model_id.trim().is_empty() || artifact_ref.trim().is_empty()
-        }) {
+        if self
+            .model_artifact_refs
+            .iter()
+            .any(|(model_id, artifact_ref)| {
+                model_id.trim().is_empty() || artifact_ref.trim().is_empty()
+            })
+        {
             return Err(CheckpointError::InvalidSnapshot);
         }
         Ok(())
@@ -231,11 +235,8 @@ fn scan_and_recover(file: &mut File) -> Result<Vec<CheckpointSnapshot>, Checkpoi
             offset,
             reason: error.to_string(),
         })?;
-        let snapshot =
-            snapshot_from_value(value).map_err(|reason| CheckpointError::CorruptFrame {
-                offset,
-                reason,
-            })?;
+        let snapshot = snapshot_from_value(value)
+            .map_err(|reason| CheckpointError::CorruptFrame { offset, reason })?;
         if let Some(previous) = snapshots.last() {
             if compare_sequence(
                 snapshot.last_applied_sequence,
@@ -318,10 +319,7 @@ fn snapshot_from_value(value: DataValue) -> Result<CheckpointSnapshot, String> {
         return Err("checkpoint payload contains missing or unknown fields".to_owned());
     }
 
-    fn take_text(
-        fields: &mut BTreeMap<String, DataValue>,
-        key: &str,
-    ) -> Result<String, String> {
+    fn take_text(fields: &mut BTreeMap<String, DataValue>, key: &str) -> Result<String, String> {
         match fields.remove(key) {
             Some(DataValue::Text(value)) => Ok(value),
             _ => Err(format!("checkpoint field {key} must be text")),
@@ -530,13 +528,22 @@ impl<E: std::fmt::Display> std::fmt::Display for RestoreError<E> {
             }
             Self::SchemaMismatch => write!(formatter, "checkpoint state schema does not match"),
             Self::JournalSequenceGap { expected, actual } => {
-                write!(formatter, "journal sequence gap: expected {expected}, found {actual}")
+                write!(
+                    formatter,
+                    "journal sequence gap: expected {expected}, found {actual}"
+                )
             }
             Self::CheckpointAheadOfJournal => {
-                write!(formatter, "checkpoint sequence is ahead of the experience journal")
+                write!(
+                    formatter,
+                    "checkpoint sequence is ahead of the experience journal"
+                )
             }
             Self::CheckpointSequenceMissing(sequence) => {
-                write!(formatter, "checkpoint sequence {sequence} is absent from the experience journal")
+                write!(
+                    formatter,
+                    "checkpoint sequence {sequence} is absent from the experience journal"
+                )
             }
             Self::SequenceOverflow => write!(formatter, "restore sequence counter is exhausted"),
             Self::Apply(error) => write!(formatter, "replaying experience event failed: {error}"),
@@ -569,17 +576,31 @@ impl std::fmt::Display for CheckpointError {
                 write!(formatter, "unsupported checkpoint version: {version}")
             }
             Self::FrameTooLarge { size, maximum } => {
-                write!(formatter, "checkpoint frame size {size} exceeds limit {maximum}")
+                write!(
+                    formatter,
+                    "checkpoint frame size {size} exceeds limit {maximum}"
+                )
             }
             Self::CorruptFrame { offset, reason } => {
-                write!(formatter, "corrupt checkpoint frame at byte {offset}: {reason}")
+                write!(
+                    formatter,
+                    "corrupt checkpoint frame at byte {offset}: {reason}"
+                )
             }
-            Self::SequenceRegression => write!(formatter, "checkpoint sequence cannot move backwards"),
+            Self::SequenceRegression => {
+                write!(formatter, "checkpoint sequence cannot move backwards")
+            }
             Self::SequenceConflict => {
-                write!(formatter, "checkpoint sequence was reused for different state")
+                write!(
+                    formatter,
+                    "checkpoint sequence was reused for different state"
+                )
             }
             Self::Poisoned => {
-                write!(formatter, "checkpoint store must be reopened after an I/O failure")
+                write!(
+                    formatter,
+                    "checkpoint store must be reopened after an I/O failure"
+                )
             }
         }
     }
@@ -603,10 +624,7 @@ mod tests {
 
     fn test_path() -> std::path::PathBuf {
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!(
-            "5413-checkpoints-{}-{id}.bin",
-            std::process::id()
-        ))
+        std::env::temp_dir().join(format!("5413-checkpoints-{}-{id}.bin", std::process::id()))
     }
 
     fn snapshot(sequence: Option<u64>, count: i64) -> CheckpointSnapshot {
@@ -701,11 +719,12 @@ mod tests {
             Some(&checkpoint),
             &records,
             |state, _record| {
-                let count = state.get("count").and_then(DataValue::as_f64).unwrap_or(0.0);
-                *state = DataValue::object([(
-                    "count".to_owned(),
-                    DataValue::Integer(count as i64 + 1),
-                )]);
+                let count = state
+                    .get("count")
+                    .and_then(DataValue::as_f64)
+                    .unwrap_or(0.0);
+                *state =
+                    DataValue::object([("count".to_owned(), DataValue::Integer(count as i64 + 1))]);
                 Ok::<(), &'static str>(())
             },
         )
@@ -761,7 +780,8 @@ mod tests {
                 .write(true)
                 .open(&path)
                 .expect("open raw");
-            file.set_len(first_length + 3).expect("truncate final header");
+            file.set_len(first_length + 3)
+                .expect("truncate final header");
             file.sync_all().expect("sync");
         }
         {
