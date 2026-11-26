@@ -655,8 +655,7 @@ impl RandomizedMultiArmStudy {
             &arm_counts,
             control_index,
         )?;
-        let tolerance =
-            8.0 * f64::EPSILON * observed_maximum_absolute_effect.max(1.0);
+        let tolerance = 8.0 * f64::EPSILON * observed_maximum_absolute_effect.max(1.0);
 
         // Lexicographically sorted multiset assignment is the first unique
         // allocation. The next-permutation routine visits each allocation once.
@@ -703,8 +702,7 @@ impl RandomizedMultiArmStudy {
             control_arm_id: self.control_arm_id.clone(),
             assignment_count,
             extreme_assignment_count,
-            exact_two_sided_p_value: extreme_assignment_count as f64
-                / assignment_count as f64,
+            exact_two_sided_p_value: extreme_assignment_count as f64 / assignment_count as f64,
             observed_maximum_absolute_effect,
         })
     }
@@ -990,8 +988,14 @@ pub enum CausalError {
     RandomizationMechanismNotAttested,
     InvalidInferencePolicy,
     AssignmentCountOverflow,
-    AssignmentBudgetExceeded { required: u64, maximum: u64 },
-    AssignmentBudgetExceededAtLeast { required_at_least: u64, maximum: u64 },
+    AssignmentBudgetExceeded {
+        required: u64,
+        maximum: u64,
+    },
+    AssignmentBudgetExceededAtLeast {
+        required_at_least: u64,
+        maximum: u64,
+    },
 }
 
 impl std::fmt::Display for CausalError {
@@ -1282,12 +1286,36 @@ mod tests {
                 ("treatment-b".to_owned(), 2),
             ]),
             outcomes: vec![
-                RandomizedArmOutcome { unit_id: "u1".to_owned(), arm_id: "control".to_owned(), outcome: 1.0 },
-                RandomizedArmOutcome { unit_id: "u2".to_owned(), arm_id: "control".to_owned(), outcome: 2.0 },
-                RandomizedArmOutcome { unit_id: "u3".to_owned(), arm_id: "treatment-a".to_owned(), outcome: 2.0 },
-                RandomizedArmOutcome { unit_id: "u4".to_owned(), arm_id: "treatment-a".to_owned(), outcome: 3.0 },
-                RandomizedArmOutcome { unit_id: "u5".to_owned(), arm_id: "treatment-b".to_owned(), outcome: 0.0 },
-                RandomizedArmOutcome { unit_id: "u6".to_owned(), arm_id: "treatment-b".to_owned(), outcome: 1.0 },
+                RandomizedArmOutcome {
+                    unit_id: "u1".to_owned(),
+                    arm_id: "control".to_owned(),
+                    outcome: 1.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "u2".to_owned(),
+                    arm_id: "control".to_owned(),
+                    outcome: 2.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "u3".to_owned(),
+                    arm_id: "treatment-a".to_owned(),
+                    outcome: 2.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "u4".to_owned(),
+                    arm_id: "treatment-a".to_owned(),
+                    outcome: 3.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "u5".to_owned(),
+                    arm_id: "treatment-b".to_owned(),
+                    outcome: 0.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "u6".to_owned(),
+                    arm_id: "treatment-b".to_owned(),
+                    outcome: 1.0,
+                },
             ],
         };
         let inference = study
