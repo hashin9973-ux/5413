@@ -1,5 +1,6 @@
 use crate::action::{ActionAuthorizer, ActionProposal};
 use crate::environment::EnvironmentDescriptor;
+use crate::regression_metrics::ScaledSumSquares;
 use crate::value::DataValue;
 use crate::world_model::{EnsembleWorldModel, WorldModelError};
 
@@ -132,7 +133,7 @@ where
                     DataValue::Object(fields) => fields.clone(),
                     _ => return Err(PlanningError::InvalidState),
                 };
-                let mut squared_uncertainty = 0.0;
+                let mut uncertainty_rms = ScaledSumSquares::default();
                 let mut estimate_count = 0usize;
                 let mut calibrated = true;
                 for (field, estimate) in &prediction.fields {
@@ -141,20 +142,23 @@ where
                     }
                     predicted_state.insert(field.clone(), DataValue::Number(estimate.mean));
                     let std_dev = estimate.total_std_dev();
-                    if !std_dev.is_finite() {
+                    if !std_dev.is_finite() || !uncertainty_rms.push_nonnegative(std_dev) {
                         return Err(PlanningError::InvalidPrediction);
                     }
-                    squared_uncertainty += std_dev * std_dev;
                     estimate_count += 1;
                     calibrated &= estimate.uncertainty_calibrated;
                 }
                 if estimate_count == 0 {
                     continue;
                 }
-                let mut prediction_uncertainty =
-                    (squared_uncertainty / estimate_count as f64).sqrt();
+                let mut prediction_uncertainty = uncertainty_rms
+                    .root_mean_square()
+                    .ok_or(PlanningError::InvalidPrediction)?;
                 if !calibrated {
                     prediction_uncertainty += config.uncalibrated_prediction_penalty;
+                }
+                if !prediction_uncertainty.is_finite() {
+                    return Err(PlanningError::InvalidPrediction);
                 }
 
                 let predicted_state = DataValue::Object(predicted_state);
@@ -173,12 +177,19 @@ where
                 expanded_nodes = expanded_nodes
                     .checked_add(1)
                     .ok_or(PlanningError::CounterOverflow)?;
-                expanded.push(BeamNode {
+                let next = BeamNode {
                     state: predicted_state,
                     steps,
                     cumulative_utility: node.cumulative_utility + step_utility,
                     cumulative_uncertainty: node.cumulative_uncertainty + prediction_uncertainty,
-                });
+                };
+                if !next.cumulative_utility.is_finite()
+                    || !next.cumulative_uncertainty.is_finite()
+                    || !next.score(config).is_finite()
+                {
+                    return Err(PlanningError::NonFiniteUtility);
+                }
+                expanded.push(next);
             }
         }
 
