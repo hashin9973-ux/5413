@@ -865,6 +865,334 @@ fn status_name(status: StrategyStatus) -> &'static str {
     }
 }
 
+/// Trusted implementation boundary for declarative strategy operators.
+///
+/// The engine never compiles or evaluates generated source. A runtime supplies
+/// this executor, which dispatches only to explicitly trusted operator code.
+pub trait StrategyOperatorExecutor {
+    fn execute(
+        &self,
+        operator: &OperatorSpec,
+        inputs: &BTreeMap<String, DataValue>,
+    ) -> Result<BTreeMap<String, DataValue>, String>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrategyExecutionReport {
+    pub outputs: BTreeMap<String, DataValue>,
+    pub executed_nodes: Vec<String>,
+    pub declared_cost_units: u64,
+}
+
+/// Executes a validated strategy DAG through a caller-supplied trusted executor.
+///
+/// The interpreter enforces exact external input sets, runtime port types,
+/// exact output sets, finite values, deterministic topological order, and a
+/// total declared operator-cost budget. The executor remains responsible for
+/// its own internal resource and side-effect restrictions.
+pub fn execute_strategy_graph<E: StrategyOperatorExecutor>(
+    graph: &StrategyGraph,
+    catalogue: &OperatorCatalogue,
+    external_values: &BTreeMap<String, DataValue>,
+    executor: &E,
+    maximum_cost_units: u64,
+) -> Result<StrategyExecutionReport, StrategyExecutionError> {
+    graph
+        .validate(catalogue)
+        .map_err(StrategyExecutionError::Graph)?;
+    let declared_cost_units = graph
+        .estimated_cost(catalogue)
+        .map_err(StrategyExecutionError::Graph)?;
+    if declared_cost_units > maximum_cost_units {
+        return Err(StrategyExecutionError::CostBudgetExceeded {
+            estimated: declared_cost_units,
+            maximum: maximum_cost_units,
+        });
+    }
+
+    if external_values.len() != graph.external_inputs.len()
+        || graph
+            .external_inputs
+            .keys()
+            .any(|name| !external_values.contains_key(name))
+    {
+        return Err(StrategyExecutionError::ExternalInputSetMismatch);
+    }
+    for (name, kind) in &graph.external_inputs {
+        let value = external_values
+            .get(name)
+            .ok_or(StrategyExecutionError::ExternalInputSetMismatch)?;
+        if !runtime_value_matches(value, *kind) {
+            return Err(StrategyExecutionError::ExternalInputTypeMismatch(
+                name.clone(),
+            ));
+        }
+        value
+            .validate_finite()
+            .map_err(|_| StrategyExecutionError::NonFiniteExternalInput(name.clone()))?;
+    }
+
+    let nodes: BTreeMap<&str, &StrategyNode> = graph
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect();
+    let mut indegree: BTreeMap<String, usize> = graph
+        .nodes
+        .iter()
+        .map(|node| (node.id.clone(), 0))
+        .collect();
+    let mut outgoing: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for node in &graph.nodes {
+        for binding in node.inputs.values() {
+            if let InputBinding::NodeOutput { node_id, .. } = binding {
+                let degree = indegree
+                    .get_mut(&node.id)
+                    .ok_or(StrategyExecutionError::InvalidGraphState)?;
+                *degree = degree
+                    .checked_add(1)
+                    .ok_or(StrategyExecutionError::InvalidGraphState)?;
+                outgoing
+                    .entry(node_id.clone())
+                    .or_default()
+                    .push(node.id.clone());
+            }
+        }
+    }
+
+    // BTreeSet makes the order deterministic when multiple nodes are ready.
+    let mut ready: BTreeSet<String> = indegree
+        .iter()
+        .filter_map(|(node_id, degree)| (*degree == 0).then_some(node_id.clone()))
+        .collect();
+    let mut resolved: BTreeMap<String, BTreeMap<String, DataValue>> = BTreeMap::new();
+    let mut executed_nodes = Vec::with_capacity(graph.nodes.len());
+
+    while let Some(node_id) = ready.pop_first() {
+        let node = nodes
+            .get(node_id.as_str())
+            .ok_or(StrategyExecutionError::InvalidGraphState)?;
+        let operator = catalogue
+            .get(&node.operator_id)
+            .ok_or(StrategyExecutionError::InvalidGraphState)?;
+        let mut inputs = BTreeMap::new();
+
+        for input_port in &operator.inputs {
+            let binding = node
+                .inputs
+                .get(&input_port.name)
+                .ok_or(StrategyExecutionError::InvalidGraphState)?;
+            let value = match binding {
+                InputBinding::External(name) => external_values.get(name),
+                InputBinding::NodeOutput { node_id, port } => {
+                    resolved.get(node_id).and_then(|outputs| outputs.get(port))
+                }
+            }
+            .ok_or_else(|| StrategyExecutionError::UpstreamValueMissing {
+                node_id: node_id.clone(),
+                port: input_port.name.clone(),
+            })?;
+
+            if !runtime_value_matches(value, input_port.kind) {
+                return Err(StrategyExecutionError::RuntimeInputTypeMismatch {
+                    node_id: node_id.clone(),
+                    port: input_port.name.clone(),
+                });
+            }
+            value
+                .validate_finite()
+                .map_err(|_| StrategyExecutionError::NonFiniteInput {
+                    node_id: node_id.clone(),
+                    port: input_port.name.clone(),
+                })?;
+            inputs.insert(input_port.name.clone(), value.clone());
+        }
+
+        let outputs = executor
+            .execute(operator, &inputs)
+            .map_err(|message| StrategyExecutionError::OperatorFailed {
+                operator_id: operator.id.clone(),
+                message,
+            })?;
+        if outputs.len() != operator.outputs.len() {
+            return Err(StrategyExecutionError::OutputPortSetMismatch(
+                operator.id.clone(),
+            ));
+        }
+        for output_port in &operator.outputs {
+            let value = outputs
+                .get(&output_port.name)
+                .ok_or_else(|| {
+                    StrategyExecutionError::OutputPortSetMismatch(operator.id.clone())
+                })?;
+            value
+                .validate_finite()
+                .map_err(|_| StrategyExecutionError::NonFiniteOutput {
+                    operator_id: operator.id.clone(),
+                    port: output_port.name.clone(),
+                })?;
+            if !runtime_value_matches(value, output_port.kind) {
+                return Err(StrategyExecutionError::RuntimeOutputTypeMismatch {
+                    operator_id: operator.id.clone(),
+                    port: output_port.name.clone(),
+                });
+            }
+        }
+
+        executed_nodes.push(node_id.clone());
+        resolved.insert(node_id.clone(), outputs);
+
+        if let Some(destinations) = outgoing.get(&node_id) {
+            for destination in destinations {
+                let degree = indegree
+                    .get_mut(destination)
+                    .ok_or(StrategyExecutionError::InvalidGraphState)?;
+                *degree = degree
+                    .checked_sub(1)
+                    .ok_or(StrategyExecutionError::InvalidGraphState)?;
+                if *degree == 0 {
+                    ready.insert(destination.clone());
+                }
+            }
+        }
+    }
+
+    if executed_nodes.len() != graph.nodes.len() {
+        return Err(StrategyExecutionError::Graph(StrategyError::CycleDetected));
+    }
+
+    let mut outputs = BTreeMap::new();
+    for (output_name, binding) in &graph.outputs {
+        let value = match binding {
+            InputBinding::External(name) => external_values.get(name),
+            InputBinding::NodeOutput { node_id, port } => {
+                resolved.get(node_id).and_then(|values| values.get(port))
+            }
+        }
+        .ok_or_else(|| StrategyExecutionError::StrategyOutputMissing(output_name.clone()))?;
+        value
+            .validate_finite()
+            .map_err(|_| StrategyExecutionError::NonFiniteStrategyOutput(output_name.clone()))?;
+        outputs.insert(output_name.clone(), value.clone());
+    }
+
+    Ok(StrategyExecutionReport {
+        outputs,
+        executed_nodes,
+        declared_cost_units,
+    })
+}
+
+fn runtime_value_matches(value: &DataValue, kind: ValueKind) -> bool {
+    match kind {
+        ValueKind::Any => true,
+        ValueKind::Null => matches!(value, DataValue::Null),
+        ValueKind::Boolean => matches!(value, DataValue::Bool(_)),
+        ValueKind::Integer => matches!(value, DataValue::Integer(_)),
+        ValueKind::Number => matches!(value, DataValue::Integer(_) | DataValue::Number(_)),
+        ValueKind::Text => matches!(value, DataValue::Text(_)),
+        ValueKind::Sequence => matches!(value, DataValue::Sequence(_)),
+        ValueKind::Object => matches!(value, DataValue::Object(_)),
+        ValueKind::BlobRef => matches!(value, DataValue::BlobRef(_)),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrategyExecutionError {
+    Graph(StrategyError),
+    CostBudgetExceeded {
+        estimated: u64,
+        maximum: u64,
+    },
+    ExternalInputSetMismatch,
+    ExternalInputTypeMismatch(String),
+    NonFiniteExternalInput(String),
+    UpstreamValueMissing {
+        node_id: String,
+        port: String,
+    },
+    RuntimeInputTypeMismatch {
+        node_id: String,
+        port: String,
+    },
+    NonFiniteInput {
+        node_id: String,
+        port: String,
+    },
+    OperatorFailed {
+        operator_id: String,
+        message: String,
+    },
+    OutputPortSetMismatch(String),
+    NonFiniteOutput {
+        operator_id: String,
+        port: String,
+    },
+    RuntimeOutputTypeMismatch {
+        operator_id: String,
+        port: String,
+    },
+    StrategyOutputMissing(String),
+    NonFiniteStrategyOutput(String),
+    InvalidGraphState,
+}
+
+impl std::fmt::Display for StrategyExecutionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Graph(error) => write!(formatter, "strategy graph validation failed: {error}"),
+            Self::CostBudgetExceeded { estimated, maximum } => {
+                write!(formatter, "strategy cost {estimated} exceeds budget {maximum}")
+            }
+            Self::ExternalInputSetMismatch => {
+                write!(formatter, "external input set does not match the strategy declaration")
+            }
+            Self::ExternalInputTypeMismatch(name) => {
+                write!(formatter, "external input {name} has an incompatible value type")
+            }
+            Self::NonFiniteExternalInput(name) => {
+                write!(formatter, "external input {name} contains a non-finite number")
+            }
+            Self::UpstreamValueMissing { node_id, port } => {
+                write!(formatter, "upstream value missing for {node_id}.{port}")
+            }
+            Self::RuntimeInputTypeMismatch { node_id, port } => {
+                write!(formatter, "runtime input type mismatch at {node_id}.{port}")
+            }
+            Self::NonFiniteInput { node_id, port } => {
+                write!(formatter, "runtime input {node_id}.{port} contains a non-finite number")
+            }
+            Self::OperatorFailed {
+                operator_id,
+                message,
+            } => write!(formatter, "trusted operator {operator_id} failed: {message}"),
+            Self::OutputPortSetMismatch(operator_id) => {
+                write!(formatter, "operator {operator_id} returned missing or unexpected outputs")
+            }
+            Self::NonFiniteOutput {
+                operator_id,
+                port,
+            } => write!(formatter, "operator {operator_id}.{port} returned a non-finite number"),
+            Self::RuntimeOutputTypeMismatch {
+                operator_id,
+                port,
+            } => write!(formatter, "operator {operator_id}.{port} returned an incompatible type"),
+            Self::StrategyOutputMissing(name) => {
+                write!(formatter, "strategy output {name} could not be resolved")
+            }
+            Self::NonFiniteStrategyOutput(name) => {
+                write!(formatter, "strategy output {name} contains a non-finite number")
+            }
+            Self::InvalidGraphState => {
+                write!(formatter, "validated strategy graph entered an invalid execution state")
+            }
+        }
+    }
+}
+
+impl std::error::Error for StrategyExecutionError {}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StrategyError {
     InvalidOperator,
@@ -1091,6 +1419,107 @@ mod tests {
             disconnected.validate(&catalogue),
             Err(StrategyError::UnreachableNode)
         );
+    }
+
+    struct DoubleTrustedOperator;
+
+    impl StrategyOperatorExecutor for DoubleTrustedOperator {
+        fn execute(
+            &self,
+            operator: &OperatorSpec,
+            inputs: &BTreeMap<String, DataValue>,
+        ) -> Result<BTreeMap<String, DataValue>, String> {
+            let input = operator
+                .inputs
+                .first()
+                .ok_or_else(|| "operator has no input".to_owned())?;
+            let output = operator
+                .outputs
+                .first()
+                .ok_or_else(|| "operator has no output".to_owned())?;
+            let number = inputs
+                .get(&input.name)
+                .and_then(DataValue::as_f64)
+                .ok_or_else(|| "expected numeric value".to_owned())?;
+            Ok(BTreeMap::from([(
+                output.name.clone(),
+                DataValue::Number(number * 2.0),
+            )]))
+        }
+    }
+
+    struct WrongTypeTrustedOperator;
+
+    impl StrategyOperatorExecutor for WrongTypeTrustedOperator {
+        fn execute(
+            &self,
+            operator: &OperatorSpec,
+            _inputs: &BTreeMap<String, DataValue>,
+        ) -> Result<BTreeMap<String, DataValue>, String> {
+            let output = operator.outputs.first().ok_or_else(|| "no output".to_owned())?;
+            Ok(BTreeMap::from([(
+                output.name.clone(),
+                DataValue::Text("wrong type".to_owned()),
+            )]))
+        }
+    }
+
+    #[test]
+    fn executes_trusted_operators_in_deterministic_order_with_type_and_cost_checks() {
+        let catalogue = catalogue();
+        let graph = graph();
+        let external_values = BTreeMap::from([(
+            "observation".to_owned(),
+            DataValue::Number(3.0),
+        )]);
+        let report = execute_strategy_graph(
+            &graph,
+            &catalogue,
+            &external_values,
+            &DoubleTrustedOperator,
+            7,
+        )
+        .expect("execute strategy");
+        assert_eq!(
+            report.outputs.get("prediction"),
+            Some(&DataValue::Number(12.0))
+        );
+        assert_eq!(report.executed_nodes, vec!["transform", "model"]);
+        assert_eq!(report.declared_cost_units, 7);
+
+        assert_eq!(
+            execute_strategy_graph(
+                &graph,
+                &catalogue,
+                &external_values,
+                &DoubleTrustedOperator,
+                6,
+            ),
+            Err(StrategyExecutionError::CostBudgetExceeded {
+                estimated: 7,
+                maximum: 6,
+            })
+        );
+        assert_eq!(
+            execute_strategy_graph(
+                &graph,
+                &catalogue,
+                &BTreeMap::new(),
+                &DoubleTrustedOperator,
+                7,
+            ),
+            Err(StrategyExecutionError::ExternalInputSetMismatch)
+        );
+        assert!(matches!(
+            execute_strategy_graph(
+                &graph,
+                &catalogue,
+                &external_values,
+                &WrongTypeTrustedOperator,
+                7,
+            ),
+            Err(StrategyExecutionError::RuntimeOutputTypeMismatch { .. })
+        ));
     }
 
     #[test]

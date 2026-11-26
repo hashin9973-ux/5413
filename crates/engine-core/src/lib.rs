@@ -59,9 +59,10 @@ pub use mapping::{
     RepresentationMapping, RepresentationRef,
 };
 pub use meta_learning::{
-    InputBinding, OperatorCatalogue, OperatorSpec, PortSpec, StrategyError, StrategyEvaluation,
-    StrategyGraph, StrategyNode, StrategyPolicy, StrategyRecord, StrategyRegistry, StrategySpec,
-    StrategyStatus,
+    execute_strategy_graph, InputBinding, OperatorCatalogue, OperatorSpec, PortSpec, StrategyError,
+    StrategyEvaluation, StrategyExecutionError, StrategyExecutionReport, StrategyGraph,
+    StrategyNode, StrategyOperatorExecutor, StrategyPolicy, StrategyRecord, StrategyRegistry,
+    StrategySpec, StrategyStatus,
 };
 pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use model_registry::{
