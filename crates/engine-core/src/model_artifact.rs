@@ -306,7 +306,10 @@ impl std::fmt::Display for ModelArtifactError {
                 write!(formatter, "model-artifact encoding failed: {message}")
             }
             Self::Model(error) => write!(formatter, "model-artifact conversion failed: {error}"),
-            Self::Registry(error) => write!(formatter, "representation-registry artifact is invalid: {error}"),
+            Self::Registry(error) => write!(
+                formatter,
+                "representation-registry artifact is invalid: {error}"
+            ),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
@@ -517,9 +520,7 @@ mod tests {
                 },
             )
             .expect("evaluate");
-        registry
-            .promote("state-vocabulary", 1)
-            .expect("promote");
+        registry.promote("state-vocabulary", 1).expect("promote");
 
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
@@ -537,7 +538,10 @@ mod tests {
             assert_eq!(active.status, RepresentationStatus::Active);
             assert_eq!(active.spec.evidence_refs, vec!["episode:1"]);
             assert_eq!(
-                active.evaluation.as_ref().map(|item| item.evaluation_set_id.as_str()),
+                active
+                    .evaluation
+                    .as_ref()
+                    .map(|item| item.evaluation_set_id.as_str()),
                 Some("validation-v1")
             );
         }
