@@ -18,6 +18,7 @@ pub mod model_registry;
 pub mod planning;
 pub mod representation;
 pub mod reasoning;
+pub mod research_cycle;
 pub mod runtime;
 pub mod schema;
 pub mod structure;
@@ -59,6 +60,7 @@ pub use representation::{
     EvaluationPolicy, RegistryError, RepresentationEvaluation, RepresentationKind,
     RepresentationRecord, RepresentationRegistry, RepresentationSpec, RepresentationStatus,
 };
+pub use research_cycle::{run_autonomous_research_cycle, AutonomousResearchConfig, AutonomousResearchError, AutonomousResearchReport};
 pub use reasoning::{
     EvidenceRecord, HypothesisPolicy, HypothesisRecord, HypothesisRegistry, HypothesisSpec,
     HypothesisStatus, ReasoningError,
