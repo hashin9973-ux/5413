@@ -160,6 +160,35 @@ impl EvidenceCommitOutcome {
     }
 }
 
+/// Applies evidence to a staged registry and publishes it in memory only after
+/// the immutable snapshot is durable. A failed write remains observable through
+/// the returned outcome without leaving the caller's registry ahead of storage.
+fn commit_hypothesis_evidence(
+    registry: &mut HypothesisRegistry,
+    hypothesis_id: &str,
+    evidence: EvidenceRecord,
+    policy: HypothesisPolicy,
+    artifact_store: &mut ModelArtifactStore,
+    artifact_ref: &str,
+) -> EvidenceCommitOutcome {
+    let mut candidate_registry = registry.clone();
+    let hypothesis = match candidate_registry
+        .add_evidence(hypothesis_id, evidence, policy)
+        .cloned()
+    {
+        Ok(hypothesis) => hypothesis,
+        Err(error) => return EvidenceCommitOutcome::UpdateRejected { error },
+    };
+
+    match artifact_store.put_hypothesis_registry(artifact_ref, &candidate_registry) {
+        Ok(_) => {
+            *registry = candidate_registry;
+            EvidenceCommitOutcome::Persisted { hypothesis }
+        }
+        Err(error) => EvidenceCommitOutcome::PersistenceFailed { hypothesis, error },
+    }
+}
+
 /// Runs one bounded experiment and then attempts one held-out model improvement.
 ///
 /// The function preflights contracts and immutable references before executing
@@ -385,19 +414,14 @@ where
     };
     // The environment effect is already recorded. Preserve its report even if
     // in-memory evidence validation or durable snapshot storage subsequently fails.
-    let evidence_commit = match hypothesis_registry
-        .add_evidence(hypothesis_id, evidence.clone(), hypothesis_policy)
-        .cloned()
-    {
-        Err(error) => EvidenceCommitOutcome::UpdateRejected { error },
-        Ok(hypothesis) => match artifact_store.put_hypothesis_registry(
-            config.experiment.hypothesis_registry_artifact_ref,
-            hypothesis_registry,
-        ) {
-            Ok(_) => EvidenceCommitOutcome::Persisted { hypothesis },
-            Err(error) => EvidenceCommitOutcome::PersistenceFailed { hypothesis, error },
-        },
-    };
+    let evidence_commit = commit_hypothesis_evidence(
+        hypothesis_registry,
+        hypothesis_id,
+        evidence.clone(),
+        hypothesis_policy,
+        artifact_store,
+        &config.experiment.hypothesis_registry_artifact_ref,
+    );
 
     let learning = run_learning_cycle(
         candidate_model,
@@ -840,6 +864,75 @@ mod tests {
             )
             .expect("fit active model");
         EnsembleWorldModel::new(vec![Box::new(model)]).expect("active ensemble")
+    }
+
+    #[test]
+    fn failed_hypothesis_snapshot_does_not_publish_evidence_in_memory() {
+        let path = temporary_path("hypothesis-transaction");
+        let mut artifact_store = ModelArtifactStore::open(&path).expect("artifact store");
+        artifact_store
+            .put("occupied-hypothesis-reference", DataValue::Null)
+            .expect("occupy immutable hypothesis reference");
+
+        let policy = HypothesisPolicy {
+            minimum_evidence_count: 1,
+            support_probability: 0.8,
+            refutation_probability: 0.2,
+        };
+        let mut registry = HypothesisRegistry::default();
+        registry
+            .insert(
+                HypothesisSpec {
+                    id: "transactional-hypothesis".to_owned(),
+                    claim: DataValue::Text("an advance increases position".to_owned()),
+                    description: "transactional evidence persistence test".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: Some("discovery-source".to_owned()),
+                },
+                policy,
+            )
+            .expect("insert hypothesis");
+        let before = registry.clone();
+
+        let outcome = commit_hypothesis_evidence(
+            &mut registry,
+            "transactional-hypothesis",
+            EvidenceRecord {
+                evidence_ref: "execution-1".to_owned(),
+                dataset_id: "independent-evidence-1".to_owned(),
+                log_likelihood_ratio: 2.0,
+                rationale: "predeclared observation classification".to_owned(),
+            },
+            policy,
+            &mut artifact_store,
+            "occupied-hypothesis-reference",
+        );
+
+        match outcome {
+            EvidenceCommitOutcome::PersistenceFailed { hypothesis, error } => {
+                assert_eq!(hypothesis.evidence.len(), 1);
+                assert!(matches!(error, ModelArtifactError::ReferenceConflict));
+            }
+            EvidenceCommitOutcome::Persisted { .. } => {
+                panic!("conflicting immutable reference must reject persistence")
+            }
+            EvidenceCommitOutcome::UpdateRejected { error } => {
+                panic!("valid evidence update was unexpectedly rejected: {error}")
+            }
+        }
+        assert_eq!(registry, before);
+        assert!(registry
+            .get("transactional-hypothesis")
+            .expect("incumbent hypothesis")
+            .evidence
+            .is_empty());
+        assert_eq!(
+            artifact_store.get("occupied-hypothesis-reference"),
+            Some(&DataValue::Null)
+        );
+
+        drop(artifact_store);
+        std::fs::remove_file(path).expect("remove artifact store");
     }
 
     #[test]
