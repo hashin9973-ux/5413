@@ -1502,10 +1502,11 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(
-            curve.improvements().expect("improvements"),
-            vec![0.0, 0.2, 0.4]
-        );
+        let improvements = curve.improvements().expect("improvements");
+        assert_eq!(improvements.len(), 3);
+        assert!((improvements[0] - 0.0).abs() < 1e-12);
+        assert!((improvements[1] - 0.2).abs() < 1e-12);
+        assert!((improvements[2] - 0.4).abs() < 1e-12);
         assert!((curve.area_under_improvement_curve().expect("area") - 3.0).abs() < 1e-12);
         assert_eq!(
             curve
