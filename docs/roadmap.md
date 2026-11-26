@@ -70,7 +70,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Unique evidence references, provenance dataset IDs, and log-likelihood-ratio accumulation
 - [x] Posterior confidence and explicit support/refutation/inconclusive thresholds
 - [x] Strict versioned snapshot serialization and restore validation
-- [ ] Causal identification from randomized interventions and confounder-aware estimators
+- [x] Paired randomized-trial difference-in-means estimator with uncertainty and strict pair validation
+- [ ] Unpaired/multi-arm estimators, randomization inference, confounder-aware estimators, and sensitivity analysis
 - [ ] Automatic hypothesis generation and expected information gain over candidate experiments
 
 ## Milestone 7 — Cross-environment generalization

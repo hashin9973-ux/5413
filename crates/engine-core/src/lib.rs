@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod action;
+pub mod causal;
 pub mod checkpoint;
 pub mod discovery;
 pub mod environment;
@@ -20,6 +21,7 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
+pub use causal::{AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
     AuthorizationError, AuthorizedAction,
