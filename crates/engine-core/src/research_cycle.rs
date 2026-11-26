@@ -817,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn research_cycle_runs_experiment_updates_evidence_and_promotes_model() {
+    fn research_cycle_preserves_execution_report_when_later_learning_fails() {
         let journal_path = temporary_path("journal");
         let artifact_path = temporary_path("artifacts");
         let mut journal = ExperienceJournal::open(&journal_path).expect("journal");
@@ -879,6 +879,7 @@ mod tests {
             require_calibrated_uncertainty: false,
         };
 
+        let mut model_registry = ModelRegistry::default();
         let report = run_autonomous_research_cycle(
             AutonomousResearchContext {
                 adapter: &mut adapter,
@@ -887,7 +888,7 @@ mod tests {
                 hypothesis_registry: &mut hypothesis_registry,
                 journal: &mut journal,
                 artifact_store: &mut artifact_store,
-                model_registry: &mut ModelRegistry::default(),
+                model_registry: &mut model_registry,
             },
             AutonomousResearchRequest {
                 hypothesis_id: "advance-increases-position",
@@ -1005,6 +1006,126 @@ mod tests {
                 .map(|record| record.spec.version),
             Some(1)
         );
+
+        // A successful environment effect must remain reportable when a later
+        // candidate-evaluation stage fails. The incumbent registry entry must
+        // remain active and no candidate artifact may be published.
+        hypothesis_registry
+            .insert(
+                HypothesisSpec {
+                    id: "advance-increases-position-v2".to_owned(),
+                    claim: DataValue::Text("advance increases the position observation".to_owned()),
+                    description: "independent hypothesis for the injected learning failure".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: Some("independent-discovery-v2".to_owned()),
+                },
+                hypothesis_policy,
+            )
+            .expect("second hypothesis");
+        let mut second_candidate_model =
+            ActionDeltaModel::new("research-candidate", 2).expect("second candidate model");
+        let second_report = run_autonomous_research_cycle(
+            AutonomousResearchContext {
+                adapter: &mut adapter,
+                active_model: &active_model(),
+                candidate_model: &mut second_candidate_model,
+                hypothesis_registry: &mut hypothesis_registry,
+                journal: &mut journal,
+                artifact_store: &mut artifact_store,
+                model_registry: &mut model_registry,
+            },
+            AutonomousResearchRequest {
+                hypothesis_id: "advance-increases-position-v2",
+                experiments: &experiments,
+                action_mappings: &action_mappings,
+                validation_samples: &validation_samples,
+                selection_policy: ExperimentSelectionPolicy {
+                    maximum_resource_cost: 10.0,
+                    maximum_risk: 0.1,
+                    resource_cost_weight: 0.0,
+                    risk_weight: 0.0,
+                    allow_irreversible: false,
+                },
+                hypothesis_policy,
+                promotion_policy,
+                config: AutonomousResearchConfig {
+                    experiment: ExperimentExecutionConfig {
+                        runtime: RuntimeConfig {
+                            execution_id: "research-run-2".to_owned(),
+                            episode_id: "research-episode".to_owned(),
+                            maximum_steps: 1,
+                            authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(
+                                ActionRisk::Reversible,
+                            )),
+                            planning: PlanningConfig {
+                                horizon: 1,
+                                beam_width: 1,
+                                uncertainty_penalty: 0.0,
+                                uncalibrated_prediction_penalty: 0.0,
+                            },
+                        },
+                        evidence_dataset_id: "experiment-evidence-v2".to_owned(),
+                        evidence_rationale: "second intervention outcome".to_owned(),
+                        hypothesis_registry_artifact_ref: "hypotheses-after-run-2".to_owned(),
+                    },
+                    learning: LearningCycleConfig {
+                        episode_id: "research-episode".to_owned(),
+                        training_dataset_id: "episode-training-v2".to_owned(),
+                        validation_dataset_id: "model-holdout-v2".to_owned(),
+                        model_id: "research-candidate".to_owned(),
+                        model_version: 2,
+                        model_artifact_ref: "research-candidate-artifact-v2".to_owned(),
+                        model_registry_artifact_ref: "model-registry-after-run-2".to_owned(),
+                        environment_id: "research-counter".to_owned(),
+                        environment_version: "v1".to_owned(),
+                    },
+                },
+            },
+            AutonomousResearchCallbacks {
+                utility: |state: &DataValue| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .unwrap_or(0.0)
+                },
+                positive_outcome: |state: &DataValue| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .is_some_and(|position| position > 0.0)
+                },
+                evaluate: |_model: &ActionDeltaModel, _samples: &[TransitionSample]| {
+                    Err("injected held-out evaluation failure".to_owned())
+                },
+            },
+        )
+        .expect("execution report survives learning failure");
+
+        assert_eq!(second_report.runtime.steps.len(), 1);
+        assert!(second_report.runtime.steps[0].outcome.completed);
+        assert_eq!(
+            second_report
+                .runtime
+                .final_observation
+                .payload
+                .get("position")
+                .and_then(DataValue::as_f64),
+            Some(2.0)
+        );
+        assert!(second_report.evidence_commit.is_persisted());
+        assert!(matches!(
+            second_report.learning,
+            Err(LearningCycleError::EvaluationFailed(message))
+                if message == "injected held-out evaluation failure"
+        ));
+        assert_eq!(
+            model_registry.active("research-candidate").map(|record| record.spec.version),
+            Some(1)
+        );
+        assert_eq!(model_registry.len(), 1);
+        assert!(artifact_store
+            .get("research-candidate-artifact-v2")
+            .is_none());
 
         drop(artifact_store);
         drop(journal);
