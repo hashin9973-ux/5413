@@ -285,7 +285,9 @@ impl ModelArtifactStore {
         model_artifact_ref: &str,
         calibrator: &ConformalCalibrator,
     ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
-        calibrator.validate().map_err(ModelArtifactError::Calibration)?;
+        calibrator
+            .validate()
+            .map_err(ModelArtifactError::Calibration)?;
         let model = self.load_model(model_artifact_ref)?;
         if model.identity() != &calibrator.model_identity
             || model.training_dataset_id() != Some(calibrator.training_dataset_id.as_str())
@@ -496,8 +498,14 @@ impl std::fmt::Display for ModelArtifactError {
                 write!(formatter, "model-artifact encoding failed: {message}")
             }
             Self::Model(error) => write!(formatter, "model-artifact conversion failed: {error}"),
-            Self::Calibration(error) => write!(formatter, "conformal calibration artifact is invalid: {error}"),
-            Self::CalibrationModelMismatch => write!(formatter, "conformal calibrator does not match the referenced model artifact"),
+            Self::Calibration(error) => write!(
+                formatter,
+                "conformal calibration artifact is invalid: {error}"
+            ),
+            Self::CalibrationModelMismatch => write!(
+                formatter,
+                "conformal calibrator does not match the referenced model artifact"
+            ),
             Self::Registry(error) => write!(
                 formatter,
                 "representation-registry artifact is invalid: {error}"
@@ -597,13 +605,9 @@ mod tests {
             sample("advance", 30.0, 33.0),
             sample("advance", 40.0, 44.0),
         ];
-        let calibrator = ConformalCalibrator::fit(
-            &model,
-            "calibration-v1",
-            &calibration_samples,
-            0.75,
-        )
-        .expect("fit conformal calibrator");
+        let calibrator =
+            ConformalCalibrator::fit(&model, "calibration-v1", &calibration_samples, 0.75)
+                .expect("fit conformal calibrator");
         {
             let mut store = ModelArtifactStore::open(&path).expect("open artifact store");
             store
@@ -620,10 +624,7 @@ mod tests {
         {
             let store = ModelArtifactStore::open(&path).expect("reopen artifact store");
             let restored = store
-                .load_conformal_calibrator(
-                    "calibrator-for-model-v3",
-                    "model-calibrated-v3",
-                )
+                .load_conformal_calibrator("calibrator-for-model-v3", "model-calibrated-v3")
                 .expect("restore calibrator");
             assert_eq!(restored, calibrator);
 
@@ -635,10 +636,7 @@ mod tests {
                 )
                 .expect("fit other version");
             store
-                .load_conformal_calibrator(
-                    "calibrator-for-model-v3",
-                    "model-calibrated-v3",
-                )
+                .load_conformal_calibrator("calibrator-for-model-v3", "model-calibrated-v3")
                 .expect("stored model reference remains valid");
             // A caller cannot substitute an unrelated model artifact reference.
             assert!(matches!(
