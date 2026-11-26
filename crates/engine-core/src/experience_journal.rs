@@ -837,6 +837,157 @@ mod tests {
 
     static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
+    #[derive(Clone, Default)]
+    struct FaultInjectingStorage {
+        shared: std::sync::Arc<std::sync::Mutex<FaultInjectingState>>,
+        cursor: u64,
+    }
+
+    #[derive(Default)]
+    struct FaultInjectingState {
+        bytes: Vec<u8>,
+        write_failure_after: Option<usize>,
+        fail_next_sync: bool,
+    }
+
+    impl FaultInjectingStorage {
+        fn fail_write_after(&self, bytes: usize) {
+            self.shared.lock().expect("storage lock").write_failure_after = Some(bytes);
+        }
+
+        fn fail_next_sync(&self) {
+            self.shared.lock().expect("storage lock").fail_next_sync = true;
+        }
+
+        fn bytes(&self) -> Vec<u8> {
+            self.shared.lock().expect("storage lock").bytes.clone()
+        }
+    }
+
+    impl Read for FaultInjectingStorage {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            let state = self
+                .shared
+                .lock()
+                .map_err(|_| io::Error::other("fault storage lock poisoned"))?;
+            let start = usize::try_from(self.cursor)
+                .map_err(|_| io::Error::other("cursor does not fit usize"))?;
+            if start >= state.bytes.len() {
+                return Ok(0);
+            }
+            let count = output.len().min(state.bytes.len() - start);
+            output[..count].copy_from_slice(&state.bytes[start..start + count]);
+            self.cursor += count as u64;
+            Ok(count)
+        }
+    }
+
+    impl Write for FaultInjectingStorage {
+        fn write(&mut self, input: &[u8]) -> io::Result<usize> {
+            let mut state = self
+                .shared
+                .lock()
+                .map_err(|_| io::Error::other("fault storage lock poisoned"))?;
+            let allowed = match state.write_failure_after {
+                Some(0) => {
+                    state.write_failure_after = None;
+                    return Err(io::Error::other("injected partial-write failure"));
+                }
+                Some(remaining) => remaining.min(input.len()),
+                None => input.len(),
+            };
+            let start = usize::try_from(self.cursor)
+                .map_err(|_| io::Error::other("cursor does not fit usize"))?;
+            let end = start
+                .checked_add(allowed)
+                .ok_or_else(|| io::Error::other("write offset overflow"))?;
+            if start > state.bytes.len() {
+                state.bytes.resize(start, 0);
+            }
+            if end > state.bytes.len() {
+                state.bytes.resize(end, 0);
+            }
+            state.bytes[start..end].copy_from_slice(&input[..allowed]);
+            self.cursor = end as u64;
+            if let Some(remaining) = state.write_failure_after {
+                state.write_failure_after = Some(remaining - allowed);
+            }
+            Ok(allowed)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Seek for FaultInjectingStorage {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            let length = self
+                .shared
+                .lock()
+                .map_err(|_| io::Error::other("fault storage lock poisoned"))?
+                .bytes
+                .len() as i128;
+            let base = match position {
+                SeekFrom::Start(value) => {
+                    self.cursor = value;
+                    return Ok(value);
+                }
+                SeekFrom::End(_) => length,
+                SeekFrom::Current(_) => self.cursor as i128,
+            };
+            let delta = match position {
+                SeekFrom::End(value) | SeekFrom::Current(value) => value as i128,
+                SeekFrom::Start(_) => unreachable!(),
+            };
+            let next = base + delta;
+            if !(0..=u64::MAX as i128).contains(&next) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid seek position",
+                ));
+            }
+            self.cursor = next as u64;
+            Ok(self.cursor)
+        }
+    }
+
+    impl JournalStorage for FaultInjectingStorage {
+        fn sync_all(&mut self) -> io::Result<()> {
+            let mut state = self
+                .shared
+                .lock()
+                .map_err(|_| io::Error::other("fault storage lock poisoned"))?;
+            if state.fail_next_sync {
+                state.fail_next_sync = false;
+                return Err(io::Error::other("injected sync failure"));
+            }
+            Ok(())
+        }
+
+        fn set_len(&mut self, length: u64) -> io::Result<()> {
+            let mut state = self
+                .shared
+                .lock()
+                .map_err(|_| io::Error::other("fault storage lock poisoned"))?;
+            let length = usize::try_from(length)
+                .map_err(|_| io::Error::other("file length does not fit usize"))?;
+            state.bytes.truncate(length);
+            if state.bytes.len() < length {
+                state.bytes.resize(length, 0);
+            }
+            Ok(())
+        }
+    }
+
+    fn prediction_event(value: i64) -> ExperienceEvent {
+        ExperienceEvent::PredictionEvaluated {
+            action_id: "record".to_owned(),
+            predicted: DataValue::Integer(value),
+            observed: DataValue::Integer(value),
+        }
+    }
+
     fn test_path() -> std::path::PathBuf {
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
         std::env::temp_dir().join(format!(
@@ -1036,12 +1187,12 @@ mod tests {
         }
 
         let mut bytes = fs::read(&path).expect("journal should be readable");
-        bytes[4] = 2;
+        bytes[4] = 3;
         fs::write(&path, bytes).expect("version should be changed");
 
         assert!(matches!(
             ExperienceJournal::open(&path),
-            Err(JournalError::UnsupportedVersion(2))
+            Err(JournalError::UnsupportedVersion(3))
         ));
         fs::remove_file(path).expect("test journal should be removed");
     }
@@ -1212,7 +1363,7 @@ mod tests {
         encoder.put_u8(5);
         encoder.put_u32((MAX_COLLECTION_ITEMS as u32) + 1);
 
-        let error = decode_record(&encoder.bytes).expect_err("oversized count must be rejected");
+        let error = decode_record(&encoder.bytes, LEGACY_FORMAT_VERSION).expect_err("oversized count must be rejected");
         assert!(error.contains("configured item limit"));
     }
 
@@ -1268,7 +1419,143 @@ mod tests {
     }
 
     #[test]
-    fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
+
+    #[test]
+    fn idempotent_append_survives_reopen_and_rejects_key_reuse_with_new_content() {
+        let path = test_path();
+        let event = prediction_event(42);
+        let sequence = {
+            let mut journal = ExperienceJournal::open(&path).expect("journal should open");
+            assert_eq!(
+                journal.append_idempotent("request-42", "episode-a", event.clone()),
+                Ok(IdempotentAppendOutcome::Appended { sequence: 0 })
+            );
+            let length_after_first_append = fs::metadata(&path).expect("metadata").len();
+            assert_eq!(
+                journal.append_idempotent("request-42", "episode-a", event.clone()),
+                Ok(IdempotentAppendOutcome::AlreadyPresent { sequence: 0 })
+            );
+            assert_eq!(
+                fs::metadata(&path).expect("metadata").len(),
+                length_after_first_append,
+                "retry must not write a second frame"
+            );
+            assert_eq!(
+                journal.append_idempotent("request-42", "episode-a", prediction_event(43)),
+                Err(JournalError::IdempotencyConflict)
+            );
+            0
+        };
+
+        let mut journal = ExperienceJournal::open(&path).expect("journal should reopen");
+        assert_eq!(
+            journal.append_idempotent("request-42", "episode-a", event),
+            Ok(IdempotentAppendOutcome::AlreadyPresent { sequence })
+        );
+        assert_eq!(journal.len(), 1);
+        assert_eq!(
+            journal.append_idempotent("  ", "episode-a", prediction_event(1)),
+            Err(JournalError::InvalidIdempotencyKey)
+        );
+        drop(journal);
+        fs::remove_file(path).expect("test journal should be removed");
+    }
+
+    #[test]
+    fn legacy_v1_frames_can_be_replayed_and_extended_with_v2_frames() {
+        let path = test_path();
+        let mut encoder = Encoder::default();
+        encoder.put_u64(0);
+        encoder
+            .put_string("legacy-episode")
+            .expect("episode should encode");
+        encoder
+            .put_event(&prediction_event(7), 0)
+            .expect("event should encode");
+        let payload = encoder.bytes;
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&FRAME_MAGIC);
+        frame.extend_from_slice(&LEGACY_FORMAT_VERSION.to_le_bytes());
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(&crc32(&payload).to_le_bytes());
+        frame.extend_from_slice(&payload);
+        fs::write(&path, frame).expect("legacy frame should be written");
+
+        {
+            let mut journal = ExperienceJournal::open(&path).expect("v1 journal should open");
+            assert_eq!(journal.len(), 1);
+            assert_eq!(
+                journal.append_idempotent("v2-key", "new-episode", prediction_event(8)),
+                Ok(IdempotentAppendOutcome::Appended { sequence: 1 })
+            );
+        }
+        let journal = ExperienceJournal::open(&path).expect("mixed-version journal should open");
+        assert_eq!(journal.len(), 2);
+        assert_eq!(journal.records()[0].episode_id, "legacy-episode");
+        assert_eq!(journal.records()[1].episode_id, "new-episode");
+        drop(journal);
+        fs::remove_file(path).expect("test journal should be removed");
+    }
+
+    #[test]
+    fn partial_write_failure_poison_requires_reopen_and_retry_recovers_once() {
+        let storage = FaultInjectingStorage::default();
+        let mut journal = ExperienceJournal::from_storage(Box::new(storage.clone()))
+            .expect("in-memory journal should open");
+        journal
+            .append("episode-a", prediction_event(1))
+            .expect("baseline append should succeed");
+
+        storage.fail_write_after(HEADER_SIZE + 5);
+        assert!(matches!(
+            journal.append_idempotent("retry-key", "episode-a", prediction_event(2)),
+            Err(JournalError::Io(_))
+        ));
+        assert!(matches!(
+            journal.append("episode-a", prediction_event(3)),
+            Err(JournalError::Poisoned)
+        ));
+        drop(journal);
+
+        let mut recovered = ExperienceJournal::from_storage(Box::new(storage.clone()))
+            .expect("partial final frame should be truncated on reopen");
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(
+            recovered.append_idempotent("retry-key", "episode-a", prediction_event(2)),
+            Ok(IdempotentAppendOutcome::Appended { sequence: 1 })
+        );
+        assert_eq!(
+            recovered.append_idempotent("retry-key", "episode-a", prediction_event(2)),
+            Ok(IdempotentAppendOutcome::AlreadyPresent { sequence: 1 })
+        );
+        assert_eq!(recovered.len(), 2);
+    }
+
+    #[test]
+    fn sync_failure_is_ambiguous_but_idempotent_retry_does_not_duplicate() {
+        let storage = FaultInjectingStorage::default();
+        let mut journal = ExperienceJournal::from_storage(Box::new(storage.clone()))
+            .expect("in-memory journal should open");
+        storage.fail_next_sync();
+
+        assert!(matches!(
+            journal.append_idempotent("sync-key", "episode-a", prediction_event(9)),
+            Err(JournalError::Io(_))
+        ));
+        drop(journal);
+
+        let mut recovered = ExperienceJournal::from_storage(Box::new(storage.clone()))
+            .expect("complete frame should be replayed after sync error");
+        assert_eq!(recovered.len(), 1);
+        assert_eq!(
+            recovered.append_idempotent("sync-key", "episode-a", prediction_event(9)),
+            Ok(IdempotentAppendOutcome::AlreadyPresent { sequence: 0 })
+        );
+        assert_eq!(recovered.len(), 1);
+        assert!(!storage.bytes().is_empty());
+    }
+
+        fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
         let mut encoder = Encoder::default();
         encoder
             .put_count(60_000)
