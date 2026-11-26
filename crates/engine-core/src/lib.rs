@@ -82,8 +82,8 @@ pub use mapping::{
     RepresentationMapping, RepresentationRef,
 };
 pub use meta_learning::{
-    execute_strategy_graph, synthesize_unary_strategy_chains, InputBinding, OperatorCatalogue,
-    OperatorSpec, PortSpec, StrategyError, StrategyEvaluation, StrategyExecutionError,
+    execute_strategy_graph, synthesize_strategy_dags, synthesize_unary_strategy_chains, InputBinding, OperatorCatalogue,
+    OperatorSpec, PortSpec, StrategyDagSynthesisPolicy, StrategyError, StrategyEvaluation, StrategyExecutionError,
     StrategyExecutionReport, StrategyGraph, StrategyNode, StrategyOperatorExecutor, StrategyPolicy,
     StrategyRecord, StrategyRegistry, StrategySpec, StrategyStatus, StrategySynthesisError,
     StrategySynthesisPolicy, StrategySynthesisResult, SynthesizedStrategy,

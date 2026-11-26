@@ -1051,6 +1051,236 @@ fn graph_from_unary_chain(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StrategyDagSynthesisPolicy {
+    pub external_inputs: BTreeMap<String, ValueKind>,
+    pub outputs: BTreeMap<String, ValueKind>,
+    pub maximum_nodes: usize,
+    pub maximum_cost_units: u64,
+    pub maximum_candidates: usize,
+    pub maximum_expansions: usize,
+    pub allow_nondeterministic: bool,
+}
+
+impl StrategyDagSynthesisPolicy {
+    pub fn validate(&self) -> Result<(), StrategySynthesisError> {
+        if self.external_inputs.is_empty()
+            || self.outputs.is_empty()
+            || self.external_inputs.keys().any(|name| name.trim().is_empty())
+            || self.outputs.keys().any(|name| name.trim().is_empty())
+            || self.maximum_nodes == 0
+            || self.maximum_candidates == 0
+            || self.maximum_expansions == 0
+        {
+            return Err(StrategySynthesisError::InvalidPolicy);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct AvailableStrategyValue {
+    kind: ValueKind,
+    binding: InputBinding,
+}
+
+#[derive(Clone)]
+struct StrategyDagState {
+    nodes: Vec<StrategyNode>,
+    used_operator_ids: BTreeSet<String>,
+    available: BTreeMap<String, AvailableStrategyValue>,
+    cost_units: u64,
+}
+
+/// Synthesizes bounded typed DAGs using registered operators with one or more
+/// inputs and outputs. New nodes may consume external values or outputs of any
+/// earlier node, so independent branches can be composed and merged.
+pub fn synthesize_strategy_dags(
+    catalogue: &OperatorCatalogue,
+    policy: StrategyDagSynthesisPolicy,
+) -> Result<StrategySynthesisResult, StrategySynthesisError> {
+    policy.validate()?;
+    let available = policy
+        .external_inputs
+        .iter()
+        .map(|(name, kind)| {
+            (
+                format!("external/{name}"),
+                AvailableStrategyValue {
+                    kind: *kind,
+                    binding: InputBinding::External(name.clone()),
+                },
+            )
+        })
+        .collect();
+    let mut queue = VecDeque::from([StrategyDagState {
+        nodes: Vec::new(),
+        used_operator_ids: BTreeSet::new(),
+        available,
+        cost_units: 0,
+    }]);
+    let mut candidates = Vec::new();
+    let mut expanded_states = 0usize;
+    let mut truncated = false;
+
+    while let Some(state) = queue.pop_front() {
+        if state.nodes.len() >= policy.maximum_nodes {
+            continue;
+        }
+        for operator in catalogue.iter() {
+            if state.used_operator_ids.contains(&operator.id)
+                || (!policy.allow_nondeterministic && !operator.deterministic)
+            {
+                continue;
+            }
+            let next_cost = state
+                .cost_units
+                .checked_add(operator.cost_units)
+                .ok_or(StrategySynthesisError::CostOverflow)?;
+            if next_cost > policy.maximum_cost_units {
+                continue;
+            }
+            let remaining = policy.maximum_expansions.saturating_sub(expanded_states);
+            if remaining == 0 {
+                truncated = true;
+                break;
+            }
+            let (assignments, assignment_search_truncated) =
+                enumerate_strategy_inputs(&operator.inputs, &state.available, remaining);
+            truncated |= assignment_search_truncated;
+            for inputs in assignments {
+                if expanded_states >= policy.maximum_expansions {
+                    truncated = true;
+                    break;
+                }
+                expanded_states += 1;
+                let node_id = format!("node-{}", state.nodes.len());
+                let mut next = state.clone();
+                next.nodes.push(StrategyNode {
+                    id: node_id.clone(),
+                    operator_id: operator.id.clone(),
+                    inputs,
+                });
+                next.used_operator_ids.insert(operator.id.clone());
+                next.cost_units = next_cost;
+                for output in &operator.outputs {
+                    next.available.insert(
+                        format!("{node_id}/{}", output.name),
+                        AvailableStrategyValue {
+                            kind: output.kind,
+                            binding: InputBinding::NodeOutput {
+                                node_id: node_id.clone(),
+                                port: output.name.clone(),
+                            },
+                        },
+                    );
+                }
+                if let Some(outputs) = resolve_strategy_outputs(&policy.outputs, &next.available) {
+                    let graph = StrategyGraph {
+                        external_inputs: policy.external_inputs.clone(),
+                        nodes: next.nodes.clone(),
+                        outputs,
+                    };
+                    match graph.validate(catalogue) {
+                        Ok(()) => {
+                            let id = format!("synthesized-dag-{}", candidates.len() + 1);
+                            candidates.push(SynthesizedStrategy {
+                                id,
+                                graph,
+                                cost_units: next.cost_units,
+                            });
+                            if candidates.len() >= policy.maximum_candidates {
+                                return Ok(StrategySynthesisResult {
+                                    candidates,
+                                    expanded_states,
+                                    truncated: true,
+                                });
+                            }
+                        }
+                        Err(StrategyError::UnreachableNode) => {}
+                        Err(error) => return Err(StrategySynthesisError::Graph(error)),
+                    }
+                } else if next.nodes.len() < policy.maximum_nodes {
+                    queue.push_back(next);
+                }
+            }
+            if expanded_states >= policy.maximum_expansions {
+                truncated = true;
+                break;
+            }
+        }
+        if expanded_states >= policy.maximum_expansions {
+            break;
+        }
+    }
+    Ok(StrategySynthesisResult {
+        candidates,
+        expanded_states,
+        truncated: truncated || !queue.is_empty(),
+    })
+}
+
+fn enumerate_strategy_inputs(
+    ports: &[PortSpec],
+    available: &BTreeMap<String, AvailableStrategyValue>,
+    maximum_assignments: usize,
+) -> (Vec<BTreeMap<String, InputBinding>>, bool) {
+    fn visit(
+        ports: &[PortSpec],
+        available: &BTreeMap<String, AvailableStrategyValue>,
+        index: usize,
+        current: &mut BTreeMap<String, InputBinding>,
+        results: &mut Vec<BTreeMap<String, InputBinding>>,
+        maximum: usize,
+        truncated: &mut bool,
+    ) {
+        if results.len() >= maximum {
+            *truncated = true;
+            return;
+        }
+        if index == ports.len() {
+            results.push(current.clone());
+            return;
+        }
+        let port = &ports[index];
+        for value in available.values().filter(|value| value.kind == port.kind) {
+            current.insert(port.name.clone(), value.binding.clone());
+            visit(ports, available, index + 1, current, results, maximum, truncated);
+            current.remove(&port.name);
+            if *truncated {
+                return;
+            }
+        }
+    }
+
+    let mut results = Vec::new();
+    let mut truncated = false;
+    visit(
+        ports,
+        available,
+        0,
+        &mut BTreeMap::new(),
+        &mut results,
+        maximum_assignments,
+        &mut truncated,
+    );
+    (results, truncated)
+}
+
+fn resolve_strategy_outputs(
+    requested: &BTreeMap<String, ValueKind>,
+    available: &BTreeMap<String, AvailableStrategyValue>,
+) -> Option<BTreeMap<String, InputBinding>> {
+    let mut outputs = BTreeMap::new();
+    for (name, expected_kind) in requested {
+        let source = available
+            .values()
+            .find(|value| value.kind == *expected_kind)?;
+        outputs.insert(name.clone(), source.binding.clone());
+    }
+    Some(outputs)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StrategySynthesisError {
     InvalidPolicy,
     CostOverflow,
@@ -1756,6 +1986,95 @@ mod tests {
             ),
             Err(StrategyExecutionError::RuntimeOutputTypeMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn synthesizes_multi_input_dags_that_merge_independent_branches() {
+        let mut catalogue = OperatorCatalogue::default();
+        catalogue.register(OperatorSpec {
+            id: "encode-label".to_owned(),
+            inputs: vec![PortSpec { name: "raw".to_owned(), kind: ValueKind::Number }],
+            outputs: vec![PortSpec { name: "label".to_owned(), kind: ValueKind::Text }],
+            cost_units: 2,
+            deterministic: true,
+        }).expect("register label encoder");
+        catalogue.register(OperatorSpec {
+            id: "classify-state".to_owned(),
+            inputs: vec![PortSpec { name: "raw".to_owned(), kind: ValueKind::Number }],
+            outputs: vec![PortSpec { name: "flag".to_owned(), kind: ValueKind::Boolean }],
+            cost_units: 3,
+            deterministic: true,
+        }).expect("register classifier");
+        catalogue.register(OperatorSpec {
+            id: "combine-features".to_owned(),
+            inputs: vec![
+                PortSpec { name: "label".to_owned(), kind: ValueKind::Text },
+                PortSpec { name: "flag".to_owned(), kind: ValueKind::Boolean },
+            ],
+            outputs: vec![PortSpec { name: "features".to_owned(), kind: ValueKind::Object }],
+            cost_units: 4,
+            deterministic: true,
+        }).expect("register combiner");
+        let result = synthesize_strategy_dags(
+            &catalogue,
+            StrategyDagSynthesisPolicy {
+                external_inputs: BTreeMap::from([
+                    ("position".to_owned(), ValueKind::Number),
+                    ("velocity".to_owned(), ValueKind::Number),
+                ]),
+                outputs: BTreeMap::from([("representation".to_owned(), ValueKind::Object)]),
+                maximum_nodes: 3,
+                maximum_cost_units: 9,
+                maximum_candidates: 10,
+                maximum_expansions: 100,
+                allow_nondeterministic: false,
+            },
+        ).expect("DAG synthesis");
+        assert!(!result.candidates.is_empty());
+        assert!(result.candidates.iter().any(|candidate| {
+            candidate.graph.nodes.len() == 3
+                && candidate.graph.nodes.iter().any(|node| {
+                    node.operator_id == "combine-features" && node.inputs.len() == 2
+                })
+        }));
+        for candidate in &result.candidates {
+            candidate.graph.validate(&catalogue).expect("synthesized graph validates");
+            assert!(candidate.cost_units <= 9);
+            assert!(candidate.graph.nodes.len() <= 3);
+        }
+    }
+
+    #[test]
+    fn multi_input_synthesis_respects_expansion_and_determinism_limits() {
+        let mut catalogue = OperatorCatalogue::default();
+        catalogue.register(OperatorSpec {
+            id: "nondeterministic-combine".to_owned(),
+            inputs: vec![
+                PortSpec { name: "left".to_owned(), kind: ValueKind::Number },
+                PortSpec { name: "right".to_owned(), kind: ValueKind::Number },
+            ],
+            outputs: vec![PortSpec { name: "out".to_owned(), kind: ValueKind::Number }],
+            cost_units: 1,
+            deterministic: false,
+        }).expect("register");
+        let result = synthesize_strategy_dags(
+            &catalogue,
+            StrategyDagSynthesisPolicy {
+                external_inputs: BTreeMap::from([
+                    ("left".to_owned(), ValueKind::Number),
+                    ("right".to_owned(), ValueKind::Number),
+                ]),
+                outputs: BTreeMap::from([("score".to_owned(), ValueKind::Number)]),
+                maximum_nodes: 1,
+                maximum_cost_units: 1,
+                maximum_candidates: 2,
+                maximum_expansions: 1,
+                allow_nondeterministic: false,
+            },
+        ).expect("synthesis");
+        assert!(result.candidates.is_empty());
+        assert_eq!(result.expanded_states, 0);
+        assert!(!result.truncated);
     }
 
     #[test]
