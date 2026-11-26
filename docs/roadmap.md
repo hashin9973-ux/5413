@@ -18,8 +18,9 @@
 - [x] Episode replay in original append order
 - [x] Versioned record encoding and corruption detection
 - [ ] Checkpoint and restore contract
-- [ ] Idempotency keys and duplicate observation handling
-- [ ] Journal format migration routines
+- [x] Durable idempotency keys and duplicate retry suppression (per single-writer journal)
+- [x] Fault-injected partial-write and sync-failure recovery tests
+- [ ] Journal format rewrite/migration tooling (v1 read compatibility is implemented)
 
 ## Milestone 3 — Dynamic representation learning
 
