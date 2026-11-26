@@ -140,3 +140,8 @@ After a completed environment action, `AutonomousResearchReport` retains the run
 ## Model-disagreement exploration
 
 `rank_model_disagreement_actions` ranks caller-supplied action proposals using one-step predicted task utility and the root-sum-square of ensemble epistemic standard deviations, less declared resource and risk penalties. It requires at least two models, validates each action through the environment descriptor and `ActionAuthorizer`, and applies hard maximum cost/risk filters before ranking. The disagreement term is scale-dependent and is an exploration heuristic, not a calibrated mutual-information estimate; reward and risk estimates remain supplied by the caller/environment integration.
+
+
+## Dynamic active exploration runtime
+
+`run_receding_horizon_with_selector` calls a typed action-selector callback against each newly validated observation before planning and execution. `run_model_disagreement_exploration` uses this hook to rank caller-supplied actions at every step with the current environment descriptor and state. It returns per-step ranking snapshots and the normal runtime report. Each selected proposal is still passed through `ActionAuthorizer` again immediately before execution; action intent and outcome are durably journaled; the caller's maximum-step budget bounds the episode. Model disagreement remains a scale-dependent heuristic, not a formal information-gain guarantee.

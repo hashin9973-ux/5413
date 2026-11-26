@@ -28,6 +28,10 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
+pub use active_exploration::{
+    run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
+    ActiveExplorationRequest,
+};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
     AuthorizationError, AuthorizedAction,
@@ -98,7 +102,8 @@ pub use research_cycle::{
     ExperimentExecutionConfig, LearningCycleConfig, LearningCycleError, LearningCycleReport,
 };
 pub use runtime::{
-    run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,
+    run_receding_horizon, run_receding_horizon_with_selector, PredictionErrorMetrics,
+    RuntimeConfig, RuntimeError, RuntimeReport,
     RuntimeStepReport, RuntimeTermination,
 };
 pub use schema::{
