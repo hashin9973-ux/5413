@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 #[derive(Clone, Debug)]
 pub struct ActiveExplorationRequest {
     pub candidate_actions: Vec<ModelExplorationCandidate>,
+    pub maximum_actions_per_plan: usize,
     pub selection_policy: ModelExplorationPolicy,
     pub runtime: RuntimeConfig,
 }
@@ -71,6 +72,7 @@ where
     request.validate(model)?;
     let ActiveExplorationRequest {
         candidate_actions,
+        maximum_actions_per_plan,
         selection_policy,
         runtime,
     } = request;
@@ -335,6 +337,7 @@ mod tests {
                     resource_cost: 0.0,
                 },
             ],
+            maximum_actions_per_plan: 2,
             selection_policy: ModelExplorationPolicy {
                 maximum_resource_cost: 1.0,
                 maximum_action_risk: ActionRisk::Reversible,
@@ -351,8 +354,8 @@ mod tests {
                     ActionRisk::Reversible,
                 )),
                 planning: PlanningConfig {
-                    horizon: 1,
-                    beam_width: 1,
+                    horizon: 2,
+                    beam_width: 4,
                     uncertainty_penalty: 0.0,
                     uncalibrated_prediction_penalty: 0.0,
                 },

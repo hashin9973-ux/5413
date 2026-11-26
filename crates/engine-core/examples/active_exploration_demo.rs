@@ -186,6 +186,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         &trained_ensemble()?,
         ActiveExplorationRequest {
             candidate_actions: candidates,
+            maximum_actions_per_plan: 2,
             selection_policy: ModelExplorationPolicy {
                 maximum_resource_cost: 5.0,
                 maximum_action_risk: ActionRisk::Reversible,
@@ -202,9 +203,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     ActionRisk::Reversible,
                 )),
                 planning: PlanningConfig {
-                    horizon: 1,
-                    beam_width: 1,
-                    uncertainty_penalty: 0.0,
+                    horizon: 2,
+                    beam_width: 4,
+                    uncertainty_penalty: 0.1,
                     uncalibrated_prediction_penalty: 0.0,
                 },
             },

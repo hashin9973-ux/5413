@@ -67,3 +67,6 @@ The research-cycle report preserves the completed runtime result after an enviro
 ### Dynamic active exploration
 
 `run_model_disagreement_exploration` performs bounded exploration over a sequence of fresh observations. At every step it ranks the candidate actions using predicted task utility and ensemble disagreement, executes only the top eligible proposal through the existing authorized runtime, journals the intent and outcome, measures prediction error, and repeats up to `RuntimeConfig.maximum_steps`. The selector therefore sees updated state rather than reusing a stale initial snapshot. It requires at least two predictive models and caller-supplied utility, action proposals, risk policy, and cost estimates.
+
+
+Active exploration supports a configurable `maximum_actions_per_plan`: the disagreement/risk/cost ranker shortlists the top-K proposals, and the existing beam planner evaluates short sequences over that shortlist. Only the first action is executed before a new observation and a fresh ranking. This combines an exploration heuristic with model-based lookahead without treating the ensemble spread as exact information gain.
