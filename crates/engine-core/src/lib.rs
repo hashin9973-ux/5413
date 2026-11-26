@@ -54,9 +54,9 @@ pub use calibration::{
     PredictionInterval,
 };
 pub use causal::{
-    AssignmentDesign, CausalEffectEstimate, CausalError, MultiArmEffectEstimate,
-    RandomizedArmOutcome, RandomizedMultiArmEstimate, RandomizedMultiArmStudy, PairedOutcome,
-    PairedRandomizedStudy,
+    AssignmentDesign, CausalEffectEstimate, CausalError, MultiArmEffectEstimate, PairedOutcome,
+    PairedRandomizedStudy, RandomizedArmOutcome, RandomizedMultiArmEstimate,
+    RandomizedMultiArmStudy,
 };
 pub use checkpoint::{
     restore_state, CheckpointAppendOutcome, CheckpointError, CheckpointSnapshot, CheckpointStore,

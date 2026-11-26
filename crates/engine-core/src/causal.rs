@@ -375,10 +375,10 @@ impl RandomizedMultiArmStudy {
             if !self.allocation_plan.contains_key(&observation.arm_id) {
                 return Err(CausalError::UnknownArm);
             }
-            let count = observed_counts.entry(observation.arm_id.clone()).or_default();
-            *count = count
-                .checked_add(1)
-                .ok_or(CausalError::NumericalOverflow)?;
+            let count = observed_counts
+                .entry(observation.arm_id.clone())
+                .or_default();
+            *count = count.checked_add(1).ok_or(CausalError::NumericalOverflow)?;
         }
         for (arm_id, planned_count) in &self.allocation_plan {
             if observed_counts.get(arm_id).copied().unwrap_or(0) != *planned_count {
@@ -413,8 +413,7 @@ impl RandomizedMultiArmStudy {
             if *arm_id == self.control_arm_id {
                 continue;
             }
-            let (treatment_mean, treatment_variance) =
-                mean_and_sample_variance(treatment_values)?;
+            let (treatment_mean, treatment_variance) = mean_and_sample_variance(treatment_values)?;
             let mean_effect = treatment_mean - control_mean;
             let standard_error = (treatment_variance / treatment_values.len() as f64
                 + control_variance / control_count as f64)
@@ -475,10 +474,22 @@ impl RandomizedMultiArmStudy {
     pub fn to_artifact_value(&self) -> DataValue {
         DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("experiment_id".to_owned(), DataValue::Text(self.experiment_id.clone())),
-            ("dataset_id".to_owned(), DataValue::Text(self.dataset_id.clone())),
-            ("control_arm_id".to_owned(), DataValue::Text(self.control_arm_id.clone())),
-            ("outcome_label".to_owned(), DataValue::Text(self.outcome_label.clone())),
+            (
+                "experiment_id".to_owned(),
+                DataValue::Text(self.experiment_id.clone()),
+            ),
+            (
+                "dataset_id".to_owned(),
+                DataValue::Text(self.dataset_id.clone()),
+            ),
+            (
+                "control_arm_id".to_owned(),
+                DataValue::Text(self.control_arm_id.clone()),
+            ),
+            (
+                "outcome_label".to_owned(),
+                DataValue::Text(self.outcome_label.clone()),
+            ),
             (
                 "assignment_design".to_owned(),
                 DataValue::Text(
@@ -489,16 +500,20 @@ impl RandomizedMultiArmStudy {
                     .to_owned(),
                 ),
             ),
-            ("assignment_seed".to_owned(), DataValue::Text(self.assignment_seed.to_string())),
-            ("randomization_protocol".to_owned(), DataValue::Text(self.randomization_protocol.clone())),
+            (
+                "assignment_seed".to_owned(),
+                DataValue::Text(self.assignment_seed.to_string()),
+            ),
+            (
+                "randomization_protocol".to_owned(),
+                DataValue::Text(self.randomization_protocol.clone()),
+            ),
             (
                 "allocation_plan".to_owned(),
                 DataValue::Object(
                     self.allocation_plan
                         .iter()
-                        .map(|(arm, count)| {
-                            (arm.clone(), DataValue::Text(count.to_string()))
-                        })
+                        .map(|(arm, count)| (arm.clone(), DataValue::Text(count.to_string())))
                         .collect(),
                 ),
             ),
@@ -521,7 +536,9 @@ impl RandomizedMultiArmStudy {
     }
 
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, CausalError> {
-        let fields = value.as_object().ok_or(CausalError::InvalidSerializedStudy)?;
+        let fields = value
+            .as_object()
+            .ok_or(CausalError::InvalidSerializedStudy)?;
         if fields.len() != 10 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(CausalError::InvalidSerializedStudy);
         }
@@ -542,9 +559,9 @@ impl RandomizedMultiArmStudy {
                 .iter()
                 .map(|(arm, value)| {
                     let count = match value {
-                        DataValue::Text(value) => {
-                            value.parse().map_err(|_| CausalError::InvalidSerializedStudy)?
-                        }
+                        DataValue::Text(value) => value
+                            .parse()
+                            .map_err(|_| CausalError::InvalidSerializedStudy)?,
                         _ => return Err(CausalError::InvalidSerializedStudy),
                     };
                     Ok((arm.clone(), count))
@@ -556,7 +573,9 @@ impl RandomizedMultiArmStudy {
             Some(DataValue::Sequence(values)) => values
                 .iter()
                 .map(|value| {
-                    let item = value.as_object().ok_or(CausalError::InvalidSerializedStudy)?;
+                    let item = value
+                        .as_object()
+                        .ok_or(CausalError::InvalidSerializedStudy)?;
                     if item.len() != 3 {
                         return Err(CausalError::InvalidSerializedStudy);
                     }
@@ -589,7 +608,9 @@ impl RandomizedMultiArmStudy {
             allocation_plan,
             outcomes,
         };
-        study.validate().map_err(|_| CausalError::InvalidSerializedStudy)?;
+        study
+            .validate()
+            .map_err(|_| CausalError::InvalidSerializedStudy)?;
         Ok(study)
     }
 }
@@ -685,12 +706,26 @@ impl std::fmt::Display for CausalError {
             Self::DuplicatePair => write!(formatter, "paired outcome ID is duplicated"),
             Self::NumericalOverflow => write!(formatter, "causal estimate overflowed"),
             Self::InvalidSerializedStudy => write!(formatter, "serialized causal study is invalid"),
-            Self::InvalidMultiArmStudy => write!(formatter, "randomized multi-arm study is invalid"),
-            Self::InvalidMultiArmAllocation => write!(formatter, "planned multi-arm allocation is invalid or underpowered"),
-            Self::InvalidArmOutcome => write!(formatter, "arm outcome requires non-empty unit and arm IDs and a finite value"),
+            Self::InvalidMultiArmStudy => {
+                write!(formatter, "randomized multi-arm study is invalid")
+            }
+            Self::InvalidMultiArmAllocation => write!(
+                formatter,
+                "planned multi-arm allocation is invalid or underpowered"
+            ),
+            Self::InvalidArmOutcome => write!(
+                formatter,
+                "arm outcome requires non-empty unit and arm IDs and a finite value"
+            ),
             Self::DuplicateUnit => write!(formatter, "experimental unit appears more than once"),
-            Self::UnknownArm => write!(formatter, "outcome references an arm absent from the allocation plan"),
-            Self::AllocationMismatch => write!(formatter, "observed arm counts do not match the declared allocation plan"),
+            Self::UnknownArm => write!(
+                formatter,
+                "outcome references an arm absent from the allocation plan"
+            ),
+            Self::AllocationMismatch => write!(
+                formatter,
+                "observed arm counts do not match the declared allocation plan"
+            ),
         }
     }
 }
@@ -811,8 +846,12 @@ mod tests {
         assert_eq!(treatment_a.control_count, 4);
         assert_eq!(treatment_a.treatment_count, 4);
         assert!(treatment_a.standard_error > 0.0);
-        assert!(treatment_a.holm_adjusted_p_value >= treatment_a.two_sided_normal_approximation_p_value);
-        assert!(treatment_b.holm_adjusted_p_value >= treatment_b.two_sided_normal_approximation_p_value);
+        assert!(
+            treatment_a.holm_adjusted_p_value >= treatment_a.two_sided_normal_approximation_p_value
+        );
+        assert!(
+            treatment_b.holm_adjusted_p_value >= treatment_b.two_sided_normal_approximation_p_value
+        );
         assert!(treatment_a.normal_approximation_95_percent_interval.0 < treatment_a.mean_effect);
         assert!(treatment_a.normal_approximation_95_percent_interval.1 > treatment_a.mean_effect);
     }
@@ -821,7 +860,10 @@ mod tests {
     fn multi_arm_study_requires_randomization_unique_units_and_matching_allocation() {
         let mut observational = multi_arm_study();
         observational.assignment_design = AssignmentDesign::Observational;
-        assert_eq!(observational.estimate(), Err(CausalError::RandomizationRequired));
+        assert_eq!(
+            observational.estimate(),
+            Err(CausalError::RandomizationRequired)
+        );
 
         let mut duplicate_unit = multi_arm_study();
         duplicate_unit.outcomes[1].unit_id = duplicate_unit.outcomes[0].unit_id.clone();
@@ -829,7 +871,10 @@ mod tests {
 
         let mut allocation_mismatch = multi_arm_study();
         allocation_mismatch.outcomes.pop();
-        assert_eq!(allocation_mismatch.estimate(), Err(CausalError::InvalidMultiArmAllocation));
+        assert_eq!(
+            allocation_mismatch.estimate(),
+            Err(CausalError::InvalidMultiArmAllocation)
+        );
 
         let mut unknown_arm = multi_arm_study();
         unknown_arm.outcomes[0].arm_id = "unplanned".to_owned();

@@ -229,8 +229,7 @@ impl ModelArtifactStore {
             .artifacts
             .get(artifact_ref)
             .ok_or(ModelArtifactError::NotFound)?;
-        RandomizedMultiArmStudy::from_artifact_value(artifact)
-            .map_err(ModelArtifactError::Causal)
+        RandomizedMultiArmStudy::from_artifact_value(artifact).map_err(ModelArtifactError::Causal)
     }
 
     /// Persists a cross-environment transfer benchmark as an immutable artifact.
