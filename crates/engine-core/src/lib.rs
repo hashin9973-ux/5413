@@ -2,6 +2,7 @@
 
 pub mod action;
 pub mod benchmark;
+pub mod calibration;
 pub mod causal;
 pub mod checkpoint;
 pub mod discovery;
@@ -33,6 +34,7 @@ pub use benchmark::{
     BenchmarkError, FewShotTransferCurve, ScoreDirection, TransferAdaptationPoint,
     TransferBenchmark, TransferEvaluation, TransferSummary,
 };
+pub use calibration::{CalibratedPrediction, ConformalCalibrationError, ConformalCalibrator, FieldCalibration, PredictionInterval};
 pub use causal::{
     AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy,
 };
