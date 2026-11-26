@@ -485,11 +485,15 @@ where
         environment_version: config.environment_version.clone(),
         training_dataset_id: config.training_dataset_id.clone(),
     };
+
+    // Lifecycle mutations happen on a private snapshot. The live registry is
+    // replaced only after its immutable artifact has been persisted successfully.
+    let mut candidate_registry = registry.clone();
     artifact_store
-        .register_model_candidate(registry, spec)
+        .register_model_candidate(&mut candidate_registry, spec)
         .map_err(LearningCycleError::Artifact)?;
 
-    if let Err(error) = registry.evaluate_candidate(
+    if let Err(error) = candidate_registry.evaluate_candidate(
         &config.model_id,
         config.model_version,
         evaluation.clone(),
@@ -498,6 +502,7 @@ where
         persist_model_registry(
             artifact_store,
             registry,
+            candidate_registry,
             &config.model_registry_artifact_ref,
         )?;
         if error != ModelRegistryError::InsufficientEvaluationSamples {
@@ -514,7 +519,8 @@ where
         );
     }
 
-    let promoted = match registry.promote(&config.model_id, config.model_version, policy) {
+    let promoted = match candidate_registry.promote(&config.model_id, config.model_version, policy)
+    {
         Ok(()) => true,
         Err(
             ModelRegistryError::InsufficientImprovement
@@ -524,6 +530,7 @@ where
             persist_model_registry(
                 artifact_store,
                 registry,
+                candidate_registry,
                 &config.model_registry_artifact_ref,
             )?;
             return Err(LearningCycleError::Registry(error));
@@ -532,6 +539,7 @@ where
     persist_model_registry(
         artifact_store,
         registry,
+        candidate_registry,
         &config.model_registry_artifact_ref,
     )?;
     learning_report(
@@ -547,12 +555,14 @@ where
 
 fn persist_model_registry(
     artifact_store: &mut ModelArtifactStore,
-    registry: &ModelRegistry,
+    registry: &mut ModelRegistry,
+    candidate_registry: ModelRegistry,
     artifact_ref: &str,
 ) -> Result<(), LearningCycleError> {
     artifact_store
-        .put_model_registry(artifact_ref, registry)
+        .put_model_registry(artifact_ref, &candidate_registry)
         .map_err(LearningCycleError::Artifact)?;
+    *registry = candidate_registry;
     Ok(())
 }
 
@@ -814,6 +824,191 @@ mod tests {
             )
             .expect("fit active model");
         EnsembleWorldModel::new(vec![Box::new(model)]).expect("active ensemble")
+    }
+
+    #[test]
+    fn failed_registry_snapshot_does_not_publish_candidate_promotion_in_memory() {
+        let path = temporary_path("registry-transaction");
+        let mut artifact_store = ModelArtifactStore::open(&path).expect("artifact store");
+        let mut incumbent_model =
+            ActionDeltaModel::new("transactional-model", 1).expect("incumbent");
+        incumbent_model
+            .fit(
+                "training-v1",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(1.0),
+                        )]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(5.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(6.0),
+                        )]),
+                    },
+                ],
+            )
+            .expect("fit incumbent");
+        let mut candidate_model =
+            ActionDeltaModel::new("transactional-model", 2).expect("candidate");
+        candidate_model
+            .fit(
+                "training-v2",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(1.0),
+                        )]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(5.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(6.0),
+                        )]),
+                    },
+                ],
+            )
+            .expect("fit candidate");
+        artifact_store
+            .put_model("transaction-model-v1", &incumbent_model)
+            .expect("persist incumbent");
+        artifact_store
+            .put_model("transaction-model-v2", &candidate_model)
+            .expect("persist candidate");
+
+        let policy = ModelPromotionPolicy {
+            minimum_evaluation_samples: 2,
+            minimum_improvement: 0.0,
+            resource_cost_weight: 0.0,
+            require_calibrated_uncertainty: false,
+        };
+        let mut registry = ModelRegistry::default();
+        artifact_store
+            .register_model_candidate(
+                &mut registry,
+                ModelCandidateSpec {
+                    id: "transactional-model".to_owned(),
+                    version: 1,
+                    model_artifact_ref: "transaction-model-v1".to_owned(),
+                    environment_id: "counter".to_owned(),
+                    environment_version: "v1".to_owned(),
+                    training_dataset_id: "training-v1".to_owned(),
+                },
+            )
+            .expect("register incumbent");
+        registry
+            .evaluate_candidate(
+                "transactional-model",
+                1,
+                RegistryEvaluation {
+                    evaluation_dataset_id: "holdout-v1".to_owned(),
+                    metric_id: "rmse".to_owned(),
+                    direction: ScoreDirection::LowerIsBetter,
+                    sample_count: 2,
+                    score: 1.0,
+                    resource_cost: 0.0,
+                    uncertainty_calibrated: true,
+                },
+                policy,
+            )
+            .expect("evaluate incumbent");
+        registry
+            .promote("transactional-model", 1, policy)
+            .expect("promote incumbent");
+
+        let mut staged_registry = registry.clone();
+        artifact_store
+            .register_model_candidate(
+                &mut staged_registry,
+                ModelCandidateSpec {
+                    id: "transactional-model".to_owned(),
+                    version: 2,
+                    model_artifact_ref: "transaction-model-v2".to_owned(),
+                    environment_id: "counter".to_owned(),
+                    environment_version: "v1".to_owned(),
+                    training_dataset_id: "training-v2".to_owned(),
+                },
+            )
+            .expect("register candidate");
+        staged_registry
+            .evaluate_candidate(
+                "transactional-model",
+                2,
+                RegistryEvaluation {
+                    evaluation_dataset_id: "holdout-v1".to_owned(),
+                    metric_id: "rmse".to_owned(),
+                    direction: ScoreDirection::LowerIsBetter,
+                    sample_count: 2,
+                    score: 0.5,
+                    resource_cost: 0.0,
+                    uncertainty_calibrated: true,
+                },
+                policy,
+            )
+            .expect("evaluate candidate");
+        staged_registry
+            .promote("transactional-model", 2, policy)
+            .expect("stage candidate promotion");
+
+        artifact_store
+            .put("occupied-registry-reference", DataValue::Null)
+            .expect("occupy immutable registry reference");
+        let incumbent_snapshot = registry.clone();
+        assert!(matches!(
+            persist_model_registry(
+                &mut artifact_store,
+                &mut registry,
+                staged_registry,
+                "occupied-registry-reference",
+            ),
+            Err(LearningCycleError::Artifact(
+                ModelArtifactError::ReferenceConflict
+            ))
+        ));
+        assert_eq!(registry, incumbent_snapshot);
+        assert_eq!(
+            registry
+                .active("transactional-model")
+                .map(|record| record.spec.version),
+            Some(1)
+        );
+        assert_eq!(
+            registry
+                .get("transactional-model", 1)
+                .map(|record| record.status),
+            Some(ModelStatus::Active)
+        );
+        assert_eq!(
+            registry
+                .get("transactional-model", 2),
+            None
+        );
+
+        drop(artifact_store);
+        std::fs::remove_file(path).expect("remove artifact store");
     }
 
     #[test]
