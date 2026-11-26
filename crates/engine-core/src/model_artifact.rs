@@ -6,6 +6,7 @@
 use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
 };
+use crate::representation::{RegistryError, RepresentationRegistry};
 use crate::value::DataValue;
 use crate::world_model::{restore_predictive_model, PredictiveModel, WorldModelError};
 use std::collections::BTreeMap;
@@ -110,6 +111,27 @@ impl ModelArtifactStore {
             .to_artifact_value()
             .map_err(ModelArtifactError::Model)?;
         self.put(artifact_ref, artifact)
+    }
+
+    /// Persists a complete immutable snapshot of a representation registry.
+    pub fn put_representation_registry(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        registry: &RepresentationRegistry,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        self.put(artifact_ref, registry.to_artifact_value())
+    }
+
+    /// Restores a representation registry snapshot from its immutable artifact.
+    pub fn load_representation_registry(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<RepresentationRegistry, ModelArtifactError> {
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        RepresentationRegistry::from_artifact_value(artifact).map_err(ModelArtifactError::Registry)
     }
 
     pub fn get(&self, artifact_ref: &str) -> Option<&DataValue> {
@@ -265,6 +287,7 @@ pub enum ModelArtifactError {
     Io(io::Error),
     Encoding(String),
     Model(WorldModelError),
+    Registry(RegistryError),
     InvalidReference,
     InvalidArtifact,
     NotFound,
@@ -283,6 +306,7 @@ impl std::fmt::Display for ModelArtifactError {
                 write!(formatter, "model-artifact encoding failed: {message}")
             }
             Self::Model(error) => write!(formatter, "model-artifact conversion failed: {error}"),
+            Self::Registry(error) => write!(formatter, "representation-registry artifact is invalid: {error}"),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
@@ -444,6 +468,78 @@ mod tests {
             let store = ModelArtifactStore::open(&path).expect("reopen");
             let restored = store.load_model("context-artifact").expect("restore");
             assert_eq!(restored.predict("move", &state).expect("predict"), expected);
+        }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
+    fn persists_and_restores_representation_registry_snapshot() {
+        use crate::representation::{
+            EvaluationPolicy, RepresentationKind, RepresentationRegistry, RepresentationSpec,
+            RepresentationStatus,
+        };
+        use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
+
+        let path = test_path();
+        let mut registry = RepresentationRegistry::default();
+        registry
+            .register_candidate(RepresentationSpec {
+                id: "state-vocabulary".to_owned(),
+                version: 1,
+                kind: RepresentationKind::Relational,
+                schema: SchemaDefinition {
+                    id: "state-schema".to_owned(),
+                    version: 1,
+                    fields: vec![FieldSpec {
+                        name: "position".to_owned(),
+                        kind: ValueKind::Number,
+                        required: true,
+                    }],
+                    allow_additional_fields: false,
+                },
+                description: "learned state representation".to_owned(),
+                training_set_id: "train-v1".to_owned(),
+                evidence_refs: vec!["episode:1".to_owned()],
+            })
+            .expect("register");
+        registry
+            .evaluate_candidate(
+                "state-vocabulary",
+                1,
+                "validation-v1",
+                &[DataValue::object([(
+                    "position".to_owned(),
+                    DataValue::Number(2.0),
+                )])],
+                EvaluationPolicy {
+                    minimum_validation_samples: 1,
+                    minimum_valid_fraction: 1.0,
+                },
+            )
+            .expect("evaluate");
+        registry
+            .promote("state-vocabulary", 1)
+            .expect("promote");
+
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open");
+            store
+                .put_representation_registry("registry-snapshot-v1", &registry)
+                .expect("persist registry");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen");
+            let restored = store
+                .load_representation_registry("registry-snapshot-v1")
+                .expect("restore registry");
+            let active = restored.active("state-vocabulary").expect("active");
+            assert_eq!(active.spec.version, 1);
+            assert_eq!(active.status, RepresentationStatus::Active);
+            assert_eq!(active.spec.evidence_refs, vec!["episode:1"]);
+            assert_eq!(
+                active.evaluation.as_ref().map(|item| item.evaluation_set_id.as_str()),
+                Some("validation-v1")
+            );
         }
         std::fs::remove_file(path).expect("remove artifact file");
     }

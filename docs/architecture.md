@@ -49,6 +49,7 @@ The current implementation provides the first integrated learning loop, not gene
 - Experiment ranking using a disagreement-based information-gain proxy, supplied utility/cost estimates, and descriptor-declared action risk. It filters invalid or unauthorized proposals but does not execute interventions.
 - Bounded beam-search planning over caller-supplied action proposals with risk/schema checks, configurable uncertainty penalties, and a caller-supplied utility function. The planner returns proposals and predicted states; the caller must re-authorize before execution.
 - Immutable, checksummed model-artifact storage with explicit versioned serialization and restoration for the built-in statistical and contextual linear models.
+- Representation-registry state can be serialized and stored as immutable artifacts, preserving schema definitions, evaluation evidence, and lifecycle state with strict restore-time invariants.
 - Runnable examples for a particle simulator, finite-state workflow, representation discovery/mapping, persistent journal replay, and a synthetic world-model/experiment/planning loop.
 
 ## Predictive-model semantics and limitations
@@ -69,7 +70,7 @@ The planner uses bounded beam search over caller-provided action proposals. It e
 
 ## Deliberately not implemented yet
 
-- Indexed event retrieval, journal/checkpoint/artifact compaction, representation-registry persistence, and cryptographic content addressing. Checkpoints store external model-artifact references; actual built-in model parameters are persisted separately through `ModelArtifactStore`.
+- Indexed event retrieval, journal/checkpoint/artifact compaction, and cryptographic content addressing. Checkpoints store external model-artifact references; actual built-in model parameters are persisted separately through `ModelArtifactStore`.
 - Representation-registry persistence and recovery.
 - Async/streaming adapters and concurrent or multi-writer journal operation.
 - Tensor/image/audio payload storage and modality-specific encoders.

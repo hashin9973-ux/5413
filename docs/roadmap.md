@@ -25,6 +25,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Journal format rewrite/migration tooling (v1 read compatibility is implemented)
 - [ ] Indexed event retrieval and bounded-memory segment compaction
 - [x] Versioned immutable model-artifact persistence and restoration for built-in statistical and contextual models
+- [x] Durable representation-registry snapshot export/import through the immutable artifact store
 - [ ] Artifact compaction, cryptographic content addressing, and full training-manifest provenance
 
 ## Milestone 3 — Dynamic representation learning

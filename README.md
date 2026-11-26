@@ -9,6 +9,7 @@ The current implementation includes:
 - append-only experience capture with a versioned, checksummed file journal, bounded decoding, torn-tail recovery, episode replay, and durable idempotency keys;
 - a separately versioned append-only checkpoint log with torn-tail recovery, monotonic/idempotent snapshot writes, environment/schema binding, and deterministic callback-driven replay after a checkpoint;
 - immutable, checksummed model-artifact persistence with versioned parameter serialization and restoration for built-in statistical and contextual models;
+- durable representation-registry snapshots preserving schemas, versions, evaluation evidence, and candidate/active/rejected/retired lifecycle state;
 - versioned, held-out-evaluated representations and explicit mappings;
 - recursive structural profiling for nested objects and sequences;
 - a pluggable predictive-model contract, an action-conditioned statistical model, and contextual ridge regression;
