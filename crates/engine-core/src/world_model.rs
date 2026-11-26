@@ -2,6 +2,7 @@ use crate::experience::ExperienceRecord;
 use crate::learning::{
     extract_transition_samples, LearningError, NumericDeltaModel, TransitionSample,
 };
+use crate::regression_metrics::{OnlineMean, RegressionErrorAccumulator};
 use crate::value::DataValue;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -813,10 +814,8 @@ fn evaluate_predictions(
         return Err(WorldModelError::NoEvaluationSamples);
     }
 
-    let mut absolute_error = 0.0;
-    let mut squared_error = 0.0;
-    let mut predicted_std_dev = 0.0;
-    let mut predicted_fields = 0usize;
+    let mut errors = RegressionErrorAccumulator::default();
+    let mut mean_predicted_std_dev = OnlineMean::default();
     let mut calibrated_predictions = 0usize;
     let mut covered_predictions = 0usize;
 
@@ -826,35 +825,44 @@ fn evaluate_predictions(
             let Some(actual) = sample.after.get(&name).and_then(DataValue::as_f64) else {
                 continue;
             };
-            let error = estimate.mean - actual;
+            let absolute_error = errors
+                .record_difference(estimate.mean, actual)
+                .ok_or(WorldModelError::NonFinitePrediction)?;
             let std_dev = estimate.total_std_dev();
-            if !error.is_finite() || !std_dev.is_finite() {
+            if !std_dev.is_finite() || !mean_predicted_std_dev.push_nonnegative(std_dev) {
                 return Err(WorldModelError::NonFinitePrediction);
             }
-            absolute_error += error.abs();
-            squared_error += error * error;
-            predicted_std_dev += std_dev;
-            predicted_fields += 1;
             if estimate.uncertainty_calibrated {
                 calibrated_predictions += 1;
-                if error.abs() <= 1.96 * std_dev {
+                let within_95_interval = if std_dev == 0.0 {
+                    absolute_error == 0.0
+                } else {
+                    absolute_error / std_dev <= 1.96
+                };
+                if within_95_interval {
                     covered_predictions += 1;
                 }
             }
         }
     }
 
+    let predicted_fields = errors.numeric_fields();
     if predicted_fields == 0 {
         return Err(WorldModelError::NoEvaluationPredictions);
     }
-    let count = predicted_fields as f64;
+    let summary = errors
+        .finish()
+        .ok_or(WorldModelError::NonFinitePrediction)?;
+    let mean_predicted_std_dev = mean_predicted_std_dev
+        .mean()
+        .ok_or(WorldModelError::NonFinitePrediction)?;
     Ok(ModelEvaluation {
         evaluation_dataset_id: evaluation_dataset_id.to_owned(),
         evaluated_transitions: samples.len(),
         predicted_fields,
-        mean_absolute_error: absolute_error / count,
-        root_mean_squared_error: (squared_error / count).sqrt(),
-        mean_predicted_std_dev: predicted_std_dev / count,
+        mean_absolute_error: summary.mean_absolute_error,
+        root_mean_squared_error: summary.root_mean_squared_error,
+        mean_predicted_std_dev,
         calibrated_predictions,
         empirical_coverage_95: if calibrated_predictions == 0 {
             None
@@ -1283,6 +1291,44 @@ mod tests {
         let estimate = prediction.fields.get("position").expect("position");
         assert_eq!(estimate.mean, 6.0);
         assert_eq!(estimate.epistemic_std_dev, 1.0);
+    }
+
+    #[test]
+    fn held_out_evaluation_uses_stable_metrics_for_large_errors() {
+        let mut model = ActionDeltaModel::new("large-delta", 1).expect("model");
+        model
+            .fit("training", &[sample("advance", 0.0, 1.0e308)])
+            .expect("fit");
+        let report = evaluate_model(
+            &model,
+            "validation",
+            &[sample("advance", 0.0, 0.0), sample("advance", 0.0, 0.0)],
+        )
+        .expect("large finite evaluation");
+
+        assert_eq!(report.predicted_fields, 2);
+        assert!(report.mean_absolute_error.is_finite());
+        assert!(report.root_mean_squared_error.is_finite());
+        assert!(report.mean_predicted_std_dev.is_finite());
+        assert!((report.mean_absolute_error / 1.0e308 - 1.0).abs() < 1.0e-12);
+        assert!((report.root_mean_squared_error / 1.0e308 - 1.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn held_out_evaluation_rejects_unrepresentable_prediction_difference() {
+        let mut model = ActionDeltaModel::new("maximum-delta", 1).expect("model");
+        model
+            .fit("training", &[sample("advance", 0.0, f64::MAX)])
+            .expect("fit");
+
+        assert_eq!(
+            evaluate_model(
+                &model,
+                "validation",
+                &[sample("advance", 0.0, -f64::MAX)],
+            ),
+            Err(WorldModelError::NonFinitePrediction)
+        );
     }
 
     #[test]
