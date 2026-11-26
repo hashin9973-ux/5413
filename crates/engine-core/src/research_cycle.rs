@@ -365,7 +365,9 @@ where
         .last()
         .ok_or(AutonomousResearchError::NoExecutedAction)?;
     if !last_step.outcome.completed {
-        return Err(AutonomousResearchError::ExperimentIncomplete { runtime });
+        return Err(AutonomousResearchError::ExperimentIncomplete {
+            runtime: Box::new(runtime),
+        });
     }
 
     let positive = positive_outcome(&runtime.final_observation.payload);
@@ -650,7 +652,7 @@ pub enum AutonomousResearchError {
     InvalidActionMapping,
     MissingActionMapping,
     NoExecutedAction,
-    ExperimentIncomplete { runtime: RuntimeReport },
+    ExperimentIncomplete { runtime: Box<RuntimeReport> },
     NumericalOverflow,
     Selection(ExperimentSelectionError),
     Reasoning(ReasoningError),
@@ -665,7 +667,7 @@ impl AutonomousResearchError {
     /// must not be interpreted as completed experimental evidence.
     pub fn runtime_report(&self) -> Option<&RuntimeReport> {
         match self {
-            Self::ExperimentIncomplete { runtime } => Some(runtime),
+            Self::ExperimentIncomplete { runtime } => Some(runtime.as_ref()),
             _ => None,
         }
     }
