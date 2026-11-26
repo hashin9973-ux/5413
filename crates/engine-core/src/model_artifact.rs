@@ -3,7 +3,9 @@
 //! References are caller-supplied stable identifiers, not hashes. CRC-32 detects
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
-use crate::benchmark::{BenchmarkError, TransferBenchmark, TransferMatrix};
+use crate::benchmark::{
+    BenchmarkError, LearningEfficiencyCurve, TransferBenchmark, TransferMatrix,
+};
 use crate::calibration::{ConformalCalibrationError, ConformalCalibrator};
 use crate::causal::{CausalError, PairedRandomizedStudy};
 use crate::experience_journal::{
@@ -247,6 +249,30 @@ impl ModelArtifactStore {
             .get(artifact_ref)
             .ok_or(ModelArtifactError::NotFound)?;
         TransferMatrix::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
+    }
+
+    /// Persists a sample-efficiency comparison curve.
+    pub fn put_learning_efficiency_curve(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        curve: &LearningEfficiencyCurve,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        curve
+            .validate()
+            .map_err(ModelArtifactError::Benchmark)?;
+        self.put(artifact_ref, curve.to_artifact_value())
+    }
+
+    pub fn load_learning_efficiency_curve(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<LearningEfficiencyCurve, ModelArtifactError> {
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        LearningEfficiencyCurve::from_artifact_value(artifact)
+            .map_err(ModelArtifactError::Benchmark)
     }
 
     /// Registers only a candidate whose artifact loads and matches its declared identity.

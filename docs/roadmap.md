@@ -93,7 +93,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Multi-task transfer graph optimization and source-selection policy
 
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
-- [ ] Sample-efficiency curves against random and passive-learning baselines
+- [x] Per-seed sample-efficiency curves against caller-declared reference strategies, with area under improvement and samples-to-target metrics
+- [ ] Aggregate confidence intervals across repeated benchmark seeds and benchmark-protocol runner
 - [ ] Calibration, robustness, and out-of-distribution benchmark suites
 - [ ] Transfer evaluation against independent-learning baselines
 - [ ] Environment adaptation without environment-specific changes in the intelligence core

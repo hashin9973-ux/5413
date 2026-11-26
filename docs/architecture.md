@@ -145,3 +145,8 @@ After a completed environment action, `AutonomousResearchReport` retains the run
 ## Dynamic active exploration runtime
 
 `run_receding_horizon_with_selector` calls a typed action-selector callback against each newly validated observation before planning and execution. `run_model_disagreement_exploration` uses this hook to rank caller-supplied actions at every step with the current environment descriptor and state. A configurable top-K shortlist passes into the existing bounded beam planner, which scores short action sequences; only its first action is executed, then the runtime observes and re-ranks. It returns per-step ranking snapshots and the normal runtime report. Each selected proposal is still passed through `ActionAuthorizer` again immediately before execution; action intent and outcome are durably journaled; the caller's maximum-step budget bounds the episode. Model disagreement remains a scale-dependent heuristic, not a formal information-gain guarantee.
+
+
+## Sample-efficiency benchmark records
+
+`LearningEfficiencyCurve` stores a single-seed comparison between a learner strategy and a reference strategy at strictly increasing training-sample budgets. Scores are direction-aware; the evaluation dataset ID must differ from the training dataset ID; every point stores both strategies' declared resource cost. The curve reports raw trapezoidal area under improvement and samples required to cross a configured improvement threshold. Repeated seeds are separate records; aggregate confidence intervals across seeds and an executable benchmark harness remain future work. Dataset identifiers are provenance labels and do not prove disjoint underlying samples.

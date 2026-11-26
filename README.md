@@ -70,3 +70,8 @@ The research-cycle report preserves the completed runtime result after an enviro
 
 
 Active exploration supports a configurable `maximum_actions_per_plan`: the disagreement/risk/cost ranker shortlists the top-K proposals, and the existing beam planner evaluates short sequences over that shortlist. Only the first action is executed before a new observation and a fresh ranking. This combines an exploration heuristic with model-based lookahead without treating the ensemble spread as exact information gain.
+
+
+### Sample-efficiency measurement
+
+`LearningEfficiencyCurve` records paired learner/reference performance at increasing training-sample budgets for a fixed environment, task, metric, evaluation split, and random seed. It reports direction-aware improvement, trapezoidal area under the improvement curve, and the first sample budget that meets a caller-defined improvement threshold. Record multiple seeds as separate curves; the structure deliberately does not pretend that one seed estimates run-to-run variance.

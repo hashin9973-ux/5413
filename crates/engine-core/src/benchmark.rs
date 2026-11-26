@@ -542,6 +542,233 @@ impl FewShotTransferCurve {
     }
 }
 
+/// One repeated-seed comparison of a learning strategy against a reference
+/// strategy at increasing training-sample budgets.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LearningEfficiencyPoint {
+    pub training_samples: usize,
+    pub learner_score: f64,
+    pub reference_score: f64,
+    pub learner_resource_cost: f64,
+    pub reference_resource_cost: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LearningEfficiencyCurve {
+    pub curve_id: String,
+    pub environment_id: String,
+    pub environment_version: String,
+    pub task_id: String,
+    pub learner_strategy_id: String,
+    pub reference_strategy_id: String,
+    pub learner_artifact_ref: String,
+    pub training_dataset_id: String,
+    pub evaluation_dataset_id: String,
+    pub metric_id: String,
+    pub direction: ScoreDirection,
+    pub seed: u64,
+    pub evaluation_sample_count: usize,
+    pub points: Vec<LearningEfficiencyPoint>,
+}
+
+impl LearningEfficiencyCurve {
+    pub fn validate(&self) -> Result<(), BenchmarkError> {
+        if self.curve_id.trim().is_empty()
+            || self.environment_id.trim().is_empty()
+            || self.environment_version.trim().is_empty()
+            || self.task_id.trim().is_empty()
+            || self.learner_strategy_id.trim().is_empty()
+            || self.reference_strategy_id.trim().is_empty()
+            || self.learner_strategy_id == self.reference_strategy_id
+            || self.learner_artifact_ref.trim().is_empty()
+            || self.training_dataset_id.trim().is_empty()
+            || self.evaluation_dataset_id.trim().is_empty()
+            || self.training_dataset_id == self.evaluation_dataset_id
+            || self.metric_id.trim().is_empty()
+            || self.evaluation_sample_count == 0
+            || self.points.len() < 2
+        {
+            return Err(BenchmarkError::InvalidLearningEfficiencyCurve);
+        }
+        let mut previous_samples = None;
+        for point in &self.points {
+            if previous_samples.is_some_and(|previous| point.training_samples <= previous)
+                || !point.learner_score.is_finite()
+                || !point.reference_score.is_finite()
+                || !point.learner_resource_cost.is_finite()
+                || !point.reference_resource_cost.is_finite()
+                || point.learner_resource_cost < 0.0
+                || point.reference_resource_cost < 0.0
+            {
+                return Err(BenchmarkError::InvalidLearningEfficiencyCurve);
+            }
+            previous_samples = Some(point.training_samples);
+        }
+        if self.improvements_unchecked().iter().any(|value| !value.is_finite()) {
+            return Err(BenchmarkError::NumericalOverflow);
+        }
+        Ok(())
+    }
+
+    fn improvements_unchecked(&self) -> Vec<f64> {
+        self.points
+            .iter()
+            .map(|point| match self.direction {
+                ScoreDirection::HigherIsBetter => point.learner_score - point.reference_score,
+                ScoreDirection::LowerIsBetter => point.reference_score - point.learner_score,
+            })
+            .collect()
+    }
+
+    pub fn improvements(&self) -> Result<Vec<f64>, BenchmarkError> {
+        self.validate()?;
+        Ok(self.improvements_unchecked())
+    }
+
+    /// Raw trapezoidal area under improvement versus training samples.
+    pub fn area_under_improvement_curve(&self) -> Result<f64, BenchmarkError> {
+        let improvements = self.improvements()?;
+        let mut area = 0.0;
+        for (index, pair) in self.points.windows(2).enumerate() {
+            let width = (pair[1].training_samples - pair[0].training_samples) as f64;
+            area += width * (improvements[index] + improvements[index + 1]) / 2.0;
+            if !area.is_finite() {
+                return Err(BenchmarkError::NumericalOverflow);
+            }
+        }
+        Ok(area)
+    }
+
+    /// Returns the first training budget at which the learner reaches a
+    /// caller-defined improvement threshold against the reference strategy.
+    pub fn samples_to_target_improvement(
+        &self,
+        target_improvement: f64,
+    ) -> Result<Option<usize>, BenchmarkError> {
+        if !target_improvement.is_finite() || target_improvement < 0.0 {
+            return Err(BenchmarkError::InvalidLearningEfficiencyTarget);
+        }
+        let improvements = self.improvements()?;
+        Ok(self
+            .points
+            .iter()
+            .zip(improvements)
+            .find_map(|(point, improvement)| {
+                (improvement >= target_improvement).then_some(point.training_samples)
+            }))
+    }
+
+    pub fn to_artifact_value(&self) -> DataValue {
+        DataValue::object([
+            ("artifact_version".to_owned(), DataValue::Integer(1)),
+            ("curve_id".to_owned(), DataValue::Text(self.curve_id.clone())),
+            ("environment_id".to_owned(), DataValue::Text(self.environment_id.clone())),
+            ("environment_version".to_owned(), DataValue::Text(self.environment_version.clone())),
+            ("task_id".to_owned(), DataValue::Text(self.task_id.clone())),
+            ("learner_strategy_id".to_owned(), DataValue::Text(self.learner_strategy_id.clone())),
+            ("reference_strategy_id".to_owned(), DataValue::Text(self.reference_strategy_id.clone())),
+            ("learner_artifact_ref".to_owned(), DataValue::Text(self.learner_artifact_ref.clone())),
+            ("training_dataset_id".to_owned(), DataValue::Text(self.training_dataset_id.clone())),
+            ("evaluation_dataset_id".to_owned(), DataValue::Text(self.evaluation_dataset_id.clone())),
+            ("metric_id".to_owned(), DataValue::Text(self.metric_id.clone())),
+            ("direction".to_owned(), DataValue::Text(direction_name(self.direction).to_owned())),
+            ("seed".to_owned(), DataValue::Text(self.seed.to_string())),
+            ("evaluation_sample_count".to_owned(), DataValue::Text(self.evaluation_sample_count.to_string())),
+            (
+                "points".to_owned(),
+                DataValue::Sequence(self.points.iter().map(|point| {
+                    DataValue::object([
+                        ("training_samples".to_owned(), DataValue::Text(point.training_samples.to_string())),
+                        ("learner_score".to_owned(), DataValue::Number(point.learner_score)),
+                        ("reference_score".to_owned(), DataValue::Number(point.reference_score)),
+                        ("learner_resource_cost".to_owned(), DataValue::Number(point.learner_resource_cost)),
+                        ("reference_resource_cost".to_owned(), DataValue::Number(point.reference_resource_cost)),
+                    ])
+                }).collect()),
+            ),
+        ])
+    }
+
+    pub fn from_artifact_value(value: &DataValue) -> Result<Self, BenchmarkError> {
+        let fields = value
+            .as_object()
+            .ok_or(BenchmarkError::InvalidLearningEfficiencyCurve)?;
+        if fields.len() != 15
+            || fields.get("artifact_version") != Some(&DataValue::Integer(1))
+        {
+            return Err(BenchmarkError::InvalidLearningEfficiencyCurve);
+        }
+        let text = |name: &str| match fields.get(name) {
+            Some(DataValue::Text(value)) => Ok(value.clone()),
+            _ => Err(BenchmarkError::InvalidLearningEfficiencyCurve),
+        };
+        let parse_usize = |name: &str| {
+            text(name)?
+                .parse::<usize>()
+                .map_err(|_| BenchmarkError::InvalidLearningEfficiencyCurve)
+        };
+        let direction = match text("direction")?.as_str() {
+            "higher" => ScoreDirection::HigherIsBetter,
+            "lower" => ScoreDirection::LowerIsBetter,
+            _ => return Err(BenchmarkError::InvalidLearningEfficiencyCurve),
+        };
+        let points = match fields.get("points") {
+            Some(DataValue::Sequence(values)) => values
+                .iter()
+                .map(|value| {
+                    let point = value
+                        .as_object()
+                        .ok_or(BenchmarkError::InvalidLearningEfficiencyCurve)?;
+                    if point.len() != 5 {
+                        return Err(BenchmarkError::InvalidLearningEfficiencyCurve);
+                    }
+                    let text = |name: &str| match point.get(name) {
+                        Some(DataValue::Text(value)) => Ok(value.clone()),
+                        _ => Err(BenchmarkError::InvalidLearningEfficiencyCurve),
+                    };
+                    let number = |name: &str| {
+                        point
+                            .get(name)
+                            .and_then(DataValue::as_f64)
+                            .filter(|value| value.is_finite())
+                            .ok_or(BenchmarkError::InvalidLearningEfficiencyCurve)
+                    };
+                    Ok(LearningEfficiencyPoint {
+                        training_samples: text("training_samples")?
+                            .parse()
+                            .map_err(|_| BenchmarkError::InvalidLearningEfficiencyCurve)?,
+                        learner_score: number("learner_score")?,
+                        reference_score: number("reference_score")?,
+                        learner_resource_cost: number("learner_resource_cost")?,
+                        reference_resource_cost: number("reference_resource_cost")?,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            _ => return Err(BenchmarkError::InvalidLearningEfficiencyCurve),
+        };
+        let curve = Self {
+            curve_id: text("curve_id")?,
+            environment_id: text("environment_id")?,
+            environment_version: text("environment_version")?,
+            task_id: text("task_id")?,
+            learner_strategy_id: text("learner_strategy_id")?,
+            reference_strategy_id: text("reference_strategy_id")?,
+            learner_artifact_ref: text("learner_artifact_ref")?,
+            training_dataset_id: text("training_dataset_id")?,
+            evaluation_dataset_id: text("evaluation_dataset_id")?,
+            metric_id: text("metric_id")?,
+            direction,
+            seed: text("seed")?
+                .parse()
+                .map_err(|_| BenchmarkError::InvalidLearningEfficiencyCurve)?,
+            evaluation_sample_count: parse_usize("evaluation_sample_count")?,
+            points,
+        };
+        curve.validate()?;
+        Ok(curve)
+    }
+}
+
 /// Aggregated results for one directed source-to-target environment pair.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransferMatrixCell {
@@ -953,6 +1180,8 @@ pub enum BenchmarkError {
     InvalidAdaptationCurve,
     InvalidTransferMatrix,
     InvalidNegativeTransferPolicy,
+    InvalidLearningEfficiencyCurve,
+    InvalidLearningEfficiencyTarget,
 }
 
 impl std::fmt::Display for BenchmarkError {
@@ -988,6 +1217,12 @@ impl std::fmt::Display for BenchmarkError {
             }
             Self::InvalidNegativeTransferPolicy => {
                 write!(formatter, "negative-transfer diagnosis policy is invalid")
+            }
+            Self::InvalidLearningEfficiencyCurve => {
+                write!(formatter, "learning-efficiency curve is invalid")
+            }
+            Self::InvalidLearningEfficiencyTarget => {
+                write!(formatter, "learning-efficiency target must be finite and non-negative")
             }
         }
     }
@@ -1167,6 +1402,85 @@ mod tests {
             curve.validate(),
             Err(BenchmarkError::InvalidAdaptationCurve)
         );
+    }
+
+    #[test]
+    fn learning_efficiency_curve_compares_strategies_and_finds_sample_threshold() {
+        let curve = LearningEfficiencyCurve {
+            curve_id: "active-versus-random-seed-7".to_owned(),
+            environment_id: "grid".to_owned(),
+            environment_version: "v2".to_owned(),
+            task_id: "reach-goal".to_owned(),
+            learner_strategy_id: "active-learning".to_owned(),
+            reference_strategy_id: "random-exploration".to_owned(),
+            learner_artifact_ref: "model-active-v3".to_owned(),
+            training_dataset_id: "grid-training-seed-7".to_owned(),
+            evaluation_dataset_id: "grid-heldout-seed-7".to_owned(),
+            metric_id: "goal-success-rate".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
+            seed: 7,
+            evaluation_sample_count: 100,
+            points: vec![
+                LearningEfficiencyPoint {
+                    training_samples: 0,
+                    learner_score: 0.1,
+                    reference_score: 0.1,
+                    learner_resource_cost: 0.0,
+                    reference_resource_cost: 0.0,
+                },
+                LearningEfficiencyPoint {
+                    training_samples: 10,
+                    learner_score: 0.4,
+                    reference_score: 0.2,
+                    learner_resource_cost: 2.0,
+                    reference_resource_cost: 2.0,
+                },
+                LearningEfficiencyPoint {
+                    training_samples: 20,
+                    learner_score: 0.7,
+                    reference_score: 0.3,
+                    learner_resource_cost: 4.0,
+                    reference_resource_cost: 4.0,
+                },
+            ],
+        };
+        assert_eq!(curve.improvements().expect("improvements"), vec![0.0, 0.2, 0.4]);
+        assert!((curve.area_under_improvement_curve().expect("area") - 3.0).abs() < 1e-12);
+        assert_eq!(curve.samples_to_target_improvement(0.25).expect("threshold"), Some(20));
+        assert_eq!(curve.samples_to_target_improvement(0.5).expect("threshold"), None);
+        assert_eq!(
+            LearningEfficiencyCurve::from_artifact_value(&curve.to_artifact_value()).expect("restore"),
+            curve
+        );
+    }
+
+    #[test]
+    fn learning_efficiency_curve_rejects_leakage_and_invalid_sample_budgets() {
+        let mut curve = LearningEfficiencyCurve {
+            curve_id: "curve".to_owned(),
+            environment_id: "environment".to_owned(),
+            environment_version: "v1".to_owned(),
+            task_id: "task".to_owned(),
+            learner_strategy_id: "learner".to_owned(),
+            reference_strategy_id: "random".to_owned(),
+            learner_artifact_ref: "model-v1".to_owned(),
+            training_dataset_id: "same".to_owned(),
+            evaluation_dataset_id: "same".to_owned(),
+            metric_id: "rmse".to_owned(),
+            direction: ScoreDirection::LowerIsBetter,
+            seed: 0,
+            evaluation_sample_count: 10,
+            points: vec![
+                LearningEfficiencyPoint { training_samples: 5, learner_score: 0.9, reference_score: 1.0, learner_resource_cost: 1.0, reference_resource_cost: 1.0 },
+                LearningEfficiencyPoint { training_samples: 5, learner_score: 0.8, reference_score: 1.0, learner_resource_cost: 2.0, reference_resource_cost: 2.0 },
+            ],
+        };
+        assert_eq!(curve.validate(), Err(BenchmarkError::InvalidLearningEfficiencyCurve));
+        curve.training_dataset_id = "train".to_owned();
+        curve.evaluation_dataset_id = "holdout".to_owned();
+        assert_eq!(curve.validate(), Err(BenchmarkError::InvalidLearningEfficiencyCurve));
+        curve.points[1].training_samples = 10;
+        assert_eq!(curve.validate(), Ok(()));
     }
 
     #[test]
