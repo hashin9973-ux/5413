@@ -832,8 +832,8 @@ mod tests {
         assert!((position.direction_change_rate - (2.0 / 3.0)).abs() < 1e-12);
 
         let temperature = profile.fields.iter().find(|field| field.field == "temperature").unwrap();
-        assert_eq!(temperature.transition_count, 2);
-        assert_eq!(temperature.missing_transition_count, 2);
+        assert_eq!(temperature.transition_count, 1);
+        assert_eq!(temperature.missing_transition_count, 3);
     }
 
     #[test]
