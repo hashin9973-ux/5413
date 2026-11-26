@@ -1336,7 +1336,7 @@ mod tests {
 
     #[test]
     fn exact_multi_arm_inference_requires_attestation_and_enforces_assignment_cap() {
-        let mut study = multi_arm_study();
+        let study = multi_arm_study();
         assert_eq!(
             study.exact_randomization_inference(MultiArmRandomizationInferencePolicy {
                 maximum_assignments: 90,
