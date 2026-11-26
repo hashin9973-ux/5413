@@ -900,7 +900,7 @@ mod tests {
                         .and_then(DataValue::as_f64)
                         .is_some_and(|position| position > 0.0)
                 },
-                evaluate: |model, samples| {
+                evaluate: |model: &ActionDeltaModel, samples: &[TransitionSample]| {
                     let measured = evaluate_model(model, "model-holdout-v1", samples)
                         .map_err(|error| error.to_string())?;
                     Ok(RegistryEvaluation {
