@@ -253,7 +253,6 @@ pub struct MultiOutcomeExecutionConfig {
     pub hypothesis_registry_artifact_ref: String,
 }
 
-#[derive(Debug)]
 pub struct MultiOutcomeExperimentContext<'a, A> {
     pub adapter: &'a mut A,
     pub model: &'a EnsembleWorldModel,
@@ -778,6 +777,7 @@ mod tests {
         let mut journal = ExperienceJournal::open(&journal_path).expect("journal");
         let mut artifacts = ModelArtifactStore::open(&artifact_path).expect("artifacts");
         let mut adapter = CounterEnvironment::new();
+        let model = active_model();
         let mut hypotheses = HypothesisRegistry::default();
         let hypothesis_policy = HypothesisPolicy {
             minimum_evidence_count: 1,
@@ -838,20 +838,20 @@ mod tests {
         let report = run_multi_outcome_experiment(
             MultiOutcomeExperimentContext {
                 adapter: &mut adapter,
-                model: &active_model(),
+                model: &model,
                 hypotheses: &mut hypotheses,
                 journal: &mut journal,
                 artifact_store: &mut artifacts,
             },
             request,
             MultiOutcomeExperimentCallbacks {
-                utility: |state| {
+                utility: |state: &DataValue| -> f64 {
                     state
                         .get("position")
                         .and_then(DataValue::as_f64)
                         .unwrap_or(0.0)
                 },
-                classify_outcome: |state| {
+                classify_outcome: |state: &DataValue| -> Result<String, String> {
                     if state
                         .get("position")
                         .and_then(DataValue::as_f64)
@@ -956,8 +956,8 @@ mod tests {
             },
             request,
             MultiOutcomeExperimentCallbacks {
-                utility: |_| 0.0,
-                classify_outcome: |_| Ok("unmodeled".to_owned()),
+                utility: |_: &DataValue| 0.0,
+                classify_outcome: |_: &DataValue| Ok("unmodeled".to_owned()),
             },
         )
         .expect("experiment");
