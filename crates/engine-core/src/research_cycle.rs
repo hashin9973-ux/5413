@@ -1015,7 +1015,8 @@ mod tests {
                 HypothesisSpec {
                     id: "advance-increases-position-v2".to_owned(),
                     claim: DataValue::Text("advance increases the position observation".to_owned()),
-                    description: "independent hypothesis for the injected learning failure".to_owned(),
+                    description: "independent hypothesis for the injected learning failure"
+                        .to_owned(),
                     prior_probability: 0.5,
                     source_dataset_id: Some("independent-discovery-v2".to_owned()),
                 },
@@ -1119,7 +1120,9 @@ mod tests {
                 if message == "injected held-out evaluation failure"
         ));
         assert_eq!(
-            model_registry.active("research-candidate").map(|record| record.spec.version),
+            model_registry
+                .active("research-candidate")
+                .map(|record| record.spec.version),
             Some(1)
         );
         assert_eq!(model_registry.len(), 1);
