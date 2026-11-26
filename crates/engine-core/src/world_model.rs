@@ -496,8 +496,7 @@ pub fn evaluate_ensemble(
 ) -> Result<ModelEvaluation, WorldModelError> {
     if ensemble
         .training_dataset_ids()
-        .iter()
-        .any(|training_id| *training_id == evaluation_dataset_id)
+        .contains(&evaluation_dataset_id)
     {
         return Err(WorldModelError::EvaluationDatasetLeakage);
     }
@@ -666,8 +665,8 @@ fn fit_linear_field(
             }
         }
     }
-    for diagonal in 1..dimensions {
-        gram[diagonal][diagonal] += regularization;
+    for (diagonal, row) in gram.iter_mut().enumerate().skip(1) {
+        row[diagonal] += regularization;
     }
 
     let coefficients = solve_linear_system(gram, cross)?;
@@ -714,8 +713,8 @@ fn solve_linear_system(
         right_hand_side.swap(pivot, best_row);
 
         let scale = matrix[pivot][pivot];
-        for column in pivot..dimensions {
-            matrix[pivot][column] /= scale;
+        for value in matrix[pivot].iter_mut().skip(pivot) {
+            *value /= scale;
         }
         right_hand_side[pivot] /= scale;
 
