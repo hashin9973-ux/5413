@@ -16,6 +16,7 @@ pub mod experimentation;
 pub mod learning;
 pub mod mapping;
 pub mod meta_learning;
+pub mod multi_outcome;
 pub mod model_artifact;
 pub mod model_registry;
 pub mod planning;
@@ -88,6 +89,13 @@ pub use meta_learning::{
     StrategyGraph, StrategyNode, StrategyOperatorExecutor, StrategyPolicy, StrategyRecord,
     StrategyRegistry, StrategySpec, StrategyStatus, StrategySynthesisError,
     StrategySynthesisPolicy, StrategySynthesisResult, SynthesizedStrategy,
+};
+pub use multi_outcome::{
+    rank_multi_outcome_experiments, run_multi_outcome_experiment, MultiOutcomeActionMapping,
+    MultiOutcomeEvidenceCommitOutcome, MultiOutcomeExecutionConfig, MultiOutcomeExperimentCallbacks,
+    MultiOutcomeExperimentCandidate, MultiOutcomeExperimentContext, MultiOutcomeExperimentError,
+    MultiOutcomeExperimentReport, MultiOutcomeExperimentRequest, MultiOutcomeSelectionPolicy,
+    OutcomeLikelihood, RankedMultiOutcomeExperiment,
 };
 pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use model_registry::{

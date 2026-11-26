@@ -63,7 +63,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Bounded beam-search planner over model-predicted states
 - [x] Planner-side action-schema and risk authorization checks
 - [x] Exact binary-outcome expected information gain and posterior-aware hypothesis updates under caller-supplied likelihoods
-- [ ] Multi-outcome experimental design and online calibration of likelihoods
+- [x] Categorical multi-outcome experiment ranking, one-step authorized execution, likelihood-ratio evidence updates, and durable hypothesis snapshots
+- [ ] Online calibration of experiment likelihoods
 - [ ] Controlled causal interventions with confounder-aware evaluation
 - [ ] Goal predicates, hard constraints, resource budgets, and terminal conditions
 - [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
@@ -81,7 +82,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Paired randomized-trial difference-in-means estimator with uncertainty and strict pair validation
 - [ ] Unpaired/multi-arm estimators, randomization inference, confounder-aware estimators, and sensitivity analysis
 - [x] Binary-outcome expected-information-gain ranking from caller-supplied likelihood models, risk and cost penalties, and irreversible-action constraints
-- [ ] Automatic hypothesis generation, multi-outcome experiment design, and online calibration of experiment likelihoods
+- [ ] Automatic hypothesis generation and online calibration of experiment likelihoods
 
 ## Milestone 7 — Cross-environment generalization
 
