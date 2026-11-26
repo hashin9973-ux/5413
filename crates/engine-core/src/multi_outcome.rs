@@ -11,7 +11,6 @@ use crate::model_artifact::{ModelArtifactError, ModelArtifactStore};
 use crate::reasoning::{
     EvidenceRecord, HypothesisPolicy, HypothesisRecord, HypothesisRegistry, ReasoningError,
 };
-use crate::research_cycle::EvidenceCommitOutcome;
 use crate::runtime::{run_receding_horizon, RuntimeConfig, RuntimeError, RuntimeReport};
 use crate::value::DataValue;
 use crate::world_model::EnsembleWorldModel;
@@ -545,6 +544,12 @@ impl std::fmt::Display for MultiOutcomeExperimentError {
     }
 }
 
+impl From<ReasoningError> for MultiOutcomeExperimentError {
+    fn from(error: ReasoningError) -> Self {
+        Self::Reasoning(error)
+    }
+}
+
 impl std::error::Error for MultiOutcomeExperimentError {}
 
 #[cfg(test)]
@@ -553,7 +558,6 @@ mod tests {
     use crate::action::{
         ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionRisk,
     };
-    use crate::benchmark::ScoreDirection;
     use crate::environment::{
         ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
     };
