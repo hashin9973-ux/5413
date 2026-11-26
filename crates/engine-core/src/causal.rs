@@ -44,6 +44,34 @@ pub struct PairedRandomizedStudy {
     pub pairs: Vec<PairedOutcome>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RandomizationInferencePolicy {
+    pub maximum_assignments: u64,
+    /// Attests that each pair independently randomized which unit received treatment
+    /// with probability one half.
+    pub attest_independent_fair_pair_swaps: bool,
+}
+
+impl Default for RandomizationInferencePolicy {
+    fn default() -> Self {
+        Self {
+            maximum_assignments: 1_048_576,
+            attest_independent_fair_pair_swaps: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PairedRandomizationInference {
+    pub experiment_id: String,
+    pub dataset_id: String,
+    pub pair_count: usize,
+    pub observed_absolute_mean_effect: f64,
+    pub assignment_count: u64,
+    pub extreme_assignment_count: u64,
+    pub exact_two_sided_p_value: f64,
+}
+
 impl PairedRandomizedStudy {
     pub fn validate(&self) -> Result<(), CausalError> {
         if self.assignment_design != AssignmentDesign::Randomized {
@@ -73,6 +101,82 @@ impl PairedRandomizedStudy {
     ///
     /// The interval uses a 1.96 normal critical value. It is an approximation,
     /// not an exact small-sample confidence interval or a randomization test.
+    /// Exhaustively enumerates the paired sign-flip randomization distribution.
+    ///
+    /// This is exact under the sharp null only when treatment was independently
+    /// assigned to either member of every pair with probability one half. That
+    /// assignment mechanism must be explicitly attested in the policy. All 2^n
+    /// assignments are enumerated, including the observed assignment. The hard
+    /// cap is checked before enumeration begins.
+    pub fn exact_randomization_inference(
+        &self,
+        policy: RandomizationInferencePolicy,
+    ) -> Result<PairedRandomizationInference, CausalError> {
+        self.validate()?;
+        if !policy.attest_independent_fair_pair_swaps {
+            return Err(CausalError::RandomizationMechanismNotAttested);
+        }
+        if policy.maximum_assignments == 0 {
+            return Err(CausalError::InvalidInferencePolicy);
+        }
+        let shift = u32::try_from(self.pairs.len())
+            .map_err(|_| CausalError::AssignmentCountOverflow)?;
+        let assignment_count = 1_u64
+            .checked_shl(shift)
+            .ok_or(CausalError::AssignmentCountOverflow)?;
+        if assignment_count > policy.maximum_assignments {
+            return Err(CausalError::AssignmentBudgetExceeded {
+                required: assignment_count,
+                maximum: policy.maximum_assignments,
+            });
+        }
+
+        let differences: Vec<f64> = self
+            .pairs
+            .iter()
+            .map(|pair| pair.treatment_outcome - pair.control_outcome)
+            .collect();
+        let count = differences.len() as f64;
+        let observed_mean = differences.iter().sum::<f64>() / count;
+        if !observed_mean.is_finite() {
+            return Err(CausalError::NumericalOverflow);
+        }
+        let observed_statistic = observed_mean.abs();
+        let tolerance = 8.0 * f64::EPSILON * observed_statistic.max(1.0);
+        let mut extreme_assignment_count = 0_u64;
+
+        for assignment in 0..assignment_count {
+            let mut signed_sum = 0.0;
+            for (index, difference) in differences.iter().enumerate() {
+                if (assignment >> index) & 1 == 0 {
+                    signed_sum += difference;
+                } else {
+                    signed_sum -= difference;
+                }
+            }
+            let statistic = (signed_sum / count).abs();
+            if !statistic.is_finite() {
+                return Err(CausalError::NumericalOverflow);
+            }
+            if statistic + tolerance >= observed_statistic {
+                extreme_assignment_count = extreme_assignment_count
+                    .checked_add(1)
+                    .ok_or(CausalError::NumericalOverflow)?;
+            }
+        }
+
+        Ok(PairedRandomizationInference {
+            experiment_id: self.experiment_id.clone(),
+            dataset_id: self.dataset_id.clone(),
+            pair_count: self.pairs.len(),
+            observed_absolute_mean_effect: observed_statistic,
+            assignment_count,
+            extreme_assignment_count,
+            exact_two_sided_p_value: extreme_assignment_count as f64
+                / assignment_count as f64,
+        })
+    }
+
     pub fn estimate(&self) -> Result<CausalEffectEstimate, CausalError> {
         self.validate()?;
         let count = self.pairs.len() as f64;
@@ -687,6 +791,10 @@ pub enum CausalError {
     DuplicateUnit,
     UnknownArm,
     AllocationMismatch,
+    RandomizationMechanismNotAttested,
+    InvalidInferencePolicy,
+    AssignmentCountOverflow,
+    AssignmentBudgetExceeded { required: u64, maximum: u64 },
 }
 
 impl std::fmt::Display for CausalError {
@@ -773,6 +881,61 @@ mod tests {
         assert_eq!(
             estimate.normal_approximation_95_percent_interval,
             (1.0, 1.0)
+        );
+    }
+
+    #[test]
+    fn exact_paired_randomization_inference_enumerates_every_sign_assignment() {
+        let study = PairedRandomizedStudy {
+            experiment_id: "exact-paired-v1".to_owned(),
+            dataset_id: "exact-paired-data-v1".to_owned(),
+            treatment_label: "treatment".to_owned(),
+            control_label: "control".to_owned(),
+            outcome_label: "score".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            pairs: vec![
+                PairedOutcome { pair_id: "p1".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+                PairedOutcome { pair_id: "p2".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+                PairedOutcome { pair_id: "p3".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+            ],
+        };
+        let inference = study
+            .exact_randomization_inference(RandomizationInferencePolicy {
+                maximum_assignments: 8,
+                attest_independent_fair_pair_swaps: true,
+            })
+            .expect("exact inference");
+        assert_eq!(inference.assignment_count, 8);
+        assert_eq!(inference.extreme_assignment_count, 2);
+        assert_eq!(inference.exact_two_sided_p_value, 0.25);
+        assert_eq!(inference.observed_absolute_mean_effect, 1.0);
+    }
+
+    #[test]
+    fn exact_paired_inference_requires_attestation_and_enforces_work_cap() {
+        let study = PairedRandomizedStudy {
+            experiment_id: "exact-paired-v1".to_owned(),
+            dataset_id: "exact-paired-data-v1".to_owned(),
+            treatment_label: "treatment".to_owned(),
+            control_label: "control".to_owned(),
+            outcome_label: "score".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            pairs: vec![
+                PairedOutcome { pair_id: "p1".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+                PairedOutcome { pair_id: "p2".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+                PairedOutcome { pair_id: "p3".to_owned(), control_outcome: 0.0, treatment_outcome: 1.0 },
+            ],
+        };
+        assert_eq!(
+            study.exact_randomization_inference(RandomizationInferencePolicy::default()),
+            Err(CausalError::RandomizationMechanismNotAttested)
+        );
+        assert_eq!(
+            study.exact_randomization_inference(RandomizationInferencePolicy {
+                maximum_assignments: 7,
+                attest_independent_fair_pair_swaps: true,
+            }),
+            Err(CausalError::AssignmentBudgetExceeded { required: 8, maximum: 7 })
         );
     }
 

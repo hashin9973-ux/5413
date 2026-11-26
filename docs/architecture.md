@@ -170,3 +170,8 @@ After a completed environment action, `AutonomousResearchReport` retains the run
 ## Randomized multi-arm causal estimation
 
 RandomizedMultiArmStudy records independent experimental units, a declared control arm, caller-attested randomization seed/protocol, and a planned allocation for every arm. Validation requires unique units, at least two planned and observed units per arm, no unknown arms, and exact agreement between the allocation plan and observed counts. Each non-control arm is compared with the control using an independent-arm Welch-style standard error. Confidence intervals and two-sided p-values use a normal approximation; Holm-Bonferroni adjusts p-values across treatment contrasts. These are not exact randomization tests, Student-t small-sample intervals, or multiplicity-adjusted confidence intervals. Assignment metadata is provenance, not proof that randomization was correctly performed or that interference is absent. Multi-arm studies can be persisted as immutable artifacts.
+
+
+## Exact paired randomization inference
+
+The paired-study exact test exhaustively enumerates all 2^n sign assignments of the observed within-pair differences and calculates an exact two-sided randomization p-value under the sharp null. It requires an explicit caller attestation that treatment was independently assigned to either member of each pair with probability one half. The enumeration cap is checked before execution. This method is exact for that stated assignment mechanism; it is not a generic permutation test for arbitrary randomized designs.

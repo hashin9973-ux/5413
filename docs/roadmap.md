@@ -82,7 +82,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Strict versioned snapshot serialization and restore validation
 - [x] Paired randomized-trial difference-in-means estimator with uncertainty and strict pair validation
 - [x] Independent-unit randomized multi-arm treatment-vs-control estimates, declared allocation checks, Welch-style standard errors, normal-approximation intervals, Holm-Bonferroni adjustment, and immutable study persistence
-- [ ] Exact randomization inference, confounder-aware estimators, and sensitivity analysis
+- [x] Exact exhaustive paired sign-flip randomization inference under an explicitly attested independent fair-swap assignment mechanism, with a hard enumeration cap
+- [ ] Exact multi-arm randomization inference, confounder-aware estimators, and sensitivity analysis
 - [x] Binary-outcome expected-information-gain ranking from caller-supplied likelihood models, risk and cost penalties, and irreversible-action constraints
 - [ ] Automatic hypothesis generation and online calibration of experiment likelihoods
 
