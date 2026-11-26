@@ -88,7 +88,7 @@ pub use research_cycle::{
     run_autonomous_research_cycle, AutonomousResearchCallbacks, AutonomousResearchConfig,
     AutonomousResearchContext, AutonomousResearchError, AutonomousResearchReport,
     AutonomousResearchRequest, ExperimentActionMapping, ExperimentExecutionConfig,
-    LearningCycleConfig, LearningCycleError, LearningCycleReport,
+    EvidenceCommitOutcome, LearningCycleConfig, LearningCycleError, LearningCycleReport,
 };
 pub use runtime::{
     run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,

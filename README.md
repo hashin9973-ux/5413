@@ -53,3 +53,6 @@ cargo run -p engine-core --example autonomous_research_demo
 ~~~
 
 See [docs/architecture.md](docs/architecture.md) for contracts, safety boundaries, and implementation limits, and [docs/roadmap.md](docs/roadmap.md) for staged milestones.
+
+
+The research-cycle report preserves the completed runtime result after an environment action. Hypothesis update and durable snapshot failures are represented separately as `EvidenceCommitOutcome`, rather than discarding the experiment report. Both possible binary-outcome log-likelihood updates are checked for numerical validity before the intervention.

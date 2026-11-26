@@ -124,10 +124,40 @@ pub struct AutonomousResearchReport {
     pub ranked_candidates: Vec<RankedExperiment>,
     pub runtime: RuntimeReport,
     pub evidence: EvidenceRecord,
-    pub updated_hypothesis: HypothesisRecord,
+    pub evidence_commit: EvidenceCommitOutcome,
     /// Experiment results remain available even when candidate training or
     /// promotion is rejected after the environment effect has occurred.
     pub learning: Result<LearningCycleReport, LearningCycleError>,
+}
+
+/// Result of updating the in-memory hypothesis and persisting its immutable snapshot.
+#[derive(Debug)]
+pub enum EvidenceCommitOutcome {
+    Persisted {
+        hypothesis: HypothesisRecord,
+    },
+    UpdateRejected {
+        error: ReasoningError,
+    },
+    PersistenceFailed {
+        hypothesis: HypothesisRecord,
+        error: ModelArtifactError,
+    },
+}
+
+impl EvidenceCommitOutcome {
+    pub fn hypothesis(&self) -> Option<&HypothesisRecord> {
+        match self {
+            Self::Persisted { hypothesis } | Self::PersistenceFailed { hypothesis, .. } => {
+                Some(hypothesis)
+            }
+            Self::UpdateRejected { .. } => None,
+        }
+    }
+
+    pub fn is_persisted(&self) -> bool {
+        matches!(self, Self::Persisted { .. })
+    }
 }
 
 /// Runs one bounded experiment and then attempts one held-out model improvement.
@@ -284,6 +314,32 @@ where
         return Err(AutonomousResearchError::InvalidLikelihoodModel);
     }
 
+    // Calculate both possible log-likelihood ratios before any external effect.
+    // Subtracting logarithms avoids overflow from dividing tiny probabilities.
+    let positive_log_likelihood_ratio =
+        experiment.observation_probability_if_true.ln()
+            - experiment.observation_probability_if_false.ln();
+    let negative_log_likelihood_ratio =
+        (-experiment.observation_probability_if_true).ln_1p()
+            - (-experiment.observation_probability_if_false).ln_1p();
+    let prior_log_odds = hypothesis.spec.prior_probability.ln()
+        - (-hypothesis.spec.prior_probability).ln_1p();
+    let existing_evidence_log_ratio = hypothesis
+        .evidence
+        .iter()
+        .map(|record| record.log_likelihood_ratio)
+        .sum::<f64>();
+    if !positive_log_likelihood_ratio.is_finite()
+        || !negative_log_likelihood_ratio.is_finite()
+        || !existing_evidence_log_ratio.is_finite()
+        || !(prior_log_odds + existing_evidence_log_ratio + positive_log_likelihood_ratio)
+            .is_finite()
+        || !(prior_log_odds + existing_evidence_log_ratio + negative_log_likelihood_ratio)
+            .is_finite()
+    {
+        return Err(AutonomousResearchError::NumericalOverflow);
+    }
+
     let mut mapping_ids = BTreeSet::new();
     for mapping in action_mappings {
         if mapping.experiment_id.trim().is_empty()
@@ -315,21 +371,11 @@ where
     }
 
     let positive = positive_outcome(&runtime.final_observation.payload);
-    let probability_if_true = if positive {
-        experiment.observation_probability_if_true
+    let log_likelihood_ratio = if positive {
+        positive_log_likelihood_ratio
     } else {
-        1.0 - experiment.observation_probability_if_true
+        negative_log_likelihood_ratio
     };
-    let probability_if_false = if positive {
-        experiment.observation_probability_if_false
-    } else {
-        1.0 - experiment.observation_probability_if_false
-    };
-    let likelihood_ratio = probability_if_true / probability_if_false;
-    let log_likelihood_ratio = likelihood_ratio.ln();
-    if !likelihood_ratio.is_finite() || !log_likelihood_ratio.is_finite() {
-        return Err(AutonomousResearchError::NumericalOverflow);
-    }
 
     let evidence = EvidenceRecord {
         evidence_ref: config.experiment.runtime.execution_id.clone(),
@@ -337,16 +383,21 @@ where
         log_likelihood_ratio,
         rationale: config.experiment.evidence_rationale.clone(),
     };
-    let updated_hypothesis = hypothesis_registry
+    // The environment effect is already recorded. Preserve its report even if
+    // in-memory evidence validation or durable snapshot storage subsequently fails.
+    let evidence_commit = match hypothesis_registry
         .add_evidence(hypothesis_id, evidence.clone(), hypothesis_policy)
-        .map_err(AutonomousResearchError::Reasoning)?
-        .clone();
-    artifact_store
-        .put_hypothesis_registry(
+        .cloned()
+    {
+        Err(error) => EvidenceCommitOutcome::UpdateRejected { error },
+        Ok(hypothesis) => match artifact_store.put_hypothesis_registry(
             config.experiment.hypothesis_registry_artifact_ref,
             hypothesis_registry,
-        )
-        .map_err(AutonomousResearchError::Artifact)?;
+        ) {
+            Ok(_) => EvidenceCommitOutcome::Persisted { hypothesis },
+            Err(error) => EvidenceCommitOutcome::PersistenceFailed { hypothesis, error },
+        },
+    };
 
     let learning = run_learning_cycle(
         candidate_model,
@@ -366,7 +417,7 @@ where
         ranked_candidates,
         runtime,
         evidence,
-        updated_hypothesis,
+        evidence_commit,
         learning,
     })
 }

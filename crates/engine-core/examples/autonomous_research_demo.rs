@@ -275,13 +275,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or(0);
 
     println!("selected experiment: {}", report.selected.experiment_id);
+    let updated_hypothesis = report
+        .evidence_commit
+        .hypothesis()
+        .ok_or("hypothesis evidence update was rejected")?;
+    if !report.evidence_commit.is_persisted() {
+        return Err("hypothesis evidence snapshot was not persisted".into());
+    }
     println!(
         "hypothesis posterior: {:.3} ({:?})",
         restored_hypotheses
             .get("advance-increases-position")
             .map(|record| record.posterior_probability)
             .unwrap_or(0.0),
-        report.updated_hypothesis.status
+        updated_hypothesis.status
     );
     println!(
         "model: v{}; trained on {} episode transition(s); validation RMSE {:.4}",

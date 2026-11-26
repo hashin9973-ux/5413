@@ -130,3 +130,8 @@ The journal's stress and fault-injection tests validate deterministic software r
 ## Active-model restoration
 
 `ModelArtifactStore::load_active_ensemble_from_registry` restores a persisted model-registry snapshot, selects records marked Active for the exact requested environment ID/version, reloads their predictive model artifacts, and verifies model ID, version, and training-dataset ID against each registry record before creating an `EnsembleWorldModel`. Rejected, retired, candidate, and other-environment models are excluded. An environment with no compatible active model returns the existing empty-ensemble model error; callers must decide whether to stop, use a separately authorized cold-start policy, or run discovery.
+
+
+### Post-execution evidence handling
+
+After a completed environment action, `AutonomousResearchReport` retains the runtime report and exposes `EvidenceCommitOutcome`: persisted update, rejected in-memory update, or successful in-memory update with failed durable snapshot. The cycle precomputes both possible log-likelihood updates and checks posterior log-odds finiteness before the environment effect. This avoids losing the recorded experiment result when the separate hypothesis-persistence operation fails. The journal remains the primary durable record of the observed action and outcome.
