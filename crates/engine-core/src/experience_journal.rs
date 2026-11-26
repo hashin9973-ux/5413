@@ -17,15 +17,45 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 const FRAME_MAGIC: [u8; 4] = *b"5413";
-const FORMAT_VERSION: u16 = 1;
+const LEGACY_FORMAT_VERSION: u16 = 1;
+const FORMAT_VERSION: u16 = 2;
 const HEADER_SIZE: usize = 14;
 const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VALUE_NESTING: usize = 128;
 const MAX_COLLECTION_ITEMS: usize = 100_000;
 
+trait JournalStorage: Read + Write + Seek {
+    fn sync_all(&mut self) -> io::Result<()>;
+    fn set_len(&mut self, length: u64) -> io::Result<()>;
+}
+
+impl JournalStorage for File {
+    fn sync_all(&mut self) -> io::Result<()> {
+        File::sync_all(self)
+    }
+
+    fn set_len(&mut self, length: u64) -> io::Result<()> {
+        File::set_len(self, length)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct IdempotencyEntry {
+    sequence: u64,
+    episode_id: String,
+    event: ExperienceEvent,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdempotentAppendOutcome {
+    Appended { sequence: u64 },
+    AlreadyPresent { sequence: u64 },
+}
+
 pub struct ExperienceJournal {
-    file: File,
+    file: Box<dyn JournalStorage>,
     ledger: ExperienceLedger,
+    idempotency_index: BTreeMap<String, IdempotencyEntry>,
     poisoned: bool,
 }
 
@@ -36,19 +66,23 @@ impl ExperienceJournal {
     /// truncated. A complete frame with invalid magic, checksum, encoding, or
     /// sequence is reported as corruption and is never silently discarded.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalError> {
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .read(true)
             .write(true)
             .open(path)?;
+        Self::from_storage(Box::new(file))
+    }
 
-        let ledger = scan_and_recover(&mut file)?;
+    fn from_storage(mut file: Box<dyn JournalStorage>) -> Result<Self, JournalError> {
+        let (ledger, idempotency_index) = scan_and_recover(file.as_mut())?;
         file.seek(SeekFrom::End(0))?;
 
         Ok(Self {
             file,
             ledger,
+            idempotency_index,
             poisoned: false,
         })
     }
@@ -63,6 +97,44 @@ impl ExperienceJournal {
         episode_id: impl Into<String>,
         event: ExperienceEvent,
     ) -> Result<u64, JournalError> {
+        self.append_record(None, episode_id.into(), event)
+    }
+
+    /// Appends an event once for a caller-supplied stable key.
+    ///
+    /// Retrying the same key with the exact same episode and event returns
+    /// AlreadyPresent without another write. Reusing a key for different
+    /// content fails with IdempotencyConflict. Keys survive journal reopen.
+    pub fn append_idempotent(
+        &mut self,
+        idempotency_key: impl Into<String>,
+        episode_id: impl Into<String>,
+        event: ExperienceEvent,
+    ) -> Result<IdempotentAppendOutcome, JournalError> {
+        let idempotency_key = idempotency_key.into();
+        let episode_id = episode_id.into();
+        if idempotency_key.trim().is_empty() {
+            return Err(JournalError::InvalidIdempotencyKey);
+        }
+        if let Some(existing) = self.idempotency_index.get(&idempotency_key) {
+            if existing.episode_id == episode_id && existing.event == event {
+                return Ok(IdempotentAppendOutcome::AlreadyPresent {
+                    sequence: existing.sequence,
+                });
+            }
+            return Err(JournalError::IdempotencyConflict);
+        }
+
+        let sequence = self.append_record(Some(idempotency_key), episode_id, event)?;
+        Ok(IdempotentAppendOutcome::Appended { sequence })
+    }
+
+    fn append_record(
+        &mut self,
+        idempotency_key: Option<String>,
+        episode_id: String,
+        event: ExperienceEvent,
+    ) -> Result<u64, JournalError> {
         if self.poisoned {
             return Err(JournalError::Poisoned);
         }
@@ -74,10 +146,10 @@ impl ExperienceJournal {
 
         let record = ExperienceRecord {
             sequence,
-            episode_id: episode_id.into(),
-            event,
+            episode_id: episode_id.clone(),
+            event: event.clone(),
         };
-        let frame = encode_frame(&record)?;
+        let frame = encode_frame(&record, idempotency_key.as_deref())?;
 
         if let Err(error) = self
             .file
@@ -92,6 +164,16 @@ impl ExperienceJournal {
         if let Err(error) = self.ledger.append_record(record) {
             self.poisoned = true;
             return Err(JournalError::Ledger(error));
+        }
+        if let Some(key) = idempotency_key {
+            self.idempotency_index.insert(
+                key,
+                IdempotencyEntry {
+                    sequence,
+                    episode_id,
+                    event,
+                },
+            );
         }
 
         Ok(sequence)
@@ -122,9 +204,12 @@ impl ExperienceJournal {
     }
 }
 
-fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
+fn scan_and_recover(
+    file: &mut dyn JournalStorage,
+) -> Result<(ExperienceLedger, BTreeMap<String, IdempotencyEntry>), JournalError> {
     file.seek(SeekFrom::Start(0))?;
     let mut ledger = ExperienceLedger::default();
+    let mut idempotency_index = BTreeMap::new();
     let mut offset = 0_u64;
 
     loop {
@@ -146,7 +231,7 @@ fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
         }
 
         let version = u16::from_le_bytes([header[4], header[5]]);
-        if version != FORMAT_VERSION {
+        if version != LEGACY_FORMAT_VERSION && version != FORMAT_VERSION {
             return Err(JournalError::UnsupportedVersion(version));
         }
 
@@ -178,9 +263,30 @@ fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
             });
         }
 
-        let record = decode_record(&payload)
+        let (record, idempotency_key) = decode_record(&payload, version)
             .map_err(|reason| JournalError::CorruptFrame { offset, reason })?;
-        ledger.append_record(record).map_err(JournalError::Ledger)?;
+        ledger
+            .append_record(record.clone())
+            .map_err(JournalError::Ledger)?;
+        if let Some(key) = idempotency_key {
+            if key.trim().is_empty() {
+                return Err(JournalError::CorruptFrame {
+                    offset,
+                    reason: "idempotency key must not be empty".to_owned(),
+                });
+            }
+            let entry = IdempotencyEntry {
+                sequence: record.sequence,
+                episode_id: record.episode_id.clone(),
+                event: record.event.clone(),
+            };
+            if idempotency_index.insert(key, entry).is_some() {
+                return Err(JournalError::CorruptFrame {
+                    offset,
+                    reason: "duplicate idempotency key".to_owned(),
+                });
+            }
+        }
 
         offset = offset
             .checked_add(HEADER_SIZE as u64)
@@ -191,19 +297,26 @@ fn scan_and_recover(file: &mut File) -> Result<ExperienceLedger, JournalError> {
             })?;
     }
 
-    Ok(ledger)
+    Ok((ledger, idempotency_index))
 }
 
-fn truncate_incomplete_tail(file: &mut File, valid_length: u64) -> Result<(), JournalError> {
+fn truncate_incomplete_tail(
+    file: &mut dyn JournalStorage,
+    valid_length: u64,
+) -> Result<(), JournalError> {
     file.set_len(valid_length)?;
     file.sync_all()?;
     Ok(())
 }
 
-fn encode_frame(record: &ExperienceRecord) -> Result<Vec<u8>, JournalError> {
+fn encode_frame(
+    record: &ExperienceRecord,
+    idempotency_key: Option<&str>,
+) -> Result<Vec<u8>, JournalError> {
     let mut encoder = Encoder::default();
     encoder.put_u64(record.sequence);
     encoder.put_string(&record.episode_id)?;
+    encoder.put_optional_string(idempotency_key)?;
     encoder.put_event(&record.event, 0)?;
 
     let payload = encoder.bytes;
@@ -227,20 +340,31 @@ fn encode_frame(record: &ExperienceRecord) -> Result<Vec<u8>, JournalError> {
     Ok(frame)
 }
 
-fn decode_record(payload: &[u8]) -> Result<ExperienceRecord, String> {
+fn decode_record(
+    payload: &[u8],
+    version: u16,
+) -> Result<(ExperienceRecord, Option<String>), String> {
     let mut decoder = Decoder::new(payload);
     let sequence = decoder.read_u64()?;
     let episode_id = decoder.read_string()?;
+    let idempotency_key = if version >= FORMAT_VERSION {
+        decoder.read_optional_string()?
+    } else {
+        None
+    };
     let event = decoder.read_event(0)?;
     if decoder.remaining() != 0 {
         return Err("record contains trailing payload bytes".to_owned());
     }
 
-    Ok(ExperienceRecord {
-        sequence,
-        episode_id,
-        event,
-    })
+    Ok((
+        ExperienceRecord {
+            sequence,
+            episode_id,
+            event,
+        },
+        idempotency_key,
+    ))
 }
 
 #[derive(Default)]
@@ -302,6 +426,17 @@ impl Encoder {
         }
         self.encoded_collection_items = total;
         self.put_length(count)
+    }
+
+    fn put_optional_string(&mut self, value: Option<&str>) -> Result<(), JournalError> {
+        match value {
+            Some(value) => {
+                self.put_u8(1);
+                self.put_string(value)?;
+            }
+            None => self.put_u8(0),
+        }
+        Ok(())
     }
 
     fn put_string(&mut self, value: &str) -> Result<(), JournalError> {
@@ -508,6 +643,14 @@ impl<'a> Decoder<'a> {
         Ok(count)
     }
 
+    fn read_optional_string(&mut self) -> Result<Option<String>, String> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => Ok(Some(self.read_string()?)),
+            _ => Err("invalid optional string tag".to_owned()),
+        }
+    }
+
     fn read_string(&mut self) -> Result<String, String> {
         let length = self.read_u32()? as usize;
         let bytes = self.take(length)?;
@@ -622,6 +765,8 @@ pub enum JournalError {
     FrameTooLarge { size: usize, maximum: usize },
     CorruptFrame { offset: u64, reason: String },
     InvalidNumber,
+    InvalidIdempotencyKey,
+    IdempotencyConflict,
     CollectionTooLarge { size: usize, maximum: usize },
     NestingLimitExceeded,
     Poisoned,
@@ -648,6 +793,11 @@ impl std::fmt::Display for JournalError {
                 )
             }
             Self::InvalidNumber => write!(formatter, "journal cannot encode a non-finite number"),
+            Self::InvalidIdempotencyKey => write!(formatter, "idempotency key must not be empty"),
+            Self::IdempotencyConflict => write!(
+                formatter,
+                "idempotency key was already used for a different episode or event"
+            ),
             Self::CollectionTooLarge { size, maximum } => write!(
                 formatter,
                 "journal collection size {size} exceeds limit {maximum}"
