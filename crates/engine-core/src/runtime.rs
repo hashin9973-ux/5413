@@ -11,6 +11,7 @@ use crate::environment::{
 use crate::experience::ExperienceEvent;
 use crate::experience_journal::{ExperienceJournal, IdempotentAppendOutcome, JournalError};
 use crate::planning::{plan, PlanningConfig, PlanningError};
+use crate::regression_metrics::RegressionErrorAccumulator;
 use crate::value::DataValue;
 use crate::world_model::EnsembleWorldModel;
 
@@ -311,12 +312,7 @@ fn append_once(
 }
 
 fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionErrorMetrics {
-    let mut numeric_fields = 0usize;
-    let mut metric_fields = 0usize;
-    let mut metrics_representable = true;
-    let mut mean_absolute_error = 0.0;
-    let mut rms_scale = 0.0;
-    let mut scaled_squared_error_sum = 0.0;
+    let mut errors = RegressionErrorAccumulator::default();
 
     if let (Some(predicted), Some(observed)) = (predicted.as_object(), observed.as_object()) {
         for (name, predicted_value) in predicted {
@@ -326,57 +322,15 @@ fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionEr
             let Some(observed_number) = observed.get(name).and_then(DataValue::as_f64) else {
                 continue;
             };
-            numeric_fields += 1;
-
-            let error = predicted_number - observed_number;
-            if !error.is_finite() {
-                // The exact difference is outside the f64 range. Keep the field
-                // count, but do not publish misleading infinite aggregate metrics.
-                metrics_representable = false;
-                continue;
-            }
-
-            let absolute_error = error.abs();
-            metric_fields += 1;
-
-            // Incremental mean avoids overflowing an intermediate sum of errors.
-            if metric_fields == 1 {
-                mean_absolute_error = absolute_error;
-            } else {
-                mean_absolute_error +=
-                    (absolute_error - mean_absolute_error) / metric_fields as f64;
-            }
-
-            // Scaled sum-of-squares (LASSQ-style) avoids squaring large errors.
-            if absolute_error > rms_scale {
-                let ratio = if rms_scale == 0.0 {
-                    0.0
-                } else {
-                    rms_scale / absolute_error
-                };
-                scaled_squared_error_sum = 1.0 + scaled_squared_error_sum * ratio * ratio;
-                rms_scale = absolute_error;
-            } else if rms_scale > 0.0 {
-                let ratio = absolute_error / rms_scale;
-                scaled_squared_error_sum += ratio * ratio;
-            }
+            errors.record_difference(predicted_number, observed_number);
         }
     }
 
-    let metrics_available = numeric_fields > 0 && metrics_representable;
-    let root_mean_squared_error = if metrics_available && rms_scale == 0.0 {
-        Some(0.0)
-    } else if metrics_available {
-        let root_mean_square = rms_scale * (scaled_squared_error_sum / metric_fields as f64).sqrt();
-        root_mean_square.is_finite().then_some(root_mean_square)
-    } else {
-        None
-    };
-
+    let metrics = errors.finish();
     PredictionErrorMetrics {
-        numeric_fields,
-        mean_absolute_error: metrics_available.then_some(mean_absolute_error),
-        root_mean_squared_error,
+        numeric_fields: errors.numeric_fields(),
+        mean_absolute_error: metrics.map(|summary| summary.mean_absolute_error),
+        root_mean_squared_error: metrics.map(|summary| summary.root_mean_squared_error),
     }
 }
 
