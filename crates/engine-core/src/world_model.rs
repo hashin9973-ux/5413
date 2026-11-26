@@ -380,15 +380,48 @@ impl PredictiveModel for ContextualLinearModel {
             .training_dataset_id
             .as_ref()
             .ok_or(WorldModelError::NotFitted)?;
-        let features = DataValue::Sequence(self.feature_names.iter().cloned().map(DataValue::Text).collect());
-        let fields = DataValue::Object(self.fields.iter().map(|(name, field)| {
-            (name.clone(), DataValue::object([
-                ("coefficients".to_owned(), DataValue::Sequence(field.coefficients.iter().copied().map(DataValue::Number).collect())),
-                ("residual_std_dev".to_owned(), DataValue::Number(field.residual_std_dev)),
-                ("sample_count".to_owned(), DataValue::Text(field.sample_count.to_string())),
-                ("uncertainty_calibrated".to_owned(), DataValue::Bool(field.uncertainty_calibrated)),
-            ]))
-        }).collect());
+        let features = DataValue::Sequence(
+            self.feature_names
+                .iter()
+                .cloned()
+                .map(DataValue::Text)
+                .collect(),
+        );
+        let fields = DataValue::Object(
+            self.fields
+                .iter()
+                .map(|(name, field)| {
+                    (
+                        name.clone(),
+                        DataValue::object([
+                            (
+                                "coefficients".to_owned(),
+                                DataValue::Sequence(
+                                    field
+                                        .coefficients
+                                        .iter()
+                                        .copied()
+                                        .map(DataValue::Number)
+                                        .collect(),
+                                ),
+                            ),
+                            (
+                                "residual_std_dev".to_owned(),
+                                DataValue::Number(field.residual_std_dev),
+                            ),
+                            (
+                                "sample_count".to_owned(),
+                                DataValue::Text(field.sample_count.to_string()),
+                            ),
+                            (
+                                "uncertainty_calibrated".to_owned(),
+                                DataValue::Bool(field.uncertainty_calibrated),
+                            ),
+                        ]),
+                    )
+                })
+                .collect(),
+        );
         Ok(DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
             (
@@ -404,8 +437,14 @@ impl PredictiveModel for ContextualLinearModel {
                 "training_dataset_id".to_owned(),
                 DataValue::Text(training_dataset_id.clone()),
             ),
-            ("training_samples".to_owned(), DataValue::Text(self.training_samples.to_string())),
-            ("regularization".to_owned(), DataValue::Number(self.regularization)),
+            (
+                "training_samples".to_owned(),
+                DataValue::Text(self.training_samples.to_string()),
+            ),
+            (
+                "regularization".to_owned(),
+                DataValue::Number(self.regularization),
+            ),
             ("features".to_owned(), features),
             ("fields".to_owned(), fields),
         ]))
