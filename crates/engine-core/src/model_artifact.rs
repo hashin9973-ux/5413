@@ -1174,6 +1174,78 @@ mod tests {
     }
 
     #[test]
+    fn persists_and_restores_randomized_multi_arm_causal_study() {
+        use crate::causal::{
+            AssignmentDesign, RandomizedArmOutcome, RandomizedMultiArmStudy,
+        };
+        let path = test_path();
+        let study = RandomizedMultiArmStudy {
+            experiment_id: "three-arm-v1".to_owned(),
+            dataset_id: "three-arm-data-v1".to_owned(),
+            control_arm_id: "control".to_owned(),
+            outcome_label: "score".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            assignment_seed: 1729,
+            randomization_protocol: "blocked-randomization-v1".to_owned(),
+            allocation_plan: BTreeMap::from([
+                ("control".to_owned(), 2),
+                ("treatment-a".to_owned(), 2),
+                ("treatment-b".to_owned(), 2),
+            ]),
+            outcomes: vec![
+                RandomizedArmOutcome {
+                    unit_id: "c-1".to_owned(),
+                    arm_id: "control".to_owned(),
+                    outcome: 1.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "c-2".to_owned(),
+                    arm_id: "control".to_owned(),
+                    outcome: 2.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "a-1".to_owned(),
+                    arm_id: "treatment-a".to_owned(),
+                    outcome: 2.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "a-2".to_owned(),
+                    arm_id: "treatment-a".to_owned(),
+                    outcome: 3.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "b-1".to_owned(),
+                    arm_id: "treatment-b".to_owned(),
+                    outcome: 0.0,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "b-2".to_owned(),
+                    arm_id: "treatment-b".to_owned(),
+                    outcome: 1.0,
+                },
+            ],
+        };
+
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open store");
+            store
+                .put_multi_arm_causal_study("multi-arm-study-v1", &study)
+                .expect("persist multi-arm study");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen store");
+            let restored = store
+                .load_multi_arm_causal_study("multi-arm-study-v1")
+                .expect("restore multi-arm study");
+            assert_eq!(restored, study);
+            let estimate = restored.estimate().expect("estimate");
+            assert_eq!(estimate.unit_count, 6);
+            assert_eq!(estimate.effects.len(), 2);
+        }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
     fn persists_and_restores_transfer_benchmark() {
         use crate::benchmark::{ScoreDirection, TransferBenchmark, TransferEvaluation};
         let path = test_path();
