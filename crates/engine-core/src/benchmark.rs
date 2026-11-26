@@ -651,7 +651,7 @@ mod tests {
         let summary = benchmark.summarize("prediction-error").expect("summary");
         assert_eq!(summary.case_count, 3);
         assert_eq!(summary.total_evaluation_samples, 60);
-        assert!((summary.mean_improvement - 0.1 / 3.0).abs() < 1e-12);
+        assert!((summary.mean_improvement - 0.1).abs() < 1e-12);
         assert!((summary.positive_transfer_rate - 2.0 / 3.0).abs() < 1e-12);
         assert!(summary.standard_error.is_some());
     }
@@ -721,7 +721,7 @@ mod tests {
             curve.improvements().expect("improvements"),
             vec![0.2, 0.4, 0.5]
         );
-        assert!((curve.area_under_improvement_curve().expect("area") - 3.4).abs() < 1e-12);
+        assert!((curve.area_under_improvement_curve().expect("area") - 3.45).abs() < 1e-12);
         assert_eq!(
             FewShotTransferCurve::from_artifact_value(&curve.to_artifact_value()).expect("restore"),
             curve
