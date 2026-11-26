@@ -1386,7 +1386,7 @@ mod tests {
             encoder.put_u8(0);
         }
 
-        let error = decode_record(&encoder.bytes)
+        let error = decode_record(&encoder.bytes, LEGACY_FORMAT_VERSION)
             .expect_err("aggregate nested item count must be rejected");
         assert!(error.contains("total collection item limit"));
     }
