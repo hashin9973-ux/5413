@@ -83,25 +83,40 @@ impl Default for OnlineMean {
 }
 
 impl OnlineMean {
-    pub(crate) fn push_nonnegative(&mut self, value: f64) -> bool {
-        if !value.is_finite() || value < 0.0 {
+    pub(crate) fn push_finite(&mut self, value: f64) -> bool {
+        if !self.valid || !value.is_finite() {
             self.valid = false;
             return false;
         }
 
-        self.count += 1;
-        if self.count == 1 {
+        let Some(next_count) = self.count.checked_add(1) else {
+            self.valid = false;
+            return false;
+        };
+        if next_count == 1 {
             self.mean = value;
         } else {
-            // Both values are non-negative, so their difference is representable.
-            self.mean += (value - self.mean) / self.count as f64;
+            // Weighted form avoids overflowing (value - mean) for opposite-sign
+            // finite values while keeping each intermediate within the input range.
+            let count = next_count as f64;
+            let previous_weight = (next_count - 1) as f64 / count;
+            self.mean = self.mean * previous_weight + value / count;
         }
+        self.count = next_count;
 
         if !self.mean.is_finite() {
             self.valid = false;
             return false;
         }
         true
+    }
+
+    pub(crate) fn push_nonnegative(&mut self, value: f64) -> bool {
+        if value < 0.0 {
+            self.valid = false;
+            return false;
+        }
+        self.push_finite(value)
     }
 
     pub(crate) fn mean(&self) -> Option<f64> {
@@ -111,7 +126,7 @@ impl OnlineMean {
 
 /// Scaled sum-of-squares accumulator, following the stable LASSQ pattern.
 #[derive(Debug)]
-struct ScaledSumSquares {
+pub(crate) struct ScaledSumSquares {
     count: usize,
     scale: f64,
     scaled_sum: f64,
@@ -130,7 +145,7 @@ impl Default for ScaledSumSquares {
 }
 
 impl ScaledSumSquares {
-    fn push_nonnegative(&mut self, value: f64) -> bool {
+    pub(crate) fn push_nonnegative(&mut self, value: f64) -> bool {
         if !value.is_finite() || value < 0.0 {
             self.valid = false;
             return false;
@@ -161,7 +176,7 @@ impl ScaledSumSquares {
         true
     }
 
-    fn root_mean_square(&self) -> Option<f64> {
+    pub(crate) fn root_mean_square(&self) -> Option<f64> {
         if !self.valid || self.count == 0 {
             return None;
         }
@@ -177,6 +192,23 @@ impl ScaledSumSquares {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn online_mean_handles_opposite_sign_extreme_values() {
+        let mut mean = OnlineMean::default();
+        assert!(mean.push_finite(f64::MAX));
+        assert!(mean.push_finite(-f64::MAX));
+        assert_eq!(mean.mean(), Some(0.0));
+    }
+
+    #[test]
+    fn scaled_rms_handles_extreme_finite_values() {
+        let mut rms = ScaledSumSquares::default();
+        assert!(rms.push_nonnegative(f64::MAX));
+        assert!(rms.push_nonnegative(f64::MAX));
+        assert_eq!(rms.root_mean_square(), Some(f64::MAX));
+    }
 
     #[test]
     fn regression_metrics_avoid_overflow_in_mean_and_squared_sum() {
