@@ -1571,6 +1571,7 @@ mod tests {
         assert!(!storage.snapshot_bytes().is_empty());
     }
 
+    #[test]
     fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
         let mut encoder = Encoder::default();
         encoder
