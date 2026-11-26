@@ -23,7 +23,7 @@ The current implementation includes:
 - episode-scoped transition extraction that reconstructs completed `(state, action, next_state)` samples from journal events and excludes incomplete or mismatched actions;
 - an auditable hypothesis registry with typed claims, unique evidence references, log-likelihood-ratio updates, posterior confidence, decision thresholds, and validated snapshot export/import;
 - a predictive-model lifecycle registry with held-out evaluation, calibration gates, same-environment/metric/dataset comparisons, resource-aware promotion, and version retirement;
-- a paired randomized-trial effect estimator with duplicate-block checks, treatment-minus-control estimates, standard errors, and explicitly normal-approximation intervals;
+- paired randomized-trial effects with duplicate-block checks, and independent-unit randomized multi-arm contrasts with allocation validation, Welch-style standard errors, normal-approximation intervals, and Holm-adjusted p-values;
 - expected-information-gain experiment ranking for binary observations, with declared likelihoods, risk/resource budgets, and irreversible-action filtering;
 - cross-environment transfer benchmarks that require distinct source/target environments and disjoint dataset IDs, reporting gain, win rate, standard error, and resource cost, plus few-shot adaptation curves with area-under-improvement measurements and sparse source→target matrices with configurable negative-transfer diagnosis;
 - typed declarative strategy graphs with a deterministic interpreter that invokes only trusted operators, runtime port/type checks, declared cost budgets, bounded type-compatible strategy-chain synthesis, held-out same-dataset comparisons, and guarded candidate promotion/retirement lifecycle;

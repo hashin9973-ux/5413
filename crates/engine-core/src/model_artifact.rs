@@ -8,7 +8,7 @@ use crate::benchmark::{
     TransferMatrix,
 };
 use crate::calibration::{ConformalCalibrationError, ConformalCalibrator};
-use crate::causal::{CausalError, PairedRandomizedStudy};
+use crate::causal::{CausalError, PairedRandomizedStudy, RandomizedMultiArmStudy};
 use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
 };
@@ -209,6 +209,28 @@ impl ModelArtifactStore {
             .get(artifact_ref)
             .ok_or(ModelArtifactError::NotFound)?;
         PairedRandomizedStudy::from_artifact_value(artifact).map_err(ModelArtifactError::Causal)
+    }
+
+    /// Persists a randomized multi-arm causal study as an immutable artifact.
+    pub fn put_multi_arm_causal_study(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        study: &RandomizedMultiArmStudy,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        study.validate().map_err(ModelArtifactError::Causal)?;
+        self.put(artifact_ref, study.to_artifact_value())
+    }
+
+    pub fn load_multi_arm_causal_study(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<RandomizedMultiArmStudy, ModelArtifactError> {
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        RandomizedMultiArmStudy::from_artifact_value(artifact)
+            .map_err(ModelArtifactError::Causal)
     }
 
     /// Persists a cross-environment transfer benchmark as an immutable artifact.
