@@ -1175,9 +1175,7 @@ mod tests {
 
     #[test]
     fn persists_and_restores_randomized_multi_arm_causal_study() {
-        use crate::causal::{
-            AssignmentDesign, RandomizedArmOutcome, RandomizedMultiArmStudy,
-        };
+        use crate::causal::{AssignmentDesign, RandomizedArmOutcome, RandomizedMultiArmStudy};
         let path = test_path();
         let study = RandomizedMultiArmStudy {
             experiment_id: "three-arm-v1".to_owned(),
