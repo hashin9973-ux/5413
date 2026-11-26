@@ -1,10 +1,10 @@
-use crate::benchmark::ScoreDirection;
 //! Typed, declarative learning-strategy graphs and guarded promotion.
 //!
 //! This module describes operator composition; it does not execute arbitrary
 //! code. A runtime may only execute operators implemented in its trusted,
 //! explicitly registered operator catalogue.
 
+use crate::benchmark::ScoreDirection;
 use crate::schema::ValueKind;
 use crate::value::DataValue;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
