@@ -1194,7 +1194,7 @@ mod tests {
                 "physics",
                 "grid",
                 1.0,
-                1.1,
+                1.4,
                 ScoreDirection::LowerIsBetter,
             ),
             evaluation(
