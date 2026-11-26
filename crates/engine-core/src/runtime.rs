@@ -109,7 +109,7 @@ where
         .map_err(|error| RuntimeError::Environment(error.to_string()))?;
     validate_observation(&descriptor, &initial_observation, &config.episode_id)?;
     match journal.append_idempotent(
-        start_key,
+        start_key.as_str(),
         &config.episode_id,
         ExperienceEvent::Observation(initial_observation.clone()),
     )? {
@@ -156,7 +156,7 @@ where
 
         let intent_key = config.key(&format!("step/{step_index}/intent"));
         match journal.append_idempotent(
-            intent_key,
+            intent_key.as_str(),
             &config.episode_id,
             ExperienceEvent::ActionProposed(proposal.clone()),
         )? {
