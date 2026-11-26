@@ -7,14 +7,14 @@ Its first environment is a simulator, but the core architecture is designed to w
 - typed, domain-neutral environment contracts;
 - schema-validated dynamic observations;
 - explicit action authorization;
-- append-only experience capture with a versioned, checksummed file journal, bounded decoding, torn-tail recovery, and episode replay;
+- append-only experience capture with a versioned, checksummed file journal, bounded decoding, torn-tail recovery, episode replay, and durable idempotency keys;
 - versioned, evidence-evaluated representations and explicit mappings;
 - a small online transition learner;
 - a structural schema discovery and mapping demonstration;
 - a durable experience journal/reopen demonstration;
 - physics and finite-state workflow examples that use the same generic environment API.
 
-The first implementation is intentionally dependency-free. Checkpointing, idempotent ingestion, schema migrations, advanced neural models, planner synthesis, and executable self-modification remain future stages—not assumed capabilities of this foundation.
+The first implementation is intentionally dependency-free. Checkpointing, journal rewrite migrations, advanced neural models, planner synthesis, and executable self-modification remain future stages—not assumed capabilities of this foundation.
 
 ## Development
 
