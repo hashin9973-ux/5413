@@ -642,8 +642,8 @@ mod tests {
         ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
     };
     use crate::model_registry::ModelEvaluation as RegistryEvaluation;
-    use crate::reasoning::HypothesisSpec;
     use crate::planning::PlanningConfig;
+    use crate::reasoning::HypothesisSpec;
     use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
     use crate::world_model::{evaluate_model, ActionDeltaModel};
     use std::sync::atomic::{AtomicU64, Ordering};
