@@ -591,8 +591,7 @@ impl TransferMatrix {
         }
 
         let mut environment_ids = std::collections::BTreeSet::new();
-        let mut pairs: BTreeMap<(String, String), Vec<&TransferEvaluation>> =
-            BTreeMap::new();
+        let mut pairs: BTreeMap<(String, String), Vec<&TransferEvaluation>> = BTreeMap::new();
         for evaluation in selected {
             evaluation.validate()?;
             environment_ids.insert(evaluation.source_environment_id.clone());
@@ -677,7 +676,10 @@ impl TransferMatrix {
             return Err(BenchmarkError::InvalidTransferMatrix);
         }
         if self.environment_ids.iter().any(|id| id.trim().is_empty())
-            || self.environment_ids.windows(2).any(|pair| pair[0] >= pair[1])
+            || self
+                .environment_ids
+                .windows(2)
+                .any(|pair| pair[0] >= pair[1])
             || self.cells.is_empty()
         {
             return Err(BenchmarkError::InvalidTransferMatrix);
@@ -704,7 +706,9 @@ impl TransferMatrix {
                 || cell.positive_transfer_rate + cell.negative_transfer_rate > 1.0 + f64::EPSILON
                 || !cell.mean_resource_cost.is_finite()
                 || cell.mean_resource_cost < 0.0
-                || cell.standard_error.is_some_and(|value| !value.is_finite() || value < 0.0)
+                || cell
+                    .standard_error
+                    .is_some_and(|value| !value.is_finite() || value < 0.0)
             {
                 return Err(BenchmarkError::InvalidTransferMatrix);
             }
@@ -755,8 +759,14 @@ impl TransferMatrix {
     pub fn to_artifact_value(&self) -> DataValue {
         DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("metric_id".to_owned(), DataValue::Text(self.metric_id.clone())),
-            ("direction".to_owned(), DataValue::Text(direction_name(self.direction).to_owned())),
+            (
+                "metric_id".to_owned(),
+                DataValue::Text(self.metric_id.clone()),
+            ),
+            (
+                "direction".to_owned(),
+                DataValue::Text(direction_name(self.direction).to_owned()),
+            ),
             (
                 "environment_ids".to_owned(),
                 DataValue::Sequence(
@@ -774,17 +784,43 @@ impl TransferMatrix {
                         .iter()
                         .map(|cell| {
                             DataValue::object([
-                                ("source".to_owned(), DataValue::Text(cell.source_environment_id.clone())),
-                                ("target".to_owned(), DataValue::Text(cell.target_environment_id.clone())),
-                                ("case_count".to_owned(), DataValue::Text(cell.case_count.to_string())),
-                                ("evaluation_sample_count".to_owned(), DataValue::Text(cell.evaluation_sample_count.to_string())),
-                                ("mean_improvement".to_owned(), DataValue::Number(cell.mean_improvement)),
-                                ("positive_transfer_rate".to_owned(), DataValue::Number(cell.positive_transfer_rate)),
-                                ("negative_transfer_rate".to_owned(), DataValue::Number(cell.negative_transfer_rate)),
-                                ("mean_resource_cost".to_owned(), DataValue::Number(cell.mean_resource_cost)),
+                                (
+                                    "source".to_owned(),
+                                    DataValue::Text(cell.source_environment_id.clone()),
+                                ),
+                                (
+                                    "target".to_owned(),
+                                    DataValue::Text(cell.target_environment_id.clone()),
+                                ),
+                                (
+                                    "case_count".to_owned(),
+                                    DataValue::Text(cell.case_count.to_string()),
+                                ),
+                                (
+                                    "evaluation_sample_count".to_owned(),
+                                    DataValue::Text(cell.evaluation_sample_count.to_string()),
+                                ),
+                                (
+                                    "mean_improvement".to_owned(),
+                                    DataValue::Number(cell.mean_improvement),
+                                ),
+                                (
+                                    "positive_transfer_rate".to_owned(),
+                                    DataValue::Number(cell.positive_transfer_rate),
+                                ),
+                                (
+                                    "negative_transfer_rate".to_owned(),
+                                    DataValue::Number(cell.negative_transfer_rate),
+                                ),
+                                (
+                                    "mean_resource_cost".to_owned(),
+                                    DataValue::Number(cell.mean_resource_cost),
+                                ),
                                 (
                                     "standard_error".to_owned(),
-                                    cell.standard_error.map(DataValue::Number).unwrap_or(DataValue::Null),
+                                    cell.standard_error
+                                        .map(DataValue::Number)
+                                        .unwrap_or(DataValue::Null),
                                 ),
                             ])
                         })
@@ -798,9 +834,7 @@ impl TransferMatrix {
         let fields = value
             .as_object()
             .ok_or(BenchmarkError::InvalidTransferMatrix)?;
-        if fields.len() != 5
-            || fields.get("artifact_version") != Some(&DataValue::Integer(1))
-        {
+        if fields.len() != 5 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(BenchmarkError::InvalidTransferMatrix);
         }
         let text = |object: &BTreeMap<String, DataValue>, name: &str| match object.get(name) {
@@ -947,7 +981,10 @@ impl std::fmt::Display for BenchmarkError {
                 write!(formatter, "few-shot transfer adaptation curve is invalid")
             }
             Self::InvalidTransferMatrix => {
-                write!(formatter, "serialized or aggregated transfer matrix is invalid")
+                write!(
+                    formatter,
+                    "serialized or aggregated transfer matrix is invalid"
+                )
             }
             Self::InvalidNegativeTransferPolicy => {
                 write!(formatter, "negative-transfer diagnosis policy is invalid")
@@ -1136,18 +1173,59 @@ mod tests {
     fn transfer_matrix_groups_directed_pairs_and_flags_negative_transfer() {
         let mut benchmark = TransferBenchmark::default();
         for evaluation in [
-            evaluation("p-grid-1", "physics", "grid", 1.0, 0.7, ScoreDirection::LowerIsBetter),
-            evaluation("p-grid-2", "physics", "grid", 1.0, 1.2, ScoreDirection::LowerIsBetter),
-            evaluation("p-grid-3", "physics", "grid", 1.0, 1.1, ScoreDirection::LowerIsBetter),
-            evaluation("w-grid-1", "workflow", "grid", 1.0, 0.8, ScoreDirection::LowerIsBetter),
-            evaluation("grid-w-1", "grid", "workflow", 1.0, 0.7, ScoreDirection::LowerIsBetter),
+            evaluation(
+                "p-grid-1",
+                "physics",
+                "grid",
+                1.0,
+                0.7,
+                ScoreDirection::LowerIsBetter,
+            ),
+            evaluation(
+                "p-grid-2",
+                "physics",
+                "grid",
+                1.0,
+                1.2,
+                ScoreDirection::LowerIsBetter,
+            ),
+            evaluation(
+                "p-grid-3",
+                "physics",
+                "grid",
+                1.0,
+                1.1,
+                ScoreDirection::LowerIsBetter,
+            ),
+            evaluation(
+                "w-grid-1",
+                "workflow",
+                "grid",
+                1.0,
+                0.8,
+                ScoreDirection::LowerIsBetter,
+            ),
+            evaluation(
+                "grid-w-1",
+                "grid",
+                "workflow",
+                1.0,
+                0.7,
+                ScoreDirection::LowerIsBetter,
+            ),
         ] {
             benchmark.record(evaluation).expect("record");
         }
-        let matrix = TransferMatrix::from_benchmark(&benchmark, "prediction-error").expect("matrix");
-        assert_eq!(matrix.environment_ids, vec![
-            "grid".to_owned(), "physics".to_owned(), "workflow".to_owned()
-        ]);
+        let matrix =
+            TransferMatrix::from_benchmark(&benchmark, "prediction-error").expect("matrix");
+        assert_eq!(
+            matrix.environment_ids,
+            vec![
+                "grid".to_owned(),
+                "physics".to_owned(),
+                "workflow".to_owned()
+            ]
+        );
         assert_eq!(matrix.cells.len(), 3);
         let physics_to_grid = matrix.cell("physics", "grid").expect("pair");
         assert_eq!(physics_to_grid.case_count, 3);
@@ -1175,15 +1253,18 @@ mod tests {
     #[test]
     fn transfer_matrix_rejects_corruption_and_invalid_diagnosis_policy() {
         let mut benchmark = TransferBenchmark::default();
-        benchmark.record(evaluation(
-            "one",
-            "source",
-            "target",
-            0.5,
-            0.4,
-            ScoreDirection::LowerIsBetter,
-        )).expect("record");
-        let matrix = TransferMatrix::from_benchmark(&benchmark, "prediction-error").expect("matrix");
+        benchmark
+            .record(evaluation(
+                "one",
+                "source",
+                "target",
+                0.5,
+                0.4,
+                ScoreDirection::LowerIsBetter,
+            ))
+            .expect("record");
+        let matrix =
+            TransferMatrix::from_benchmark(&benchmark, "prediction-error").expect("matrix");
         assert_eq!(
             matrix.diagnose_negative_transfer(NegativeTransferPolicy {
                 minimum_cases: 0,
@@ -1192,7 +1273,10 @@ mod tests {
             Err(BenchmarkError::InvalidNegativeTransferPolicy)
         );
         let mut value = matrix.to_artifact_value();
-        let object = match &mut value { DataValue::Object(fields) => fields, _ => unreachable!() };
+        let object = match &mut value {
+            DataValue::Object(fields) => fields,
+            _ => unreachable!(),
+        };
         object.insert("unexpected".to_owned(), DataValue::Null);
         assert_eq!(
             TransferMatrix::from_artifact_value(&value),

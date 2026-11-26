@@ -242,7 +242,10 @@ impl ModelArtifactStore {
         &self,
         artifact_ref: &str,
     ) -> Result<TransferMatrix, ModelArtifactError> {
-        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
         TransferMatrix::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
     }
 
