@@ -39,11 +39,11 @@ pub use experimentation::{
     ExperimentScore,
 };
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
-pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
     RepresentationMapping, RepresentationRef,
 };
+pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use planning::{plan, Plan, PlanStep, PlanningConfig, PlanningError};
 pub use representation::{
     EvaluationPolicy, RegistryError, RepresentationEvaluation, RepresentationKind,

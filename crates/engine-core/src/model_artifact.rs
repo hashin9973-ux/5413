@@ -68,7 +68,10 @@ impl ModelArtifactStore {
         }
 
         let payload = encode_data_value(&DataValue::object([
-            ("reference".to_owned(), DataValue::Text(artifact_ref.clone())),
+            (
+                "reference".to_owned(),
+                DataValue::Text(artifact_ref.clone()),
+            ),
             ("artifact".to_owned(), artifact.clone()),
         ]))
         .map_err(|error| ModelArtifactError::Encoding(error.to_string()))?;
@@ -219,12 +222,13 @@ fn scan_and_recover(file: &mut File) -> Result<BTreeMap<String, DataValue>, Mode
                 })
             }
         };
-        let artifact = fields
-            .remove("artifact")
-            .ok_or_else(|| ModelArtifactError::CorruptFrame {
-                offset,
-                reason: "artifact payload is missing".to_owned(),
-            })?;
+        let artifact =
+            fields
+                .remove("artifact")
+                .ok_or_else(|| ModelArtifactError::CorruptFrame {
+                    offset,
+                    reason: "artifact payload is missing".to_owned(),
+                })?;
         artifact
             .validate_finite()
             .map_err(|_| ModelArtifactError::CorruptFrame {
@@ -275,16 +279,32 @@ impl std::fmt::Display for ModelArtifactError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(error) => write!(formatter, "model-artifact I/O error: {error}"),
-            Self::Encoding(message) => write!(formatter, "model-artifact encoding failed: {message}"),
+            Self::Encoding(message) => {
+                write!(formatter, "model-artifact encoding failed: {message}")
+            }
             Self::Model(error) => write!(formatter, "model-artifact conversion failed: {error}"),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
-            Self::ReferenceConflict => write!(formatter, "immutable artifact reference already has different content"),
-            Self::UnsupportedVersion(version) => write!(formatter, "unsupported artifact-store version: {version}"),
-            Self::FrameTooLarge { size, maximum } => write!(formatter, "artifact frame size {size} exceeds limit {maximum}"),
-            Self::CorruptFrame { offset, reason } => write!(formatter, "corrupt model-artifact frame at byte {offset}: {reason}"),
-            Self::Poisoned => write!(formatter, "model-artifact store must be reopened after an I/O failure"),
+            Self::ReferenceConflict => write!(
+                formatter,
+                "immutable artifact reference already has different content"
+            ),
+            Self::UnsupportedVersion(version) => {
+                write!(formatter, "unsupported artifact-store version: {version}")
+            }
+            Self::FrameTooLarge { size, maximum } => write!(
+                formatter,
+                "artifact frame size {size} exceeds limit {maximum}"
+            ),
+            Self::CorruptFrame { offset, reason } => write!(
+                formatter,
+                "corrupt model-artifact frame at byte {offset}: {reason}"
+            ),
+            Self::Poisoned => write!(
+                formatter,
+                "model-artifact store must be reopened after an I/O failure"
+            ),
         }
     }
 }
@@ -308,7 +328,10 @@ mod tests {
 
     fn test_path() -> std::path::PathBuf {
         let id = NEXT_FILE_ID.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("5413-model-artifacts-{}-{id}.bin", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "5413-model-artifacts-{}-{id}.bin",
+            std::process::id()
+        ))
     }
 
     fn sample(action: &str, before: f64, after: f64) -> TransitionSample {
@@ -324,7 +347,10 @@ mod tests {
         let path = test_path();
         let mut model = ActionDeltaModel::new("delta", 2).expect("model");
         model
-            .fit("training-a", &[sample("advance", 0.0, 2.0), sample("advance", 4.0, 6.0)])
+            .fit(
+                "training-a",
+                &[sample("advance", 0.0, 2.0), sample("advance", 4.0, 6.0)],
+            )
             .expect("fit");
         let state = DataValue::object([("position".to_owned(), DataValue::Number(10.0))]);
         let expected = model.predict("advance", &state).expect("prediction");
@@ -335,7 +361,9 @@ mod tests {
                 ArtifactPutOutcome::Stored
             );
             assert_eq!(
-                store.put_model("model-artifact-1", &model).expect("duplicate"),
+                store
+                    .put_model("model-artifact-1", &model)
+                    .expect("duplicate"),
                 ArtifactPutOutcome::AlreadyPresent
             );
         }
@@ -344,7 +372,10 @@ mod tests {
             let restored = store.load_model("model-artifact-1").expect("restore");
             assert_eq!(restored.identity().id, "delta");
             assert_eq!(restored.identity().version, 2);
-            assert_eq!(restored.predict("advance", &state).expect("predict"), expected);
+            assert_eq!(
+                restored.predict("advance", &state).expect("predict"),
+                expected
+            );
         }
         std::fs::remove_file(path).expect("remove artifact file");
     }
@@ -420,7 +451,8 @@ mod tests {
     #[test]
     fn rejects_conflicting_reference_and_recovers_torn_tail() {
         let path = test_path();
-        let artifact = DataValue::object([("opaque".to_owned(), DataValue::Text("value".to_owned()))]);
+        let artifact =
+            DataValue::object([("opaque".to_owned(), DataValue::Text("value".to_owned()))]);
         let first_length;
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
@@ -430,10 +462,15 @@ mod tests {
                 store.put("opaque-v1", DataValue::Null),
                 Err(ModelArtifactError::ReferenceConflict)
             ));
-            store.put("opaque-v2", DataValue::Integer(2)).expect("put second");
+            store
+                .put("opaque-v2", DataValue::Integer(2))
+                .expect("put second");
         }
         {
-            let mut file = OpenOptions::new().write(true).open(&path).expect("open raw");
+            let mut file = OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .expect("open raw");
             file.set_len(first_length + 2).expect("truncate tail");
             file.sync_all().expect("sync");
         }

@@ -298,7 +298,9 @@ impl std::fmt::Display for LearningError {
                 write!(formatter, "non-finite prediction for field {field}")
             }
             Self::SampleCountExhausted => write!(formatter, "learning sample count is exhausted"),
-            Self::InvalidSerializedState => write!(formatter, "serialized learner state is invalid"),
+            Self::InvalidSerializedState => {
+                write!(formatter, "serialized learner state is invalid")
+            }
         }
     }
 }

@@ -164,13 +164,25 @@ impl PredictiveModel for ActionDeltaModel {
     }
 
     fn to_artifact_value(&self) -> Result<DataValue, WorldModelError> {
-        let training_dataset_id = self.training_dataset_id.as_ref().ok_or(WorldModelError::NotFitted)?;
+        let training_dataset_id = self
+            .training_dataset_id
+            .as_ref()
+            .ok_or(WorldModelError::NotFitted)?;
         Ok(DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("model_type".to_owned(), DataValue::Text("action_delta".to_owned())),
+            (
+                "model_type".to_owned(),
+                DataValue::Text("action_delta".to_owned()),
+            ),
             ("id".to_owned(), DataValue::Text(self.identity.id.clone())),
-            ("model_version".to_owned(), DataValue::Text(self.identity.version.to_string())),
-            ("training_dataset_id".to_owned(), DataValue::Text(training_dataset_id.clone())),
+            (
+                "model_version".to_owned(),
+                DataValue::Text(self.identity.version.to_string()),
+            ),
+            (
+                "training_dataset_id".to_owned(),
+                DataValue::Text(training_dataset_id.clone()),
+            ),
             ("learner".to_owned(), self.learner.to_artifact_value()),
         ]))
     }
@@ -364,7 +376,10 @@ impl PredictiveModel for ContextualLinearModel {
     }
 
     fn to_artifact_value(&self) -> Result<DataValue, WorldModelError> {
-        let training_dataset_id = self.training_dataset_id.as_ref().ok_or(WorldModelError::NotFitted)?;
+        let training_dataset_id = self
+            .training_dataset_id
+            .as_ref()
+            .ok_or(WorldModelError::NotFitted)?;
         let features = DataValue::Sequence(self.feature_names.iter().cloned().map(DataValue::Text).collect());
         let fields = DataValue::Object(self.fields.iter().map(|(name, field)| {
             (name.clone(), DataValue::object([
@@ -376,10 +391,19 @@ impl PredictiveModel for ContextualLinearModel {
         }).collect());
         Ok(DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("model_type".to_owned(), DataValue::Text("contextual_linear".to_owned())),
+            (
+                "model_type".to_owned(),
+                DataValue::Text("contextual_linear".to_owned()),
+            ),
             ("id".to_owned(), DataValue::Text(self.identity.id.clone())),
-            ("model_version".to_owned(), DataValue::Text(self.identity.version.to_string())),
-            ("training_dataset_id".to_owned(), DataValue::Text(training_dataset_id.clone())),
+            (
+                "model_version".to_owned(),
+                DataValue::Text(self.identity.version.to_string()),
+            ),
+            (
+                "training_dataset_id".to_owned(),
+                DataValue::Text(training_dataset_id.clone()),
+            ),
             ("training_samples".to_owned(), DataValue::Text(self.training_samples.to_string())),
             ("regularization".to_owned(), DataValue::Number(self.regularization)),
             ("features".to_owned(), features),
@@ -499,8 +523,12 @@ impl EnsembleWorldModel {
 }
 
 /// Restores a built-in predictive model from a versioned parameter artifact.
-pub fn restore_predictive_model(artifact: &DataValue) -> Result<Box<dyn PredictiveModel>, WorldModelError> {
-    let fields = artifact.as_object().ok_or(WorldModelError::InvalidArtifact)?;
+pub fn restore_predictive_model(
+    artifact: &DataValue,
+) -> Result<Box<dyn PredictiveModel>, WorldModelError> {
+    let fields = artifact
+        .as_object()
+        .ok_or(WorldModelError::InvalidArtifact)?;
     if fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
         return Err(WorldModelError::UnsupportedArtifactVersion);
     }
@@ -520,10 +548,18 @@ pub fn restore_predictive_model(artifact: &DataValue) -> Result<Box<dyn Predicti
     };
     match model_type {
         "action_delta" => {
-            if fields.len() != 6 { return Err(WorldModelError::InvalidArtifact); }
-            let learner = NumericDeltaModel::from_artifact_value(fields.get("learner").ok_or(WorldModelError::InvalidArtifact)?)
-                .map_err(map_learning_error)?;
-            if learner.transitions_seen() == 0 { return Err(WorldModelError::InvalidArtifact); }
+            if fields.len() != 6 {
+                return Err(WorldModelError::InvalidArtifact);
+            }
+            let learner = NumericDeltaModel::from_artifact_value(
+                fields
+                    .get("learner")
+                    .ok_or(WorldModelError::InvalidArtifact)?,
+            )
+            .map_err(map_learning_error)?;
+            if learner.transitions_seen() == 0 {
+                return Err(WorldModelError::InvalidArtifact);
+            }
             Ok(Box::new(ActionDeltaModel {
                 identity: ModelIdentity { id, version },
                 learner,
@@ -531,9 +567,14 @@ pub fn restore_predictive_model(artifact: &DataValue) -> Result<Box<dyn Predicti
             }))
         }
         "contextual_linear" => {
-            if fields.len() != 9 { return Err(WorldModelError::InvalidArtifact); }
+            if fields.len() != 9 {
+                return Err(WorldModelError::InvalidArtifact);
+            }
             let training_samples = parse_artifact_u64(fields.get("training_samples"))?;
-            let regularization = fields.get("regularization").and_then(DataValue::as_f64).ok_or(WorldModelError::InvalidArtifact)?;
+            let regularization = fields
+                .get("regularization")
+                .and_then(DataValue::as_f64)
+                .ok_or(WorldModelError::InvalidArtifact)?;
             if training_samples == 0 || !regularization.is_finite() || regularization < 0.0 {
                 return Err(WorldModelError::InvalidArtifact);
             }
@@ -542,8 +583,12 @@ pub fn restore_predictive_model(artifact: &DataValue) -> Result<Box<dyn Predicti
                     let mut names = Vec::new();
                     let mut unique = BTreeSet::new();
                     for feature in features {
-                        let DataValue::Text(name) = feature else { return Err(WorldModelError::InvalidArtifact); };
-                        if name.trim().is_empty() || !unique.insert(name.clone()) { return Err(WorldModelError::InvalidArtifact); }
+                        let DataValue::Text(name) = feature else {
+                            return Err(WorldModelError::InvalidArtifact);
+                        };
+                        if name.trim().is_empty() || !unique.insert(name.clone()) {
+                            return Err(WorldModelError::InvalidArtifact);
+                        }
                         names.push(name.clone());
                     }
                     names
@@ -556,31 +601,62 @@ pub fn restore_predictive_model(artifact: &DataValue) -> Result<Box<dyn Predicti
             };
             let mut restored_fields = BTreeMap::new();
             for (name, value) in serialized_fields {
-                if name.trim().is_empty() { return Err(WorldModelError::InvalidArtifact); }
+                if name.trim().is_empty() {
+                    return Err(WorldModelError::InvalidArtifact);
+                }
                 let values = value.as_object().ok_or(WorldModelError::InvalidArtifact)?;
-                if values.len() != 4 { return Err(WorldModelError::InvalidArtifact); }
+                if values.len() != 4 {
+                    return Err(WorldModelError::InvalidArtifact);
+                }
                 let coefficients = match values.get("coefficients") {
-                    Some(DataValue::Sequence(values)) if values.len() == feature_names.len() + 1 => values.iter()
-                        .map(|value| value.as_f64().filter(|number| number.is_finite()).ok_or(WorldModelError::InvalidArtifact))
-                        .collect::<Result<Vec<_>, _>>()?,
+                    Some(DataValue::Sequence(values))
+                        if values.len() == feature_names.len() + 1 =>
+                    {
+                        values
+                            .iter()
+                            .map(|value| {
+                                value
+                                    .as_f64()
+                                    .filter(|number| number.is_finite())
+                                    .ok_or(WorldModelError::InvalidArtifact)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
+                    }
                     _ => return Err(WorldModelError::InvalidArtifact),
                 };
-                let residual_std_dev = values.get("residual_std_dev").and_then(DataValue::as_f64).ok_or(WorldModelError::InvalidArtifact)?;
+                let residual_std_dev = values
+                    .get("residual_std_dev")
+                    .and_then(DataValue::as_f64)
+                    .ok_or(WorldModelError::InvalidArtifact)?;
                 let sample_count = parse_artifact_u64(values.get("sample_count"))?;
                 let uncertainty_calibrated = match values.get("uncertainty_calibrated") {
                     Some(DataValue::Bool(value)) => *value,
                     _ => return Err(WorldModelError::InvalidArtifact),
                 };
-                if !residual_std_dev.is_finite() || residual_std_dev < 0.0 || sample_count == 0 || sample_count > training_samples {
+                if !residual_std_dev.is_finite()
+                    || residual_std_dev < 0.0
+                    || sample_count == 0
+                    || sample_count > training_samples
+                {
                     return Err(WorldModelError::InvalidArtifact);
                 }
-                restored_fields.insert(name.clone(), LinearFieldModel {
-                    coefficients, residual_std_dev, sample_count, uncertainty_calibrated,
-                });
+                restored_fields.insert(
+                    name.clone(),
+                    LinearFieldModel {
+                        coefficients,
+                        residual_std_dev,
+                        sample_count,
+                        uncertainty_calibrated,
+                    },
+                );
             }
             Ok(Box::new(ContextualLinearModel {
-                identity: ModelIdentity { id, version }, regularization, feature_names,
-                fields: restored_fields, training_dataset_id: Some(training_dataset_id), training_samples,
+                identity: ModelIdentity { id, version },
+                regularization,
+                feature_names,
+                fields: restored_fields,
+                training_dataset_id: Some(training_dataset_id),
+                training_samples,
             }))
         }
         _ => Err(WorldModelError::UnknownModelType(model_type.to_owned())),
@@ -973,9 +1049,18 @@ impl std::fmt::Display for WorldModelError {
                 write!(formatter, "ensemble contains duplicate model identity {id}")
             }
             Self::Learning(message) => write!(formatter, "baseline learner failed: {message}"),
-            Self::InvalidArtifact => write!(formatter, "predictive model artifact is malformed or invalid"),
-            Self::UnsupportedArtifactVersion => write!(formatter, "predictive model artifact version is unsupported"),
-            Self::UnknownModelType(model_type) => write!(formatter, "predictive model type {model_type} is not supported"),
+            Self::InvalidArtifact => write!(
+                formatter,
+                "predictive model artifact is malformed or invalid"
+            ),
+            Self::UnsupportedArtifactVersion => write!(
+                formatter,
+                "predictive model artifact version is unsupported"
+            ),
+            Self::UnknownModelType(model_type) => write!(
+                formatter,
+                "predictive model type {model_type} is not supported"
+            ),
         }
     }
 }
