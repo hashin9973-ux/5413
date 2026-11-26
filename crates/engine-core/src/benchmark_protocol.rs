@@ -6,8 +6,8 @@
 //! declared provenance labels and do not prove physical disjointness.
 
 use crate::benchmark::{
-    BenchmarkError, LearningEfficiencyBenchmark, LearningEfficiencyCurve,
-    LearningEfficiencyPoint, LearningEfficiencySummary, ScoreDirection,
+    BenchmarkError, LearningEfficiencyBenchmark, LearningEfficiencyCurve, LearningEfficiencyPoint,
+    LearningEfficiencySummary, ScoreDirection,
 };
 use crate::model_artifact::{ModelArtifactError, ModelArtifactStore};
 use std::collections::BTreeSet;
@@ -203,7 +203,10 @@ pub fn run_benchmark_protocol<E: BenchmarkProtocolExecutor>(
     artifact_store: &mut ModelArtifactStore,
 ) -> Result<BenchmarkProtocolReport, BenchmarkProtocolError> {
     protocol.validate()?;
-    if artifact_store.get(&protocol.benchmark_artifact_ref).is_some() {
+    if artifact_store
+        .get(&protocol.benchmark_artifact_ref)
+        .is_some()
+    {
         return Err(BenchmarkProtocolError::ArtifactReferenceAlreadyExists);
     }
 
@@ -242,9 +245,12 @@ pub fn run_benchmark_protocol<E: BenchmarkProtocolExecutor>(
                 });
             }
 
-            if training_samples == *protocol.training_budgets.last().ok_or(
-                BenchmarkProtocolError::InvalidTrainingBudgets,
-            )? {
+            if training_samples
+                == *protocol
+                    .training_budgets
+                    .last()
+                    .ok_or(BenchmarkProtocolError::InvalidTrainingBudgets)?
+            {
                 learner_artifact_ref = learner.model_artifact_ref.clone();
             }
             points.push(LearningEfficiencyPoint {
@@ -337,14 +343,15 @@ fn evaluate_one<E: BenchmarkProtocolExecutor>(
         evaluation_dataset_id: &seed_plan.evaluation_dataset_id,
         evaluation_sample_count: protocol.evaluation_sample_count,
     };
-    let result = executor
-        .evaluate(request)
-        .map_err(|message| BenchmarkProtocolError::EvaluationFailed {
-            strategy_id: strategy_id.to_owned(),
-            seed: seed_plan.seed,
-            training_samples,
-            message,
-        })?;
+    let result =
+        executor
+            .evaluate(request)
+            .map_err(|message| BenchmarkProtocolError::EvaluationFailed {
+                strategy_id: strategy_id.to_owned(),
+                seed: seed_plan.seed,
+                training_samples,
+                message,
+            })?;
     if result.environment_id != protocol.environment_id
         || result.task_id != protocol.task_id
         || result.strategy_id != strategy_id
@@ -381,8 +388,14 @@ pub enum BenchmarkProtocolError {
     InvalidProtocol,
     InvalidTrainingBudgets,
     EvaluationCountOverflow,
-    EvaluationBudgetExceeded { required: usize, maximum: usize },
-    ResourceBudgetExceeded { observed: f64, maximum: f64 },
+    EvaluationBudgetExceeded {
+        required: usize,
+        maximum: usize,
+    },
+    ResourceBudgetExceeded {
+        observed: f64,
+        maximum: f64,
+    },
     InvalidDatasetIdentity,
     DuplicateSeed,
     DuplicateTrainingDataset,
@@ -538,8 +551,8 @@ mod tests {
             calls: 0,
             mismatch_evaluation: false,
         };
-        let report = run_benchmark_protocol(&protocol, &mut executor, &mut store)
-            .expect("protocol");
+        let report =
+            run_benchmark_protocol(&protocol, &mut executor, &mut store).expect("protocol");
         assert_eq!(executor.calls, 12);
         assert_eq!(report.trial_count, 12);
         assert_eq!(report.benchmark.len(), 2);

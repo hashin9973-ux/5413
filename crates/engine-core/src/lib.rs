@@ -36,16 +36,16 @@ pub use active_exploration::{
     run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
     ActiveExplorationRequest,
 };
-pub use benchmark_protocol::{
-    run_benchmark_protocol, BenchmarkProtocol, BenchmarkProtocolError,
-    BenchmarkProtocolExecutor, BenchmarkProtocolReport, BenchmarkSeedPlan,
-    BenchmarkStrategyRole, BenchmarkTrialRecord, BenchmarkTrialRequest, BenchmarkTrialResult,
-};
 pub use benchmark::{
     BenchmarkError, FewShotTransferCurve, LearningEfficiencyBenchmark, LearningEfficiencyCurve,
     LearningEfficiencyPoint, LearningEfficiencySummary, NegativeTransferDiagnosis,
     NegativeTransferPolicy, ScoreDirection, TransferAdaptationPoint, TransferBenchmark,
     TransferEvaluation, TransferMatrix, TransferMatrixCell, TransferSummary,
+};
+pub use benchmark_protocol::{
+    run_benchmark_protocol, BenchmarkProtocol, BenchmarkProtocolError, BenchmarkProtocolExecutor,
+    BenchmarkProtocolReport, BenchmarkSeedPlan, BenchmarkStrategyRole, BenchmarkTrialRecord,
+    BenchmarkTrialRequest, BenchmarkTrialResult,
 };
 pub use calibration::{
     CalibratedPrediction, ConformalCalibrationError, ConformalCalibrator, FieldCalibration,
