@@ -76,6 +76,10 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 ## Milestone 7 — Cross-environment generalization
 
+- [x] Transfer benchmark records with source/target environment identities and dataset-leakage checks
+- [x] Aggregate transfer improvement, win rate, case-level standard error, and resource cost
+- [ ] Multi-task transfer matrices, negative-transfer diagnosis, and few-shot adaptation curves
+
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
 - [ ] Sample-efficiency curves against random and passive-learning baselines
 - [ ] Calibration, robustness, and out-of-distribution benchmark suites

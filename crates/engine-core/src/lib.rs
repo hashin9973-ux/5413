@@ -2,6 +2,7 @@
 
 pub mod action;
 pub mod causal;
+pub mod benchmark;
 pub mod checkpoint;
 pub mod discovery;
 pub mod environment;
@@ -21,6 +22,7 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
+pub use benchmark::{BenchmarkError, ScoreDirection, TransferBenchmark, TransferEvaluation, TransferSummary};
 pub use causal::{AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
