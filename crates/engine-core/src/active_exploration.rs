@@ -95,12 +95,17 @@ where
             &utility,
         ) {
             Ok(ranking) => {
-                let Some(selected) = ranking.ranked_actions.first() else {
+                let shortlisted = ranking
+                    .ranked_actions
+                    .iter()
+                    .take(maximum_actions_per_plan)
+                    .map(|candidate| candidate.action.clone())
+                    .collect::<Vec<_>>();
+                if shortlisted.is_empty() {
                     return Err("no exploration candidate was eligible".to_owned());
-                };
-                let selected_action = selected.action.clone();
+                }
                 rankings.push(ranking);
-                Ok(vec![selected_action])
+                Ok(shortlisted)
             }
             Err(error) => {
                 selection_error = Some(error);
