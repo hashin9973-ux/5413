@@ -979,11 +979,16 @@ mod tests {
                 .and_then(DataValue::as_f64),
             Some(1.0)
         );
+        let updated_hypothesis = report
+            .evidence_commit
+            .hypothesis()
+            .expect("hypothesis evidence update");
+        assert!(report.evidence_commit.is_persisted());
         assert_eq!(
-            report.updated_hypothesis.status,
+            updated_hypothesis.status,
             crate::reasoning::HypothesisStatus::Supported
         );
-        assert!((report.updated_hypothesis.posterior_probability - 0.9).abs() < 1e-12);
+        assert!((updated_hypothesis.posterior_probability - 0.9).abs() < 1e-12);
         let learning = report.learning.expect("learning outcome");
         assert!(learning.promoted);
         assert_eq!(learning.training_samples, 1);

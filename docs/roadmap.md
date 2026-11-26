@@ -69,6 +69,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
 - [x] Bounded one-step research-cycle orchestration linking experiment selection, authorized runtime execution, durable evidence, episode training, held-out evaluation, and model promotion
+- [x] Preserve completed runtime reports across subsequent evidence update/persistence failures; preflight both possible likelihood updates for numerical validity
 - [ ] Safe exploration policies with explicit reset and recovery contracts
 
 ## Milestone 6 — Reasoning and evidence
