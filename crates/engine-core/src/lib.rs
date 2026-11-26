@@ -25,7 +25,7 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
-pub use benchmark::{BenchmarkError, ScoreDirection, TransferBenchmark, TransferEvaluation, TransferSummary};
+pub use benchmark::{BenchmarkError, FewShotTransferCurve, ScoreDirection, TransferAdaptationPoint, TransferBenchmark, TransferEvaluation, TransferSummary};
 pub use causal::{AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,

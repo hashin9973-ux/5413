@@ -263,6 +263,161 @@ fn evaluation_from_value(value: &DataValue) -> Result<TransferEvaluation, Benchm
     Ok(evaluation)
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TransferAdaptationPoint {
+    pub adaptation_samples: usize,
+    pub baseline_score: f64,
+    pub transferred_score: f64,
+    pub resource_cost: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FewShotTransferCurve {
+    pub source_environment_id: String,
+    pub target_environment_id: String,
+    pub source_training_dataset_id: String,
+    pub target_evaluation_dataset_id: String,
+    pub model_artifact_ref: String,
+    pub metric_id: String,
+    pub direction: ScoreDirection,
+    pub evaluation_sample_count: usize,
+    pub points: Vec<TransferAdaptationPoint>,
+}
+
+impl FewShotTransferCurve {
+    pub fn validate(&self) -> Result<(), BenchmarkError> {
+        if self.source_environment_id.trim().is_empty()
+            || self.target_environment_id.trim().is_empty()
+            || self.source_training_dataset_id.trim().is_empty()
+            || self.target_evaluation_dataset_id.trim().is_empty()
+            || self.model_artifact_ref.trim().is_empty()
+            || self.metric_id.trim().is_empty()
+            || self.evaluation_sample_count == 0
+            || self.points.len() < 2
+            || self.source_environment_id == self.target_environment_id
+            || self.source_training_dataset_id == self.target_evaluation_dataset_id
+        {
+            return Err(BenchmarkError::InvalidAdaptationCurve);
+        }
+        let mut previous_samples = None;
+        for point in &self.points {
+            if point.adaptation_samples == 0
+                || previous_samples.is_some_and(|previous| point.adaptation_samples <= previous)
+                || !point.baseline_score.is_finite()
+                || !point.transferred_score.is_finite()
+                || !point.resource_cost.is_finite()
+                || point.resource_cost < 0.0
+            {
+                return Err(BenchmarkError::InvalidAdaptationCurve);
+            }
+            previous_samples = Some(point.adaptation_samples);
+        }
+        Ok(())
+    }
+
+    pub fn improvements(&self) -> Result<Vec<f64>, BenchmarkError> {
+        self.validate()?;
+        let values: Vec<f64> = self.points.iter().map(|point| match self.direction {
+            ScoreDirection::HigherIsBetter => point.transferred_score - point.baseline_score,
+            ScoreDirection::LowerIsBetter => point.baseline_score - point.transferred_score,
+        }).collect();
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(BenchmarkError::NumericalOverflow);
+        }
+        Ok(values)
+    }
+
+    /// Trapezoidal area under the improvement-vs-adaptation-sample curve.
+    pub fn area_under_improvement_curve(&self) -> Result<f64, BenchmarkError> {
+        let improvements = self.improvements()?;
+        let mut area = 0.0;
+        for (index, pair) in self.points.windows(2).enumerate() {
+            let width = (pair[1].adaptation_samples - pair[0].adaptation_samples) as f64;
+            area += width * (improvements[index] + improvements[index + 1]) / 2.0;
+            if !area.is_finite() {
+                return Err(BenchmarkError::NumericalOverflow);
+            }
+        }
+        Ok(area)
+    }
+
+    pub fn to_artifact_value(&self) -> DataValue {
+        DataValue::object([
+            ("artifact_version".to_owned(), DataValue::Integer(1)),
+            ("source_environment_id".to_owned(), DataValue::Text(self.source_environment_id.clone())),
+            ("target_environment_id".to_owned(), DataValue::Text(self.target_environment_id.clone())),
+            ("source_training_dataset_id".to_owned(), DataValue::Text(self.source_training_dataset_id.clone())),
+            ("target_evaluation_dataset_id".to_owned(), DataValue::Text(self.target_evaluation_dataset_id.clone())),
+            ("model_artifact_ref".to_owned(), DataValue::Text(self.model_artifact_ref.clone())),
+            ("metric_id".to_owned(), DataValue::Text(self.metric_id.clone())),
+            ("direction".to_owned(), DataValue::Text(direction_name(self.direction).to_owned())),
+            ("evaluation_sample_count".to_owned(), DataValue::Text(self.evaluation_sample_count.to_string())),
+            ("points".to_owned(), DataValue::Sequence(self.points.iter().map(|point| {
+                DataValue::object([
+                    ("adaptation_samples".to_owned(), DataValue::Text(point.adaptation_samples.to_string())),
+                    ("baseline_score".to_owned(), DataValue::Number(point.baseline_score)),
+                    ("transferred_score".to_owned(), DataValue::Number(point.transferred_score)),
+                    ("resource_cost".to_owned(), DataValue::Number(point.resource_cost)),
+                ])
+            }).collect())),
+        ])
+    }
+
+    pub fn from_artifact_value(value: &DataValue) -> Result<Self, BenchmarkError> {
+        let fields = value.as_object().ok_or(BenchmarkError::InvalidAdaptationCurve)?;
+        if fields.len() != 10 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
+            return Err(BenchmarkError::InvalidAdaptationCurve);
+        }
+        let text = |name: &str| match fields.get(name) {
+            Some(DataValue::Text(value)) => Ok(value.clone()),
+            _ => Err(BenchmarkError::InvalidAdaptationCurve),
+        };
+        let direction = match text("direction")?.as_str() {
+            "higher" => ScoreDirection::HigherIsBetter,
+            "lower" => ScoreDirection::LowerIsBetter,
+            _ => return Err(BenchmarkError::InvalidAdaptationCurve),
+        };
+        let evaluation_sample_count = text("evaluation_sample_count")?
+            .parse().map_err(|_| BenchmarkError::InvalidAdaptationCurve)?;
+        let points = match fields.get("points") {
+            Some(DataValue::Sequence(points)) => points.iter().map(|value| {
+                let point = value.as_object().ok_or(BenchmarkError::InvalidAdaptationCurve)?;
+                if point.len() != 4 {
+                    return Err(BenchmarkError::InvalidAdaptationCurve);
+                }
+                let adaptation_samples = match point.get("adaptation_samples") {
+                    Some(DataValue::Text(value)) => value.parse().map_err(|_| BenchmarkError::InvalidAdaptationCurve)?,
+                    _ => return Err(BenchmarkError::InvalidAdaptationCurve),
+                };
+                let number = |name: &str| point.get(name)
+                    .and_then(DataValue::as_f64)
+                    .filter(|value| value.is_finite())
+                    .ok_or(BenchmarkError::InvalidAdaptationCurve);
+                Ok(TransferAdaptationPoint {
+                    adaptation_samples,
+                    baseline_score: number("baseline_score")?,
+                    transferred_score: number("transferred_score")?,
+                    resource_cost: number("resource_cost")?,
+                })
+            }).collect::<Result<Vec<_>, _>>()?,
+            _ => return Err(BenchmarkError::InvalidAdaptationCurve),
+        };
+        let curve = Self {
+            source_environment_id: text("source_environment_id")?,
+            target_environment_id: text("target_environment_id")?,
+            source_training_dataset_id: text("source_training_dataset_id")?,
+            target_evaluation_dataset_id: text("target_evaluation_dataset_id")?,
+            model_artifact_ref: text("model_artifact_ref")?,
+            metric_id: text("metric_id")?,
+            direction,
+            evaluation_sample_count,
+            points,
+        };
+        curve.validate().map_err(|_| BenchmarkError::InvalidAdaptationCurve)?;
+        Ok(curve)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BenchmarkError {
     InvalidEvaluation,
@@ -274,6 +429,7 @@ pub enum BenchmarkError {
     InconsistentMetricDirection,
     NumericalOverflow,
     InvalidSerializedState,
+    InvalidAdaptationCurve,
 }
 
 impl std::fmt::Display for BenchmarkError {
@@ -288,6 +444,7 @@ impl std::fmt::Display for BenchmarkError {
             Self::InconsistentMetricDirection => write!(formatter, "benchmark metric direction is inconsistent"),
             Self::NumericalOverflow => write!(formatter, "benchmark aggregate overflowed"),
             Self::InvalidSerializedState => write!(formatter, "serialized transfer benchmark is invalid"),
+            Self::InvalidAdaptationCurve => write!(formatter, "few-shot transfer adaptation curve is invalid"),
         }
     }
 }
@@ -346,6 +503,50 @@ mod tests {
         let mut leaked = evaluation("leak", "physics", "robotics", 0.2, 0.1, ScoreDirection::LowerIsBetter);
         leaked.target_evaluation_dataset_id = leaked.source_training_dataset_id.clone();
         assert_eq!(benchmark.record(leaked), Err(BenchmarkError::DatasetLeakage));
+    }
+
+    #[test]
+    fn few_shot_transfer_curve_validates_and_measures_area() {
+        let curve = FewShotTransferCurve {
+            source_environment_id: "physics".to_owned(),
+            target_environment_id: "robotics".to_owned(),
+            source_training_dataset_id: "physics-train".to_owned(),
+            target_evaluation_dataset_id: "robotics-holdout".to_owned(),
+            model_artifact_ref: "transferred-model-v1".to_owned(),
+            metric_id: "rmse".to_owned(),
+            direction: ScoreDirection::LowerIsBetter,
+            evaluation_sample_count: 100,
+            points: vec![
+                TransferAdaptationPoint { adaptation_samples: 1, baseline_score: 1.0, transferred_score: 0.8, resource_cost: 1.0 },
+                TransferAdaptationPoint { adaptation_samples: 5, baseline_score: 1.0, transferred_score: 0.6, resource_cost: 2.0 },
+                TransferAdaptationPoint { adaptation_samples: 10, baseline_score: 1.0, transferred_score: 0.5, resource_cost: 3.0 },
+            ],
+        };
+        assert_eq!(curve.improvements().expect("improvements"), vec![0.2, 0.4, 0.5]);
+        assert!((curve.area_under_improvement_curve().expect("area") - 3.4).abs() < 1e-12);
+        assert_eq!(
+            FewShotTransferCurve::from_artifact_value(&curve.to_artifact_value()).expect("restore"),
+            curve
+        );
+    }
+
+    #[test]
+    fn few_shot_transfer_curve_rejects_non_monotonic_shots() {
+        let mut curve = FewShotTransferCurve {
+            source_environment_id: "source".to_owned(),
+            target_environment_id: "target".to_owned(),
+            source_training_dataset_id: "train".to_owned(),
+            target_evaluation_dataset_id: "holdout".to_owned(),
+            model_artifact_ref: "model".to_owned(),
+            metric_id: "rmse".to_owned(),
+            direction: ScoreDirection::LowerIsBetter,
+            evaluation_sample_count: 2,
+            points: vec![
+                TransferAdaptationPoint { adaptation_samples: 4, baseline_score: 1.0, transferred_score: 0.8, resource_cost: 1.0 },
+                TransferAdaptationPoint { adaptation_samples: 2, baseline_score: 1.0, transferred_score: 0.7, resource_cost: 1.0 },
+            ],
+        };
+        assert_eq!(curve.validate(), Err(BenchmarkError::InvalidAdaptationCurve));
     }
 
     #[test]
