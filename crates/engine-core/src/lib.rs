@@ -3,6 +3,7 @@
 pub mod action;
 pub mod active_exploration;
 pub mod benchmark;
+pub mod benchmark_protocol;
 pub mod calibration;
 pub mod causal;
 pub mod checkpoint;
@@ -34,6 +35,11 @@ pub use action::{
 pub use active_exploration::{
     run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
     ActiveExplorationRequest,
+};
+pub use benchmark_protocol::{
+    run_benchmark_protocol, BenchmarkProtocol, BenchmarkProtocolError,
+    BenchmarkProtocolExecutor, BenchmarkProtocolReport, BenchmarkSeedPlan,
+    BenchmarkStrategyRole, BenchmarkTrialRecord, BenchmarkTrialRequest, BenchmarkTrialResult,
 };
 pub use benchmark::{
     BenchmarkError, FewShotTransferCurve, LearningEfficiencyBenchmark, LearningEfficiencyCurve,
