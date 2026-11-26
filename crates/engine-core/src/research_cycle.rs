@@ -842,10 +842,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(0.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(1.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
                     },
                     TransitionSample {
                         action_id: "advance".to_owned(),
@@ -853,10 +850,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(5.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(6.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(6.0))]),
                     },
                 ],
             )
@@ -873,10 +867,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(0.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(1.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
                     },
                     TransitionSample {
                         action_id: "advance".to_owned(),
@@ -884,10 +875,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(5.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(6.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(6.0))]),
                     },
                 ],
             )
@@ -1001,11 +989,7 @@ mod tests {
                 .map(|record| record.status),
             Some(ModelStatus::Active)
         );
-        assert_eq!(
-            registry
-                .get("transactional-model", 2),
-            None
-        );
+        assert_eq!(registry.get("transactional-model", 2), None);
 
         drop(artifact_store);
         std::fs::remove_file(path).expect("remove artifact store");
