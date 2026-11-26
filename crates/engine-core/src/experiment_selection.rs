@@ -470,6 +470,7 @@ impl std::error::Error for ExperimentSelectionError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world_model::PredictiveModel;
     use crate::reasoning::{HypothesisSpec, HypothesisStatus};
 
     fn hypothesis(probability: f64) -> HypothesisRecord {
