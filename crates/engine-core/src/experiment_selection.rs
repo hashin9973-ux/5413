@@ -200,7 +200,7 @@ pub struct ModelExplorationCandidate {
 }
 
 impl ModelExplorationCandidate {
-    fn validate(&self) -> Result<(), ExperimentSelectionError> {
+    pub fn validate(&self) -> Result<(), ExperimentSelectionError> {
         if self.id.trim().is_empty()
             || self.action.action_id.trim().is_empty()
             || !self.resource_cost.is_finite()
