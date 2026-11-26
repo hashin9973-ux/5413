@@ -4,6 +4,7 @@
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
 use crate::benchmark::{BenchmarkError, TransferBenchmark};
+use crate::calibration::{ConformalCalibrationError, ConformalCalibrator};
 use crate::causal::{CausalError, PairedRandomizedStudy};
 use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
@@ -277,6 +278,44 @@ impl ModelArtifactStore {
         Ok(registry)
     }
 
+    /// Persists a conformal calibrator only when it matches the referenced model artifact.
+    pub fn put_conformal_calibrator(
+        &mut self,
+        calibrator_ref: impl Into<String>,
+        model_artifact_ref: &str,
+        calibrator: &ConformalCalibrator,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        calibrator.validate().map_err(ModelArtifactError::Calibration)?;
+        let model = self.load_model(model_artifact_ref)?;
+        if model.identity() != &calibrator.model_identity
+            || model.training_dataset_id() != Some(calibrator.training_dataset_id.as_str())
+        {
+            return Err(ModelArtifactError::CalibrationModelMismatch);
+        }
+        self.put(calibrator_ref, calibrator.to_artifact_value())
+    }
+
+    /// Restores a conformal calibrator and verifies its model/version provenance.
+    pub fn load_conformal_calibrator(
+        &self,
+        calibrator_ref: &str,
+        model_artifact_ref: &str,
+    ) -> Result<ConformalCalibrator, ModelArtifactError> {
+        let value = self
+            .artifacts
+            .get(calibrator_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        let calibrator = ConformalCalibrator::from_artifact_value(value)
+            .map_err(ModelArtifactError::Calibration)?;
+        let model = self.load_model(model_artifact_ref)?;
+        if model.identity() != &calibrator.model_identity
+            || model.training_dataset_id() != Some(calibrator.training_dataset_id.as_str())
+        {
+            return Err(ModelArtifactError::CalibrationModelMismatch);
+        }
+        Ok(calibrator)
+    }
+
     pub fn get(&self, artifact_ref: &str) -> Option<&DataValue> {
         self.artifacts.get(artifact_ref)
     }
@@ -430,6 +469,8 @@ pub enum ModelArtifactError {
     Io(io::Error),
     Encoding(String),
     Model(WorldModelError),
+    Calibration(ConformalCalibrationError),
+    CalibrationModelMismatch,
     Registry(RegistryError),
     Reasoning(ReasoningError),
     Strategy(StrategyError),
@@ -455,6 +496,8 @@ impl std::fmt::Display for ModelArtifactError {
                 write!(formatter, "model-artifact encoding failed: {message}")
             }
             Self::Model(error) => write!(formatter, "model-artifact conversion failed: {error}"),
+            Self::Calibration(error) => write!(formatter, "conformal calibration artifact is invalid: {error}"),
+            Self::CalibrationModelMismatch => write!(formatter, "conformal calibrator does not match the referenced model artifact"),
             Self::Registry(error) => write!(
                 formatter,
                 "representation-registry artifact is invalid: {error}"
@@ -534,6 +577,86 @@ mod tests {
             before: DataValue::object([("position".to_owned(), DataValue::Number(before))]),
             after: DataValue::object([("position".to_owned(), DataValue::Number(after))]),
         }
+    }
+
+    #[test]
+    fn persists_conformal_calibration_bound_to_model_artifact() {
+        use crate::calibration::ConformalCalibrator;
+
+        let path = test_path();
+        let mut model = ActionDeltaModel::new("calibrated-delta", 3).expect("model");
+        model
+            .fit(
+                "training-v1",
+                &[sample("advance", 0.0, 1.0), sample("advance", 5.0, 6.0)],
+            )
+            .expect("fit model");
+        let calibration_samples = vec![
+            sample("advance", 10.0, 11.0),
+            sample("advance", 20.0, 22.0),
+            sample("advance", 30.0, 33.0),
+            sample("advance", 40.0, 44.0),
+        ];
+        let calibrator = ConformalCalibrator::fit(
+            &model,
+            "calibration-v1",
+            &calibration_samples,
+            0.75,
+        )
+        .expect("fit conformal calibrator");
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open artifact store");
+            store
+                .put_model("model-calibrated-v3", &model)
+                .expect("persist model");
+            store
+                .put_conformal_calibrator(
+                    "calibrator-for-model-v3",
+                    "model-calibrated-v3",
+                    &calibrator,
+                )
+                .expect("persist calibrator");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen artifact store");
+            let restored = store
+                .load_conformal_calibrator(
+                    "calibrator-for-model-v3",
+                    "model-calibrated-v3",
+                )
+                .expect("restore calibrator");
+            assert_eq!(restored, calibrator);
+
+            let mut other = ActionDeltaModel::new("calibrated-delta", 4).expect("other model");
+            other
+                .fit(
+                    "training-v1",
+                    &[sample("advance", 0.0, 1.0), sample("advance", 5.0, 6.0)],
+                )
+                .expect("fit other version");
+            store
+                .load_conformal_calibrator(
+                    "calibrator-for-model-v3",
+                    "model-calibrated-v3",
+                )
+                .expect("stored model reference remains valid");
+            // A caller cannot substitute an unrelated model artifact reference.
+            assert!(matches!(
+                store.put_conformal_calibrator(
+                    "calibrator-for-other-model",
+                    "model-calibrated-v3",
+                    &ConformalCalibrator::fit(
+                        &other,
+                        "calibration-v1",
+                        &calibration_samples,
+                        0.75,
+                    )
+                    .expect("fit other calibrator"),
+                ),
+                Err(ModelArtifactError::CalibrationModelMismatch)
+            ));
+        }
+        std::fs::remove_file(path).expect("remove artifact store");
     }
 
     #[test]
