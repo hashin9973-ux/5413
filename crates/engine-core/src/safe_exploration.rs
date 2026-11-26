@@ -6,8 +6,8 @@
 //! runs and preserves completed results when later work fails.
 
 use crate::active_exploration::{
-    run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationRequest,
-    ActiveExplorationReport,
+    run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
+    ActiveExplorationRequest,
 };
 use crate::environment::{EnvironmentAdapter, LifecycleOutcome};
 use crate::experience::ExperienceEvent;
@@ -35,7 +35,11 @@ pub struct SafeExplorationRequest {
 }
 
 impl SafeExplorationRequest {
-    pub fn validate(&self, adapter: &impl EnvironmentAdapter, model: &EnsembleWorldModel) -> Result<(), SafeExplorationError> {
+    pub fn validate(
+        &self,
+        adapter: &impl EnvironmentAdapter,
+        model: &EnsembleWorldModel,
+    ) -> Result<(), SafeExplorationError> {
         self.runtime
             .validate()
             .map_err(|_| SafeExplorationError::InvalidRequest)?;
@@ -197,8 +201,7 @@ where
                 termination = SafeExplorationTermination::StepBudgetReached;
                 break;
             }
-            let remaining_cost =
-                request.maximum_total_resource_cost - total_resource_cost;
+            let remaining_cost = request.maximum_total_resource_cost - total_resource_cost;
             if remaining_cost < 0.0 {
                 termination = SafeExplorationTermination::ResourceBudgetReached;
                 break;
@@ -256,21 +259,23 @@ where
                 termination = SafeExplorationTermination::StoppedAfterFailure;
                 break;
             }
-            let step = runtime.steps.into_iter().next().ok_or(
-                SafeExplorationError::InternalInvariant,
-            )?;
-            let ranking = rankings.into_iter().next().ok_or(
-                SafeExplorationError::InternalInvariant,
-            )?;
+            let step = runtime
+                .steps
+                .into_iter()
+                .next()
+                .ok_or(SafeExplorationError::InternalInvariant)?;
+            let ranking = rankings
+                .into_iter()
+                .next()
+                .ok_or(SafeExplorationError::InternalInvariant)?;
 
             let action_intent = journal.records()[before_journal_len..]
                 .iter()
                 .find_map(|record| match &record.event {
-                    ExperienceEvent::ActionProposed { action_id, arguments }
-                        if action_id == &step.action_id =>
-                    {
-                        Some((action_id, arguments))
-                    }
+                    ExperienceEvent::ActionProposed {
+                        action_id,
+                        arguments,
+                    } if action_id == &step.action_id => Some((action_id, arguments)),
                     _ => None,
                 });
             let Some((action_id, arguments)) = action_intent else {
@@ -312,7 +317,11 @@ where
             episode.rankings.push(ranking);
             episode.steps.push(step);
 
-            if episode.steps.last().is_some_and(|step| !step.outcome.completed) {
+            if episode
+                .steps
+                .last()
+                .is_some_and(|step| !step.outcome.completed)
+            {
                 failure = Some(SafeExplorationFailure::ActionReportedIncomplete);
                 termination = SafeExplorationTermination::StoppedAfterFailure;
                 break;
@@ -359,10 +368,22 @@ impl std::fmt::Display for SafeExplorationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidRequest => write!(formatter, "safe-exploration request is invalid"),
-            Self::ResetUnsupported => write!(formatter, "multi-episode safe exploration requires declared environment reset support"),
-            Self::InvalidEnvironment(message) => write!(formatter, "safe-exploration environment is invalid: {message}"),
-            Self::Selection(error) => write!(formatter, "safe-exploration selection policy is invalid: {error}"),
-            Self::InternalInvariant => write!(formatter, "safe-exploration runtime report violated an internal invariant"),
+            Self::ResetUnsupported => write!(
+                formatter,
+                "multi-episode safe exploration requires declared environment reset support"
+            ),
+            Self::InvalidEnvironment(message) => write!(
+                formatter,
+                "safe-exploration environment is invalid: {message}"
+            ),
+            Self::Selection(error) => write!(
+                formatter,
+                "safe-exploration selection policy is invalid: {error}"
+            ),
+            Self::InternalInvariant => write!(
+                formatter,
+                "safe-exploration runtime report violated an internal invariant"
+            ),
         }
     }
 }
@@ -372,8 +393,12 @@ impl std::error::Error for SafeExplorationError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::action::{ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk};
-    use crate::environment::{ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame};
+    use crate::action::{
+        ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
+    };
+    use crate::environment::{
+        ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
+    };
     use crate::experiment_selection::ModelExplorationCandidate;
     use crate::learning::TransitionSample;
     use crate::planning::PlanningConfig;
@@ -495,35 +520,58 @@ mod tests {
 
     fn model() -> EnsembleWorldModel {
         let mut first = ActionDeltaModel::new("safe-model-a", 1).expect("first");
-        first.fit("safe-training", &[
-            TransitionSample {
-                action_id: "advance".to_owned(),
-                before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
-            },
-            TransitionSample {
-                action_id: "advance".to_owned(),
-                before: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
-                after: DataValue::object([("position".to_owned(), DataValue::Number(2.0))]),
-            },
-        ]).expect("fit first");
+        first
+            .fit(
+                "safe-training",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(1.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(2.0))]),
+                    },
+                ],
+            )
+            .expect("fit first");
         let mut second = ActionDeltaModel::new("safe-model-b", 1).expect("second");
-        second.fit("safe-training", &[
-            TransitionSample {
-                action_id: "advance".to_owned(),
-                before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                after: DataValue::object([("position".to_owned(), DataValue::Number(1.5))]),
-            },
-            TransitionSample {
-                action_id: "advance".to_owned(),
-                before: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
-                after: DataValue::object([("position".to_owned(), DataValue::Number(2.5))]),
-            },
-        ]).expect("fit second");
+        second
+            .fit(
+                "safe-training",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.5))]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(1.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(2.5))]),
+                    },
+                ],
+            )
+            .expect("fit second");
         EnsembleWorldModel::new(vec![
             Box::new(first) as Box<dyn PredictiveModel>,
             Box::new(second) as Box<dyn PredictiveModel>,
-        ]).expect("ensemble")
+        ])
+        .expect("ensemble")
     }
 
     fn request(episodes: usize, total_steps: usize, total_cost: f64) -> SafeExplorationRequest {
@@ -549,7 +597,9 @@ mod tests {
                 execution_id: "safe-run".to_owned(),
                 episode_id: "safe-episode-0".to_owned(),
                 maximum_steps: 1,
-                authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
+                authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(
+                    ActionRisk::Reversible,
+                )),
                 planning: PlanningConfig {
                     horizon: 1,
                     beam_width: 1,
@@ -574,20 +624,32 @@ mod tests {
             &model(),
             request(2, 4, 4.0),
             &mut journal,
-            |state| state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0),
-        ).expect("safe exploration");
+            |state| {
+                state
+                    .get("position")
+                    .and_then(DataValue::as_f64)
+                    .unwrap_or(0.0)
+            },
+        )
+        .expect("safe exploration");
         assert_eq!(report.episodes.len(), 2);
         assert_eq!(report.episodes[0].episode_id, "safe-episode-0");
         assert_eq!(report.episodes[1].episode_id, "safe-episode-1");
         assert!(report.episodes[0].reset_before.is_none());
         assert_eq!(
-            report.episodes[1].reset_before.as_ref().map(|item| item.episode_id.as_str()),
+            report.episodes[1]
+                .reset_before
+                .as_ref()
+                .map(|item| item.episode_id.as_str()),
             Some("safe-episode-1")
         );
         assert_eq!(report.total_steps, 4);
         assert_eq!(report.total_resource_cost, 4.0);
         assert_eq!(environment.executions, 4);
-        assert_eq!(report.termination, SafeExplorationTermination::StepBudgetReached);
+        assert_eq!(
+            report.termination,
+            SafeExplorationTermination::StepBudgetReached
+        );
         drop(journal);
         std::fs::remove_file(journal_path).expect("journal cleanup");
     }
@@ -604,7 +666,10 @@ mod tests {
             &mut journal,
             |_| 0.0,
         );
-        assert!(matches!(result, Err(SafeExplorationError::ResetUnsupported)));
+        assert!(matches!(
+            result,
+            Err(SafeExplorationError::ResetUnsupported)
+        ));
         assert_eq!(environment.executions, 0);
         assert!(journal.is_empty());
         drop(journal);
@@ -622,10 +687,14 @@ mod tests {
             request(1, 5, 1.0),
             &mut journal,
             |_| 0.0,
-        ).expect("safe exploration");
+        )
+        .expect("safe exploration");
         assert_eq!(report.total_steps, 1);
         assert_eq!(report.total_resource_cost, 1.0);
-        assert_eq!(report.termination, SafeExplorationTermination::ResourceBudgetReached);
+        assert_eq!(
+            report.termination,
+            SafeExplorationTermination::ResourceBudgetReached
+        );
         assert_eq!(environment.executions, 1);
         drop(journal);
         std::fs::remove_file(journal_path).expect("journal cleanup");
