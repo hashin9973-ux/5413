@@ -1280,7 +1280,6 @@ mod tests {
         })
     }
 
-
     #[test]
     fn contextual_model_residual_spread_avoids_intermediate_square_overflow() {
         let rows = vec![(vec![1.0, 0.0], 1.0e200), (vec![1.0, 0.0], -1.0e200)];
