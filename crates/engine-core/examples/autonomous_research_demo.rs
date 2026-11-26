@@ -8,10 +8,8 @@ use engine_core::benchmark::ScoreDirection;
 use engine_core::environment::{
     ActionOutcome, EnvironmentAdapter, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
 };
-use engine_core::experiment_selection::{
-    ExperimentCandidate, ExperimentSelectionPolicy,
-};
 use engine_core::experience_journal::ExperienceJournal;
+use engine_core::experiment_selection::{ExperimentCandidate, ExperimentSelectionPolicy};
 use engine_core::learning::TransitionSample;
 use engine_core::model_artifact::ModelArtifactStore;
 use engine_core::model_registry::{
@@ -80,10 +78,7 @@ impl CounterEnvironment {
             observed_at_millis: self.sequence,
             schema_id: "counter-state".to_owned(),
             schema_version: 1,
-            payload: DataValue::object([(
-                "position".to_owned(),
-                DataValue::Number(self.position),
-            )]),
+            payload: DataValue::object([("position".to_owned(), DataValue::Number(self.position))]),
         };
         self.sequence += 1;
         frame
@@ -114,10 +109,7 @@ fn active_world_model() -> Result<EnsembleWorldModel, Box<dyn Error>> {
     let mut model = ActionDeltaModel::new("counter-world-model", 1)?;
     model.fit(
         "seed-training-v1",
-        &[
-            transition(0.0, 1.0),
-            transition(4.0, 5.0),
-        ],
+        &[transition(0.0, 1.0), transition(4.0, 5.0)],
     )?;
     Ok(EnsembleWorldModel::new(vec![
         Box::new(model) as Box<dyn PredictiveModel>
@@ -215,9 +207,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                         execution_id: "counter-research-run-1".to_owned(),
                         episode_id: "research-episode".to_owned(),
                         maximum_steps: 1,
-                        authorizer: ActionAuthorizer::new(
-                            ActionAuthorizationPolicy::new(ActionRisk::Reversible),
-                        ),
+                        authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(
+                            ActionRisk::Reversible,
+                        )),
                         planning: PlanningConfig {
                             horizon: 1,
                             beam_width: 1,
@@ -226,7 +218,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         },
                     },
                     evidence_dataset_id: "experiment-evidence-v1".to_owned(),
-                    evidence_rationale: "Final position was measured after the intervention".to_owned(),
+                    evidence_rationale: "Final position was measured after the intervention"
+                        .to_owned(),
                     hypothesis_registry_artifact_ref: "hypothesis-registry-after-run-1".to_owned(),
                 },
                 learning: LearningCycleConfig {
@@ -273,10 +266,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let learning = report.learning?;
-    let restored_hypotheses = artifacts.load_hypothesis_registry(
-        "hypothesis-registry-after-run-1",
-        hypothesis_policy,
-    )?;
+    let restored_hypotheses =
+        artifacts.load_hypothesis_registry("hypothesis-registry-after-run-1", hypothesis_policy)?;
     let restored_models = artifacts.load_model_registry("model-registry-after-run-1")?;
     let active_version = restored_models
         .active("counter-world-model")
@@ -294,9 +285,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
     println!(
         "model: v{}; trained on {} episode transition(s); validation RMSE {:.4}",
-        learning.model_version,
-        learning.training_samples,
-        learning.evaluation.score
+        learning.model_version, learning.training_samples, learning.evaluation.score
     );
     println!("active model version after restoration: {active_version}");
 
