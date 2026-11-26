@@ -1057,8 +1057,7 @@ fn mean_and_standard_error(values: &[f64]) -> Result<(f64, Option<f64>), Benchma
     let normalized_rms = deviations
         .root_mean_square()
         .ok_or(BenchmarkError::NumericalOverflow)?;
-    let standard_error =
-        scale * (normalized_rms / ((values.len() - 1) as f64).sqrt());
+    let standard_error = scale * (normalized_rms / ((values.len() - 1) as f64).sqrt());
     if !standard_error.is_finite() {
         return Err(BenchmarkError::NumericalOverflow);
     }
@@ -1157,7 +1156,9 @@ impl TransferMatrix {
             let mut resource_cost_mean = OnlineMean::default();
             for evaluation in &evaluations {
                 let improvement = evaluation.improvement();
-                if !improvement.is_finite() || !resource_cost_mean.push_nonnegative(evaluation.resource_cost) {
+                if !improvement.is_finite()
+                    || !resource_cost_mean.push_nonnegative(evaluation.resource_cost)
+                {
                     return Err(BenchmarkError::NumericalOverflow);
                 }
                 improvements.push(improvement);
@@ -1626,7 +1627,6 @@ mod tests {
         assert!(summary.standard_error.is_some());
     }
 
-
     #[test]
     fn transfer_summary_uses_stable_large_magnitude_aggregates() {
         let mut benchmark = TransferBenchmark::default();
@@ -1668,7 +1668,10 @@ mod tests {
             f64::MAX,
             ScoreDirection::HigherIsBetter,
         );
-        assert_eq!(evaluation.validate(), Err(BenchmarkError::NumericalOverflow));
+        assert_eq!(
+            evaluation.validate(),
+            Err(BenchmarkError::NumericalOverflow)
+        );
     }
 
     #[test]
