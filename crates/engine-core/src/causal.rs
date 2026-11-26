@@ -833,6 +833,22 @@ impl std::fmt::Display for CausalError {
                 formatter,
                 "observed arm counts do not match the declared allocation plan"
             ),
+            Self::RandomizationMechanismNotAttested => write!(
+                formatter,
+                "exact paired inference requires an explicit independent fair pair-swap attestation"
+            ),
+            Self::InvalidInferencePolicy => write!(
+                formatter,
+                "randomization inference assignment budget must be positive"
+            ),
+            Self::AssignmentCountOverflow => write!(
+                formatter,
+                "paired randomization assignment count exceeds the supported range"
+            ),
+            Self::AssignmentBudgetExceeded { required, maximum } => write!(
+                formatter,
+                "exact paired inference requires {required} assignments, exceeding the configured cap {maximum}"
+            ),
         }
     }
 }
