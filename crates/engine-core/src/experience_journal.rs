@@ -1429,36 +1429,42 @@ mod tests {
         let sequence = {
             let mut journal = ExperienceJournal::open(&path).expect("journal should open");
             assert_eq!(
-                journal.append_idempotent("request-42", "episode-a", event.clone()),
-                Ok(IdempotentAppendOutcome::Appended { sequence: 0 })
+                journal
+                    .append_idempotent("request-42", "episode-a", event.clone())
+                    .expect("first keyed append should succeed"),
+                IdempotentAppendOutcome::Appended { sequence: 0 }
             );
             let length_after_first_append = fs::metadata(&path).expect("metadata").len();
             assert_eq!(
-                journal.append_idempotent("request-42", "episode-a", event.clone()),
-                Ok(IdempotentAppendOutcome::AlreadyPresent { sequence: 0 })
+                journal
+                    .append_idempotent("request-42", "episode-a", event.clone())
+                    .expect("identical retry should be idempotent"),
+                IdempotentAppendOutcome::AlreadyPresent { sequence: 0 }
             );
             assert_eq!(
                 fs::metadata(&path).expect("metadata").len(),
                 length_after_first_append,
                 "retry must not write a second frame"
             );
-            assert_eq!(
+            assert!(matches!(
                 journal.append_idempotent("request-42", "episode-a", prediction_event(43)),
                 Err(JournalError::IdempotencyConflict)
-            );
+            ));
             0
         };
 
         let mut journal = ExperienceJournal::open(&path).expect("journal should reopen");
         assert_eq!(
-            journal.append_idempotent("request-42", "episode-a", event),
-            Ok(IdempotentAppendOutcome::AlreadyPresent { sequence })
+            journal
+                .append_idempotent("request-42", "episode-a", event)
+                .expect("retry after reopen should be idempotent"),
+            IdempotentAppendOutcome::AlreadyPresent { sequence }
         );
         assert_eq!(journal.len(), 1);
-        assert_eq!(
+        assert!(matches!(
             journal.append_idempotent("  ", "episode-a", prediction_event(1)),
             Err(JournalError::InvalidIdempotencyKey)
-        );
+        ));
         drop(journal);
         fs::remove_file(path).expect("test journal should be removed");
     }
@@ -1487,8 +1493,10 @@ mod tests {
             let mut journal = ExperienceJournal::open(&path).expect("v1 journal should open");
             assert_eq!(journal.len(), 1);
             assert_eq!(
-                journal.append_idempotent("v2-key", "new-episode", prediction_event(8)),
-                Ok(IdempotentAppendOutcome::Appended { sequence: 1 })
+                journal
+                    .append_idempotent("v2-key", "new-episode", prediction_event(8))
+                    .expect("v2 keyed append should succeed"),
+                IdempotentAppendOutcome::Appended { sequence: 1 }
             );
         }
         let journal = ExperienceJournal::open(&path).expect("mixed-version journal should open");
@@ -1523,12 +1531,16 @@ mod tests {
             .expect("partial final frame should be truncated on reopen");
         assert_eq!(recovered.len(), 1);
         assert_eq!(
-            recovered.append_idempotent("retry-key", "episode-a", prediction_event(2)),
-            Ok(IdempotentAppendOutcome::Appended { sequence: 1 })
+            recovered
+                .append_idempotent("retry-key", "episode-a", prediction_event(2))
+                .expect("retry after recovering torn tail should append"),
+            IdempotentAppendOutcome::Appended { sequence: 1 }
         );
         assert_eq!(
-            recovered.append_idempotent("retry-key", "episode-a", prediction_event(2)),
-            Ok(IdempotentAppendOutcome::AlreadyPresent { sequence: 1 })
+            recovered
+                .append_idempotent("retry-key", "episode-a", prediction_event(2))
+                .expect("repeat after recovery should be idempotent"),
+            IdempotentAppendOutcome::AlreadyPresent { sequence: 1 }
         );
         assert_eq!(recovered.len(), 2);
     }
@@ -1550,8 +1562,10 @@ mod tests {
             .expect("complete frame should be replayed after sync error");
         assert_eq!(recovered.len(), 1);
         assert_eq!(
-            recovered.append_idempotent("sync-key", "episode-a", prediction_event(9)),
-            Ok(IdempotentAppendOutcome::AlreadyPresent { sequence: 0 })
+            recovered
+                .append_idempotent("sync-key", "episode-a", prediction_event(9))
+                .expect("retry after ambiguous sync should be idempotent"),
+            IdempotentAppendOutcome::AlreadyPresent { sequence: 0 }
         );
         assert_eq!(recovered.len(), 1);
         assert!(!storage.bytes().is_empty());
