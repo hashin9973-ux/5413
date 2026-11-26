@@ -80,9 +80,7 @@ impl ConformalCalibrator {
                 .map_err(|_| ConformalCalibrationError::NonFiniteCalibrationData)?;
             let prediction = model
                 .predict(&sample.action_id, &sample.before)
-                .map_err(|error| {
-                    ConformalCalibrationError::PredictionFailed(error.to_string())
-                })?;
+                .map_err(|error| ConformalCalibrationError::PredictionFailed(error.to_string()))?;
             let observed = sample
                 .after
                 .as_object()
@@ -233,7 +231,10 @@ impl ConformalCalibrator {
         );
         DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("model_id".to_owned(), DataValue::Text(self.model_identity.id.clone())),
+            (
+                "model_id".to_owned(),
+                DataValue::Text(self.model_identity.id.clone()),
+            ),
             (
                 "model_version".to_owned(),
                 DataValue::Text(self.model_identity.version.to_string()),
@@ -246,7 +247,10 @@ impl ConformalCalibrator {
                 "calibration_dataset_id".to_owned(),
                 DataValue::Text(self.calibration_dataset_id.clone()),
             ),
-            ("target_coverage".to_owned(), DataValue::Number(self.target_coverage)),
+            (
+                "target_coverage".to_owned(),
+                DataValue::Number(self.target_coverage),
+            ),
             ("fields".to_owned(), fields),
         ])
     }
@@ -255,9 +259,7 @@ impl ConformalCalibrator {
         let object = value
             .as_object()
             .ok_or(ConformalCalibrationError::InvalidArtifact)?;
-        if object.len() != 7
-            || object.get("artifact_version") != Some(&DataValue::Integer(1))
-        {
+        if object.len() != 7 || object.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(ConformalCalibrationError::InvalidArtifact);
         }
         let text = |name: &str| match object.get(name) {
@@ -356,20 +358,62 @@ impl std::fmt::Display for ConformalCalibrationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidDatasetId => write!(formatter, "calibration dataset ID must not be empty"),
-            Self::InvalidCoverage => write!(formatter, "target coverage must be finite and strictly between zero and one"),
-            Self::NoCalibrationSamples => write!(formatter, "at least one calibration transition is required"),
-            Self::ModelNotFitted => write!(formatter, "predictive model has no training dataset provenance"),
-            Self::DatasetLeakage => write!(formatter, "calibration dataset ID must differ from model training dataset ID"),
-            Self::NonFiniteCalibrationData => write!(formatter, "calibration data contains non-finite numeric values"),
-            Self::ExpectedObjectState => write!(formatter, "calibration target state must be an object"),
-            Self::PredictionFailed(message) => write!(formatter, "model prediction failed during calibration: {message}"),
-            Self::NoCalibratableFields => write!(formatter, "calibration contains no numeric fields with observed targets"),
-            Self::InsufficientFieldSamples { field, required, actual } => write!(formatter, "field {field} needs at least {required} calibration residuals, received {actual}"),
-            Self::InvalidQuantileRank => write!(formatter, "finite-sample conformal quantile rank is invalid"),
-            Self::ModelIdentityMismatch => write!(formatter, "calibrator does not match model identity and training dataset"),
-            Self::MissingFieldCalibration(field) => write!(formatter, "no calibration residuals are available for predicted field {field}"),
-            Self::NumericalOverflow => write!(formatter, "calibration residual or interval overflowed"),
-            Self::InvalidArtifact => write!(formatter, "serialized conformal calibrator is invalid"),
+            Self::InvalidCoverage => write!(
+                formatter,
+                "target coverage must be finite and strictly between zero and one"
+            ),
+            Self::NoCalibrationSamples => {
+                write!(formatter, "at least one calibration transition is required")
+            }
+            Self::ModelNotFitted => write!(
+                formatter,
+                "predictive model has no training dataset provenance"
+            ),
+            Self::DatasetLeakage => write!(
+                formatter,
+                "calibration dataset ID must differ from model training dataset ID"
+            ),
+            Self::NonFiniteCalibrationData => write!(
+                formatter,
+                "calibration data contains non-finite numeric values"
+            ),
+            Self::ExpectedObjectState => {
+                write!(formatter, "calibration target state must be an object")
+            }
+            Self::PredictionFailed(message) => write!(
+                formatter,
+                "model prediction failed during calibration: {message}"
+            ),
+            Self::NoCalibratableFields => write!(
+                formatter,
+                "calibration contains no numeric fields with observed targets"
+            ),
+            Self::InsufficientFieldSamples {
+                field,
+                required,
+                actual,
+            } => write!(
+                formatter,
+                "field {field} needs at least {required} calibration residuals, received {actual}"
+            ),
+            Self::InvalidQuantileRank => write!(
+                formatter,
+                "finite-sample conformal quantile rank is invalid"
+            ),
+            Self::ModelIdentityMismatch => write!(
+                formatter,
+                "calibrator does not match model identity and training dataset"
+            ),
+            Self::MissingFieldCalibration(field) => write!(
+                formatter,
+                "no calibration residuals are available for predicted field {field}"
+            ),
+            Self::NumericalOverflow => {
+                write!(formatter, "calibration residual or interval overflowed")
+            }
+            Self::InvalidArtifact => {
+                write!(formatter, "serialized conformal calibrator is invalid")
+            }
         }
     }
 }
@@ -403,7 +447,12 @@ mod tests {
         let calibrator = ConformalCalibrator::fit(
             &model,
             "calibration-v1",
-            &[sample(10.0, 11.0), sample(20.0, 22.0), sample(30.0, 33.0), sample(40.0, 44.0)],
+            &[
+                sample(10.0, 11.0),
+                sample(20.0, 22.0),
+                sample(30.0, 33.0),
+                sample(40.0, 44.0),
+            ],
             0.75,
         )
         .expect("fit calibrator");
@@ -427,15 +476,11 @@ mod tests {
             ConformalCalibrator::fit(&model, "training-v1", &[sample(10.0, 11.0)], 0.75),
             Err(ConformalCalibrationError::DatasetLeakage)
         );
-        let insufficient: Vec<TransitionSample> =
-            (0..18).map(|index| sample(index as f64, index as f64 + 1.0)).collect();
+        let insufficient: Vec<TransitionSample> = (0..18)
+            .map(|index| sample(index as f64, index as f64 + 1.0))
+            .collect();
         assert_eq!(
-            ConformalCalibrator::fit(
-                &model,
-                "calibration-v1",
-                &insufficient,
-                0.95,
-            ),
+            ConformalCalibrator::fit(&model, "calibration-v1", &insufficient, 0.95,),
             Err(ConformalCalibrationError::InsufficientFieldSamples {
                 field: "position".to_owned(),
                 required: 19,
@@ -450,13 +495,17 @@ mod tests {
         let calibrator = ConformalCalibrator::fit(
             &model,
             "calibration-v1",
-            &[sample(10.0, 11.0), sample(20.0, 22.0), sample(30.0, 33.0), sample(40.0, 44.0)],
+            &[
+                sample(10.0, 11.0),
+                sample(20.0, 22.0),
+                sample(30.0, 33.0),
+                sample(40.0, 44.0),
+            ],
             0.75,
         )
         .expect("fit calibrator");
-        let restored =
-            ConformalCalibrator::from_artifact_value(&calibrator.to_artifact_value())
-                .expect("restore calibrator");
+        let restored = ConformalCalibrator::from_artifact_value(&calibrator.to_artifact_value())
+            .expect("restore calibrator");
         assert_eq!(restored, calibrator);
 
         let mut other_model = ActionDeltaModel::new("other-model", 1).expect("other");

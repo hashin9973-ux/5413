@@ -34,7 +34,10 @@ pub use benchmark::{
     BenchmarkError, FewShotTransferCurve, ScoreDirection, TransferAdaptationPoint,
     TransferBenchmark, TransferEvaluation, TransferSummary,
 };
-pub use calibration::{CalibratedPrediction, ConformalCalibrationError, ConformalCalibrator, FieldCalibration, PredictionInterval};
+pub use calibration::{
+    CalibratedPrediction, ConformalCalibrationError, ConformalCalibrator, FieldCalibration,
+    PredictionInterval,
+};
 pub use causal::{
     AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy,
 };
