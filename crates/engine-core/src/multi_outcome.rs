@@ -158,10 +158,7 @@ pub fn rank_multi_outcome_experiments(
 ) -> Result<Vec<RankedMultiOutcomeExperiment>, MultiOutcomeExperimentError> {
     policy.validate()?;
     let prior = hypothesis.posterior_probability;
-    if hypothesis.spec.id.trim().is_empty()
-        || !prior.is_finite()
-        || !(0.0..=1.0).contains(&prior)
-    {
+    if hypothesis.spec.id.trim().is_empty() || !prior.is_finite() || !(0.0..=1.0).contains(&prior) {
         return Err(MultiOutcomeExperimentError::InvalidHypothesis);
     }
 
@@ -211,8 +208,8 @@ fn categorical_expected_information_gain(
     let prior_entropy = binary_entropy(prior);
     let mut expected_posterior_entropy = 0.0;
     for outcome in outcomes {
-        let probability = prior * outcome.probability_if_true
-            + (1.0 - prior) * outcome.probability_if_false;
+        let probability =
+            prior * outcome.probability_if_true + (1.0 - prior) * outcome.probability_if_false;
         if !probability.is_finite() || probability < 0.0 {
             return Err(MultiOutcomeExperimentError::NumericalOverflow);
         }
@@ -318,8 +315,9 @@ pub enum MultiOutcomeEvidenceCommitOutcome {
 impl MultiOutcomeEvidenceCommitOutcome {
     pub fn hypothesis(&self) -> Option<&HypothesisRecord> {
         match self {
-            Self::Persisted { hypothesis, .. }
-            | Self::PersistenceFailed { hypothesis, .. } => Some(hypothesis),
+            Self::Persisted { hypothesis, .. } | Self::PersistenceFailed { hypothesis, .. } => {
+                Some(hypothesis)
+            }
             Self::UpdateRejected { .. }
             | Self::ClassificationFailed { .. }
             | Self::UnknownObservedOutcome { .. } => None,
@@ -346,11 +344,19 @@ where
 {
     request.selection_policy.validate()?;
     request.hypothesis_policy.validate()?;
-    request.config.runtime.validate().map_err(MultiOutcomeExperimentError::Runtime)?;
+    request
+        .config
+        .runtime
+        .validate()
+        .map_err(MultiOutcomeExperimentError::Runtime)?;
     if request.config.runtime.maximum_steps != 1
         || request.config.evidence_dataset_id.trim().is_empty()
         || request.config.evidence_rationale.trim().is_empty()
-        || request.config.hypothesis_registry_artifact_ref.trim().is_empty()
+        || request
+            .config
+            .hypothesis_registry_artifact_ref
+            .trim()
+            .is_empty()
     {
         return Err(MultiOutcomeExperimentError::InvalidConfiguration);
     }
@@ -384,11 +390,8 @@ where
         return Err(MultiOutcomeExperimentError::EvidenceDatasetReused);
     }
 
-    let ranked_candidates = rank_multi_outcome_experiments(
-        &hypothesis,
-        request.candidates,
-        request.selection_policy,
-    )?;
+    let ranked_candidates =
+        rank_multi_outcome_experiments(&hypothesis, request.candidates, request.selection_policy)?;
     let selected = ranked_candidates
         .iter()
         .find(|candidate| candidate.is_worthwhile())
@@ -438,7 +441,11 @@ where
 
     let evidence_commit = match (callbacks.classify_outcome)(&runtime.final_observation.payload) {
         Err(message) => MultiOutcomeEvidenceCommitOutcome::ClassificationFailed { message },
-        Ok(outcome_id) => match experiment.outcomes.iter().find(|item| item.outcome_id == outcome_id) {
+        Ok(outcome_id) => match experiment
+            .outcomes
+            .iter()
+            .find(|item| item.outcome_id == outcome_id)
+        {
             None => MultiOutcomeEvidenceCommitOutcome::UnknownObservedOutcome { outcome_id },
             Some(outcome) => {
                 let log_likelihood_ratio =
@@ -644,7 +651,8 @@ mod tests {
                 risk_weight: 0.0,
                 allow_irreversible: false,
             },
-        ).expect("rank");
+        )
+        .expect("rank");
         assert_eq!(ranked[0].experiment_id, "probe-advance");
         assert!(ranked[0].expected_information_gain > 0.0);
         assert_eq!(ranked[1].expected_information_gain, 0.0);
@@ -736,33 +744,29 @@ mod tests {
 
     fn active_model() -> EnsembleWorldModel {
         let mut model = ActionDeltaModel::new("multi-outcome-model", 1).expect("model");
-        model.fit(
-            "training",
-            &[
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([(
-                        "position".to_owned(),
-                        DataValue::Number(0.0),
-                    )]),
-                    after: DataValue::object([(
-                        "position".to_owned(),
-                        DataValue::Number(1.0),
-                    )]),
-                },
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([(
-                        "position".to_owned(),
-                        DataValue::Number(2.0),
-                    )]),
-                    after: DataValue::object([(
-                        "position".to_owned(),
-                        DataValue::Number(3.0),
-                    )]),
-                },
-            ],
-        ).expect("fit");
+        model
+            .fit(
+                "training",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(2.0),
+                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(3.0))]),
+                    },
+                ],
+            )
+            .expect("fit");
         EnsembleWorldModel::new(vec![Box::new(model) as Box<dyn PredictiveModel>])
             .expect("ensemble")
     }
@@ -780,16 +784,18 @@ mod tests {
             support_probability: 0.8,
             refutation_probability: 0.2,
         };
-        hypotheses.insert(
-            HypothesisSpec {
-                id: "advance-increases-position".to_owned(),
-                claim: DataValue::Text("advance increases position".to_owned()),
-                description: "advance increases position".to_owned(),
-                prior_probability: 0.5,
-                source_dataset_id: None,
-            },
-            hypothesis_policy,
-        ).expect("hypothesis");
+        hypotheses
+            .insert(
+                HypothesisSpec {
+                    id: "advance-increases-position".to_owned(),
+                    claim: DataValue::Text("advance increases position".to_owned()),
+                    description: "advance increases position".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: None,
+                },
+                hypothesis_policy,
+            )
+            .expect("hypothesis");
         let request = MultiOutcomeExperimentRequest {
             hypothesis_id: "advance-increases-position",
             candidates: &[candidate()],
@@ -824,7 +830,8 @@ mod tests {
                     },
                 },
                 evidence_dataset_id: "multi-outcome-evidence-1".to_owned(),
-                evidence_rationale: "categorical outcome observed after a reversible intervention".to_owned(),
+                evidence_rationale: "categorical outcome observed after a reversible intervention"
+                    .to_owned(),
                 hypothesis_registry_artifact_ref: "multi-outcome-hypotheses-v1".to_owned(),
             },
         };
@@ -838,26 +845,36 @@ mod tests {
             },
             request,
             MultiOutcomeExperimentCallbacks {
-                utility: |state| state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0),
+                utility: |state| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .unwrap_or(0.0)
+                },
                 classify_outcome: |state| {
-                    if state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0) > 0.0 {
+                    if state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .unwrap_or(0.0)
+                        > 0.0
+                    {
                         Ok("increase".to_owned())
                     } else {
                         Ok("unchanged".to_owned())
                     }
                 },
             },
-        ).expect("experiment");
+        )
+        .expect("experiment");
         assert_eq!(report.selected.experiment_id, "probe-advance");
         assert_eq!(report.runtime.steps.len(), 1);
         assert!(matches!(
             report.evidence_commit,
             MultiOutcomeEvidenceCommitOutcome::Persisted { outcome_id, .. } if outcome_id == "increase"
         ));
-        let restored = artifacts.load_hypothesis_registry(
-            "multi-outcome-hypotheses-v1",
-            hypothesis_policy,
-        ).expect("restore hypothesis");
+        let restored = artifacts
+            .load_hypothesis_registry("multi-outcome-hypotheses-v1", hypothesis_policy)
+            .expect("restore hypothesis");
         assert_eq!(restored, hypotheses);
         drop(artifacts);
         drop(journal);
@@ -878,16 +895,18 @@ mod tests {
             support_probability: 0.8,
             refutation_probability: 0.2,
         };
-        hypotheses.insert(
-            HypothesisSpec {
-                id: "unknown-outcome-hypothesis".to_owned(),
-                claim: DataValue::Bool(true),
-                description: "test".to_owned(),
-                prior_probability: 0.5,
-                source_dataset_id: None,
-            },
-            hypothesis_policy,
-        ).expect("hypothesis");
+        hypotheses
+            .insert(
+                HypothesisSpec {
+                    id: "unknown-outcome-hypothesis".to_owned(),
+                    claim: DataValue::Bool(true),
+                    description: "test".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: None,
+                },
+                hypothesis_policy,
+            )
+            .expect("hypothesis");
         let candidate = candidate();
         let request = MultiOutcomeExperimentRequest {
             hypothesis_id: "unknown-outcome-hypothesis",
@@ -940,13 +959,18 @@ mod tests {
                 utility: |_| 0.0,
                 classify_outcome: |_| Ok("unmodeled".to_owned()),
             },
-        ).expect("experiment");
+        )
+        .expect("experiment");
         assert_eq!(report.runtime.steps.len(), 1);
         assert!(matches!(
             report.evidence_commit,
             MultiOutcomeEvidenceCommitOutcome::UnknownObservedOutcome { outcome_id } if outcome_id == "unmodeled"
         ));
-        assert!(hypotheses.get("unknown-outcome-hypothesis").unwrap().evidence.is_empty());
+        assert!(hypotheses
+            .get("unknown-outcome-hypothesis")
+            .unwrap()
+            .evidence
+            .is_empty());
         drop(artifacts);
         drop(journal);
         std::fs::remove_file(journal_path).expect("journal cleanup");
