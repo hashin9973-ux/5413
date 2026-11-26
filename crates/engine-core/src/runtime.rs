@@ -354,8 +354,7 @@ fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionEr
                 } else {
                     rms_scale / absolute_error
                 };
-                scaled_squared_error_sum =
-                    1.0 + scaled_squared_error_sum * ratio * ratio;
+                scaled_squared_error_sum = 1.0 + scaled_squared_error_sum * ratio * ratio;
                 rms_scale = absolute_error;
             } else if rms_scale > 0.0 {
                 let ratio = absolute_error / rms_scale;
@@ -368,8 +367,7 @@ fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionEr
     let root_mean_squared_error = if metrics_available && rms_scale == 0.0 {
         Some(0.0)
     } else if metrics_available {
-        let root_mean_square =
-            rms_scale * (scaled_squared_error_sum / metric_fields as f64).sqrt();
+        let root_mean_square = rms_scale * (scaled_squared_error_sum / metric_fields as f64).sqrt();
         root_mean_square.is_finite().then_some(root_mean_square)
     } else {
         None
@@ -686,19 +684,12 @@ mod tests {
 
     #[test]
     fn prediction_error_omits_metrics_when_a_difference_exceeds_f64_range() {
-        let predicted = DataValue::object([(
-            "position".to_owned(),
-            DataValue::Number(f64::MAX),
-        )]);
-        let observed = DataValue::object([(
-            "position".to_owned(),
-            DataValue::Number(-f64::MAX),
-        )]);
+        let predicted = DataValue::object([("position".to_owned(), DataValue::Number(f64::MAX))]);
+        let observed = DataValue::object([("position".to_owned(), DataValue::Number(-f64::MAX))]);
 
         let metrics = prediction_error(&predicted, &observed);
         assert_eq!(metrics.numeric_fields, 1);
         assert_eq!(metrics.mean_absolute_error, None);
         assert_eq!(metrics.root_mean_squared_error, None);
     }
-
 }
