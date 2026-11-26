@@ -100,6 +100,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Aggregate transfer improvement, win rate, case-level standard error, and resource cost
 - [x] Few-shot transfer curves over strictly increasing adaptation sample counts, with direction-aware improvement and area-under-curve metric
 - [x] Sparse directed multi-task transfer matrices with per-pair improvement, win/loss rates, uncertainty, and resource cost
+- [x] Overflow-resistant transfer means, standard errors, and resource-cost averages in summaries and directed matrices, with rejection of unrepresentable score improvements
 - [x] Configurable negative-transfer diagnosis with minimum case count and negative-outcome rate
 - [ ] Multi-task transfer graph optimization and source-selection policy
 
