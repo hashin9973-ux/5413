@@ -10,8 +10,8 @@ use engine_core::active_exploration::{
 use engine_core::environment::{
     ActionOutcome, EnvironmentAdapter, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
 };
-use engine_core::experiment_selection::{ModelExplorationCandidate, ModelExplorationPolicy};
 use engine_core::experience_journal::ExperienceJournal;
+use engine_core::experiment_selection::{ModelExplorationCandidate, ModelExplorationPolicy};
 use engine_core::learning::TransitionSample;
 use engine_core::planning::PlanningConfig;
 use engine_core::schema::{FieldSpec, SchemaDefinition, ValueKind};

@@ -2,7 +2,6 @@
 
 pub mod action;
 pub mod active_exploration;
-pub mod active_exploration;
 pub mod benchmark;
 pub mod calibration;
 pub mod causal;
@@ -28,13 +27,13 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
-pub use active_exploration::{
-    run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
-    ActiveExplorationRequest,
-};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
     AuthorizationError, AuthorizedAction,
+};
+pub use active_exploration::{
+    run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
+    ActiveExplorationRequest,
 };
 pub use benchmark::{
     BenchmarkError, FewShotTransferCurve, ScoreDirection, TransferAdaptationPoint,
