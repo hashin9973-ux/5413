@@ -888,7 +888,7 @@ mod tests {
                 },
             },
             AutonomousResearchCallbacks {
-                utility: |state| {
+                utility: |state: &DataValue| {
                     state
                         .get("position")
                         .and_then(DataValue::as_f64)
