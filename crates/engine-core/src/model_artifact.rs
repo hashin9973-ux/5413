@@ -3,6 +3,7 @@
 //! References are caller-supplied stable identifiers, not hashes. CRC-32 detects
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
+use crate::causal::{CausalError, PairedRandomizedStudy};
 use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
 };
@@ -173,6 +174,24 @@ impl ModelArtifactStore {
         StrategyRegistry::from_artifact_value(artifact, catalogue).map_err(ModelArtifactError::Strategy)
     }
 
+    /// Persists an attested paired randomized study as an immutable artifact.
+    pub fn put_causal_study(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        study: &PairedRandomizedStudy,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        study.validate().map_err(ModelArtifactError::Causal)?;
+        self.put(artifact_ref, study.to_artifact_value())
+    }
+
+    pub fn load_causal_study(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<PairedRandomizedStudy, ModelArtifactError> {
+        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        PairedRandomizedStudy::from_artifact_value(artifact).map_err(ModelArtifactError::Causal)
+    }
+
     pub fn get(&self, artifact_ref: &str) -> Option<&DataValue> {
         self.artifacts.get(artifact_ref)
     }
@@ -329,6 +348,7 @@ pub enum ModelArtifactError {
     Registry(RegistryError),
     Reasoning(ReasoningError),
     Strategy(StrategyError),
+    Causal(CausalError),
     InvalidReference,
     InvalidArtifact,
     NotFound,
@@ -353,6 +373,7 @@ impl std::fmt::Display for ModelArtifactError {
             ),
             Self::Reasoning(error) => write!(formatter, "hypothesis registry artifact is invalid: {error}"),
             Self::Strategy(error) => write!(formatter, "strategy registry artifact is invalid: {error}"),
+            Self::Causal(error) => write!(formatter, "causal study artifact is invalid: {error}"),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
@@ -723,6 +744,39 @@ mod tests {
             let store = ModelArtifactStore::open(&path).expect("reopen");
             let restored = store.load_strategy_registry("strategies-v1", &catalogue).expect("restore");
             assert_eq!(restored, registry);
+        }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
+    fn persists_and_restores_paired_randomized_causal_study() {
+        use crate::causal::{
+            AssignmentDesign, PairedOutcome, PairedRandomizedStudy,
+        };
+        let path = test_path();
+        let study = PairedRandomizedStudy {
+            experiment_id: "intervention-v1".to_owned(),
+            dataset_id: "paired-set-v1".to_owned(),
+            treatment_label: "treatment".to_owned(),
+            control_label: "control".to_owned(),
+            outcome_label: "outcome".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            pairs: vec![
+                PairedOutcome { pair_id: "block-a".to_owned(), control_outcome: 1.0, treatment_outcome: 2.0 },
+                PairedOutcome { pair_id: "block-b".to_owned(), control_outcome: 1.5, treatment_outcome: 2.8 },
+            ],
+        };
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open");
+            store.put_causal_study("causal-study-v1", &study).expect("persist");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen");
+            let restored = store.load_causal_study("causal-study-v1").expect("restore");
+            assert_eq!(restored, study);
+            let estimate = restored.estimate().expect("estimate");
+            assert_eq!(estimate.pair_count, 2);
+            assert!(estimate.mean_effect > 0.0);
         }
         std::fs::remove_file(path).expect("remove artifact file");
     }
