@@ -894,7 +894,7 @@ mod tests {
                         .and_then(DataValue::as_f64)
                         .unwrap_or(0.0)
                 },
-                positive_outcome: |state| {
+                positive_outcome: |state: &DataValue| {
                     state
                         .get("position")
                         .and_then(DataValue::as_f64)
