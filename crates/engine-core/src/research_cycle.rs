@@ -1,6 +1,5 @@
 //! Integrated hypothesis experiment and predictive-model improvement cycle.
 
-use crate::action::ActionProposal;
 use crate::autonomous::{run_learning_cycle, LearningCycleConfig, LearningCycleError, LearningCycleReport};
 use crate::environment::EnvironmentAdapter;
 use crate::experiment_execution::{
@@ -183,7 +182,7 @@ mod tests {
     };
     use crate::experiment_execution::ExperimentExecutionConfig;
     use crate::experience::ExperienceEvent;
-    use crate::model_registry::{ModelCandidateSpec, ModelStatus};
+    use crate::model_registry::ModelStatus;
     use crate::planning::PlanningConfig;
     use crate::reasoning::{HypothesisSpec, HypothesisStatus};
     use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
