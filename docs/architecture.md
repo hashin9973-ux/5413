@@ -53,6 +53,7 @@ The current implementation provides the first integrated learning loop, not gene
 - Representation-registry state can be serialized and stored as immutable artifacts, preserving schema definitions, evaluation evidence, and lifecycle state with strict restore-time invariants.
 - Receding-horizon runtime with one-step replanning, durable pre-action intents, immediate reauthorization, outcome persistence, and numeric prediction-error metrics.
 - Evidence-backed `HypothesisRegistry`: typed claims, unique evidence references, explicit dataset provenance, log-likelihood-ratio updates, posterior confidence, decision thresholds, and strict artifact round-trip validation.
+- Declarative `StrategyGraph` composition over a trusted operator catalogue, with exact typed ports, DAG/cycle checks, output reachability, aggregate cost, and same-holdout promotion gates with retirement of replaced versions.
 - `extract_transition_samples` reconstructs completed state/action/next-state samples by episode, using the latest valid observation after a matching completed action; incomplete/mismatched actions and invalid state values are not trained on.
 - Runnable examples for a particle simulator, finite-state workflow, representation discovery/mapping, persistent journal replay, and a synthetic world-model/experiment/planning loop.
 
@@ -67,6 +68,8 @@ A field estimate includes an estimated mean, aleatoric spread, epistemic spread,
 The held-out evaluator reports empirical interval coverage only for estimates marked calibrated. It does not use a proper probabilistic scoring rule yet. For rigorous benchmarking, training/evaluation splits must be constructed outside the model and recorded reproducibly.
 
 ## Experimentation and planning semantics
+
+Strategy graphs are metadata, not arbitrary executable code; operator implementations must be supplied by a trusted runtime. Strategy promotion compares candidates and incumbents on the same validation dataset and applies a declared minimum improvement and resource-cost weight. This is a local evaluation gate, not proof of statistical significance; benchmark design and uncertainty-aware comparisons remain future work.
 
 The hypothesis registry combines caller-supplied log likelihood ratios in log-odds space, under an explicit conditional-independence assumption. It prevents duplicate evidence references and direct reuse of the hypothesis source dataset, but it cannot determine whether evidence is truly independent or whether a caller-supplied likelihood ratio is statistically justified. Its statuses are decision thresholds, not proof. The experiment ranker treats model disagreement relative to estimated outcome spread as an information-gain proxy. It is not exact expected information gain and does not perform Bayesian posterior updates. Utility and cost estimates are supplied by the caller. It will not invent environment actions or arguments.
 

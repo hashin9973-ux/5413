@@ -9,6 +9,7 @@ pub mod experience_journal;
 pub mod experimentation;
 pub mod learning;
 pub mod mapping;
+pub mod meta_learning;
 pub mod model_artifact;
 pub mod planning;
 pub mod representation;
@@ -54,6 +55,11 @@ pub use representation::{
 pub use reasoning::{
     EvidenceRecord, HypothesisPolicy, HypothesisRecord, HypothesisRegistry, HypothesisSpec,
     HypothesisStatus, ReasoningError,
+};
+pub use meta_learning::{
+    InputBinding, OperatorCatalogue, OperatorSpec, PortSpec, StrategyError, StrategyEvaluation,
+    StrategyGraph, StrategyNode, StrategyPolicy, StrategyRecord, StrategyRegistry, StrategySpec,
+    StrategyStatus,
 };
 pub use runtime::{
     run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,
