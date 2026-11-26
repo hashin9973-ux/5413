@@ -764,7 +764,7 @@ mod tests {
         );
         drop(journal);
         let restored = ExperienceJournal::open(&journal_path).expect("journal should reopen");
-        assert_eq!(restored.records().len(), 20);
+        assert_eq!(restored.records().len(), 22);
         assert!(matches!(
             restored
                 .replay_episode("safe-episode-1")
