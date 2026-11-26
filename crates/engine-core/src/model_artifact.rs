@@ -14,7 +14,9 @@ use crate::model_registry::{ModelCandidateSpec, ModelRegistry, ModelRegistryErro
 use crate::reasoning::{HypothesisPolicy, HypothesisRegistry, ReasoningError};
 use crate::representation::{RegistryError, RepresentationRegistry};
 use crate::value::DataValue;
-use crate::world_model::{restore_predictive_model, PredictiveModel, WorldModelError};
+use crate::world_model::{
+    restore_predictive_model, EnsembleWorldModel, PredictiveModel, WorldModelError,
+};
 use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -250,6 +252,7 @@ impl ModelArtifactStore {
             let model = self.load_model(&record.spec.model_artifact_ref)?;
             if model.identity().id != record.spec.id
                 || model.identity().version != record.spec.version
+                || model.training_dataset_id() != Some(record.spec.training_dataset_id.as_str())
             {
                 return Err(ModelArtifactError::ModelIdentityMismatch);
             }
@@ -271,11 +274,55 @@ impl ModelArtifactStore {
             let model = self.load_model(&record.spec.model_artifact_ref)?;
             if model.identity().id != record.spec.id
                 || model.identity().version != record.spec.version
+                || model.training_dataset_id() != Some(record.spec.training_dataset_id.as_str())
             {
                 return Err(ModelArtifactError::ModelIdentityMismatch);
             }
         }
         Ok(registry)
+    }
+
+    /// Reconstructs the active predictive-model ensemble for one environment contract.
+    ///
+    /// Only registry records explicitly marked Active and targeting the requested
+    /// environment ID/version are loaded. Each artifact is checked against its
+    /// registry identity, version, and training-dataset provenance.
+    pub fn load_active_ensemble(
+        &self,
+        registry: &ModelRegistry,
+        environment_id: &str,
+        environment_version: &str,
+    ) -> Result<EnsembleWorldModel, ModelArtifactError> {
+        if environment_id.trim().is_empty() || environment_version.trim().is_empty() {
+            return Err(ModelArtifactError::InvalidReference);
+        }
+        let mut models: Vec<Box<dyn PredictiveModel>> = Vec::new();
+        for record in registry.iter().filter(|record| {
+            record.status == crate::model_registry::ModelStatus::Active
+                && record.spec.environment_id == environment_id
+                && record.spec.environment_version == environment_version
+        }) {
+            let model = self.load_model(&record.spec.model_artifact_ref)?;
+            if model.identity().id != record.spec.id
+                || model.identity().version != record.spec.version
+                || model.training_dataset_id() != Some(record.spec.training_dataset_id.as_str())
+            {
+                return Err(ModelArtifactError::ModelIdentityMismatch);
+            }
+            models.push(model);
+        }
+        EnsembleWorldModel::new(models).map_err(ModelArtifactError::Model)
+    }
+
+    /// Loads a persisted registry snapshot and reconstructs its active ensemble.
+    pub fn load_active_ensemble_from_registry(
+        &self,
+        registry_artifact_ref: &str,
+        environment_id: &str,
+        environment_version: &str,
+    ) -> Result<EnsembleWorldModel, ModelArtifactError> {
+        let registry = self.load_model_registry(registry_artifact_ref)?;
+        self.load_active_ensemble(&registry, environment_id, environment_version)
     }
 
     /// Persists a conformal calibrator only when it matches the referenced model artifact.
@@ -1153,6 +1200,24 @@ mod tests {
                 .map(|record| record.status),
             Some(ModelStatus::Active)
         );
+        let restored_ensemble = store
+            .load_active_ensemble_from_registry("model-registry-v1", "counter", "v1")
+            .expect("restore active ensemble");
+        assert_eq!(restored_ensemble.len(), 1);
+        let prediction = restored_ensemble
+            .predict(
+                "advance",
+                &DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+            )
+            .expect("predict with restored active model");
+        assert_eq!(
+            prediction.fields.get("position").map(|estimate| estimate.mean),
+            Some(11.0)
+        );
+        assert!(matches!(
+            store.load_active_ensemble(&restored, "different-environment", "v1"),
+            Err(ModelArtifactError::Model(WorldModelError::EmptyEnsemble))
+        ));
         std::fs::remove_file(path).expect("remove artifact file");
     }
 
