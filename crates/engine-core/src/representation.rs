@@ -84,7 +84,7 @@ impl RepresentationRegistry {
         }
         spec.schema
             .validate_definition()
-            .map_err(RegistryError::InvalidSchema)?;
+            .map_err(|_| RegistryError::InvalidSerializedState)?;
 
         let key = (spec.id.clone(), spec.version);
         if self.records.contains_key(&key) {
