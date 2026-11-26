@@ -183,11 +183,11 @@ where
                     cumulative_utility: node.cumulative_utility + step_utility,
                     cumulative_uncertainty: node.cumulative_uncertainty + prediction_uncertainty,
                 };
-                if !next.cumulative_utility.is_finite()
-                    || !next.cumulative_uncertainty.is_finite()
-                    || !next.score(config).is_finite()
-                {
+                if !next.cumulative_utility.is_finite() {
                     return Err(PlanningError::NonFiniteUtility);
+                }
+                if !next.cumulative_uncertainty.is_finite() || !next.score(config).is_finite() {
+                    return Err(PlanningError::InvalidPrediction);
                 }
                 expanded.push(next);
             }
