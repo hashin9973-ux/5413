@@ -862,7 +862,7 @@ mod tests {
             self.shared.lock().expect("storage lock").fail_next_sync = true;
         }
 
-        fn bytes(&self) -> Vec<u8> {
+        fn snapshot_bytes(&self) -> Vec<u8> {
             self.shared.lock().expect("storage lock").bytes.clone()
         }
     }
@@ -1568,7 +1568,7 @@ mod tests {
             IdempotentAppendOutcome::AlreadyPresent { sequence: 0 }
         );
         assert_eq!(recovered.len(), 1);
-        assert!(!storage.bytes().is_empty());
+        assert!(!storage.snapshot_bytes().is_empty());
     }
 
     fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
