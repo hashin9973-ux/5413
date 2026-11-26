@@ -622,7 +622,7 @@ mod tests {
                 .expect("persist calibrator");
         }
         {
-            let store = ModelArtifactStore::open(&path).expect("reopen artifact store");
+            let mut store = ModelArtifactStore::open(&path).expect("reopen artifact store");
             let restored = store
                 .load_conformal_calibrator("calibrator-for-model-v3", "model-calibrated-v3")
                 .expect("restore calibrator");
