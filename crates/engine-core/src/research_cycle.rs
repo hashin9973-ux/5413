@@ -1,19 +1,75 @@
-//! Integrated hypothesis experiment and predictive-model improvement cycle.
+//! Integrated hypothesis experimentation and predictive-model improvement cycle.
+//!
+//! External action mappings, validation samples, likelihoods, outcome classifiers,
+//! and metric evaluation remain supplied by the environment integration.
 
-use crate::autonomous::{run_learning_cycle, LearningCycleConfig, LearningCycleError, LearningCycleReport};
+use crate::action::ActionProposal;
+use crate::benchmark::ScoreDirection;
 use crate::environment::EnvironmentAdapter;
-use crate::experiment_execution::{
-    execute_selected_experiment, ExperimentActionMapping, ExperimentExecutionConfig,
-    ExperimentExecutionError, ExperimentExecutionReport,
+use crate::experiment_selection::{
+    rank_experiments, ExperimentCandidate, ExperimentSelectionError,
+    ExperimentSelectionPolicy, RankedExperiment,
 };
-use crate::experiment_selection::{ExperimentCandidate, ExperimentSelectionPolicy};
 use crate::experience_journal::ExperienceJournal;
-use crate::learning::TransitionSample;
+use crate::learning::{extract_transition_samples, TransitionSample};
 use crate::model_artifact::{ModelArtifactError, ModelArtifactStore};
-use crate::model_registry::{ModelEvaluation, ModelPromotionPolicy, ModelRegistry, ModelRegistryError};
-use crate::reasoning::{HypothesisPolicy, HypothesisRegistry};
+use crate::model_registry::{
+    ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRecord, ModelRegistry,
+    ModelRegistryError, ModelStatus,
+};
+use crate::reasoning::{
+    EvidenceRecord, HypothesisPolicy, HypothesisRecord, HypothesisRegistry, ReasoningError,
+};
+use crate::runtime::{run_receding_horizon, RuntimeConfig, RuntimeError, RuntimeReport};
 use crate::value::DataValue;
-use crate::world_model::{EnsembleWorldModel, PredictiveModel, TrainablePredictiveModel};
+use crate::world_model::{EnsembleWorldModel, PredictiveModel, TrainablePredictiveModel, WorldModelError};
+use std::collections::BTreeSet;
+
+#[derive(Clone, Debug)]
+pub struct ExperimentActionMapping {
+    pub experiment_id: String,
+    pub action: ActionProposal,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExperimentExecutionConfig {
+    pub runtime: RuntimeConfig,
+    pub evidence_dataset_id: String,
+    pub evidence_rationale: String,
+    pub hypothesis_registry_artifact_ref: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LearningCycleConfig {
+    pub episode_id: String,
+    pub training_dataset_id: String,
+    pub validation_dataset_id: String,
+    pub model_id: String,
+    pub model_version: u64,
+    pub model_artifact_ref: String,
+    pub model_registry_artifact_ref: String,
+    pub environment_id: String,
+    pub environment_version: String,
+}
+
+impl LearningCycleConfig {
+    fn validate(&self) -> Result<(), AutonomousResearchError> {
+        if self.episode_id.trim().is_empty()
+            || self.training_dataset_id.trim().is_empty()
+            || self.validation_dataset_id.trim().is_empty()
+            || self.training_dataset_id == self.validation_dataset_id
+            || self.model_id.trim().is_empty()
+            || self.model_version == 0
+            || self.model_artifact_ref.trim().is_empty()
+            || self.model_registry_artifact_ref.trim().is_empty()
+            || self.environment_id.trim().is_empty()
+            || self.environment_version.trim().is_empty()
+        {
+            return Err(AutonomousResearchError::InvalidConfiguration);
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct AutonomousResearchConfig {
@@ -23,34 +79,58 @@ pub struct AutonomousResearchConfig {
 
 impl AutonomousResearchConfig {
     pub fn validate(&self) -> Result<(), AutonomousResearchError> {
+        self.learning.validate()?;
         if self.experiment.runtime.episode_id != self.learning.episode_id
             || self.experiment.runtime.maximum_steps != 1
-            || self.experiment.hypothesis_registry_artifact_ref == self.learning.model_registry_artifact_ref
-            || self.experiment.hypothesis_registry_artifact_ref == self.learning.model_artifact_ref
-            || self.learning.model_registry_artifact_ref == self.learning.model_artifact_ref
+            || self.experiment.evidence_dataset_id.trim().is_empty()
+            || self.experiment.evidence_rationale.trim().is_empty()
+            || self.experiment.hypothesis_registry_artifact_ref.trim().is_empty()
+            || self.experiment.hypothesis_registry_artifact_ref
+                == self.learning.model_artifact_ref
+            || self.experiment.hypothesis_registry_artifact_ref
+                == self.learning.model_registry_artifact_ref
+            || self.learning.model_artifact_ref == self.learning.model_registry_artifact_ref
+            || self.experiment.evidence_dataset_id == self.learning.training_dataset_id
+            || self.experiment.evidence_dataset_id == self.learning.validation_dataset_id
         {
             return Err(AutonomousResearchError::InvalidConfiguration);
         }
-        self.learning
+        self.experiment
+            .runtime
             .validate()
-            .map_err(|_| AutonomousResearchError::InvalidConfiguration)
+            .map_err(AutonomousResearchError::Runtime)?;
+        Ok(())
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LearningCycleReport {
+    pub model_id: String,
+    pub model_version: u64,
+    pub training_samples: usize,
+    pub validation_samples: usize,
+    pub evaluation: ModelEvaluation,
+    pub status: ModelStatus,
+    pub promoted: bool,
 }
 
 #[derive(Debug)]
 pub struct AutonomousResearchReport {
-    pub experiment: ExperimentExecutionReport,
-    /// Kept separate so a successfully recorded experiment survives a rejected
-    /// or failed candidate training/promotion stage.
+    pub selected: RankedExperiment,
+    pub ranked_candidates: Vec<RankedExperiment>,
+    pub runtime: RuntimeReport,
+    pub evidence: EvidenceRecord,
+    pub updated_hypothesis: HypothesisRecord,
+    /// Experiment results remain available even when candidate training or
+    /// promotion is rejected after the environment effect has occurred.
     pub learning: Result<LearningCycleReport, LearningCycleError>,
 }
 
-/// Select one hypothesis-discriminating experiment, execute one safe action,
-/// persist the resulting evidence, then train/evaluate/promote a model from the
-/// recorded episode using a separate caller-supplied holdout.
+/// Runs one bounded experiment and then attempts one held-out model improvement.
 ///
-/// All external capabilities remain explicit: the action mapping, outcome
-/// classifier, validation data, and metric evaluator are supplied by the caller.
+/// The function preflights contracts and immutable references before executing
+/// an environment action. The hypothesis update is persisted immediately after
+/// the experiment. Model learning is a separate result in the returned report.
 pub fn run_autonomous_research_cycle<A, T, U, O, E>(
     adapter: &mut A,
     active_model: &EnsembleWorldModel,
@@ -79,20 +159,33 @@ where
     E: FnOnce(&T, &[TransitionSample]) -> Result<ModelEvaluation, String>,
 {
     config.validate()?;
-    promotion_policy.validate().map_err(AutonomousResearchError::ModelRegistry)?;
-    hypothesis_policy.validate().map_err(AutonomousResearchError::Experiment)?;
+    selection_policy
+        .validate()
+        .map_err(AutonomousResearchError::Selection)?;
+    hypothesis_policy
+        .validate()
+        .map_err(AutonomousResearchError::Reasoning)?;
+    promotion_policy
+        .validate()
+        .map_err(AutonomousResearchError::ModelRegistry)?;
     if validation_samples.is_empty() {
         return Err(AutonomousResearchError::EmptyValidationSet);
     }
 
     let descriptor = adapter.descriptor();
+    descriptor
+        .validate()
+        .map_err(|error| AutonomousResearchError::Environment(error.to_string()))?;
     if descriptor.id != config.learning.environment_id
         || descriptor.version != config.learning.environment_version
     {
         return Err(AutonomousResearchError::EnvironmentMismatch);
     }
+
     let identity = candidate_model.identity();
-    if identity.id != config.learning.model_id || identity.version != config.learning.model_version {
+    if identity.id != config.learning.model_id
+        || identity.version != config.learning.model_version
+    {
         return Err(AutonomousResearchError::ModelIdentityMismatch);
     }
     if model_registry.iter().any(|record| {
@@ -101,53 +194,326 @@ where
     }) {
         return Err(AutonomousResearchError::ModelVersionMustIncrease);
     }
-    if artifact_store.get(&config.learning.model_artifact_ref).is_some()
-        || artifact_store.get(&config.learning.model_registry_artifact_ref).is_some()
-        || artifact_store.get(&config.experiment.hypothesis_registry_artifact_ref).is_some()
-    {
-        return Err(AutonomousResearchError::ArtifactReferenceAlreadyExists);
+
+    for reference in [
+        config.experiment.hypothesis_registry_artifact_ref.as_str(),
+        config.learning.model_artifact_ref.as_str(),
+        config.learning.model_registry_artifact_ref.as_str(),
+    ] {
+        if artifact_store.get(reference).is_some() {
+            return Err(AutonomousResearchError::ArtifactReferenceAlreadyExists);
+        }
     }
 
-    let experiment = execute_selected_experiment(
+    let hypothesis = hypothesis_registry
+        .get(hypothesis_id)
+        .cloned()
+        .ok_or(AutonomousResearchError::HypothesisNotFound)?;
+    if hypothesis
+        .evidence
+        .iter()
+        .any(|item| item.evidence_ref == config.experiment.runtime.execution_id)
+    {
+        return Err(AutonomousResearchError::EvidenceAlreadyRecorded);
+    }
+    if hypothesis.spec.source_dataset_id.as_deref()
+        == Some(config.experiment.evidence_dataset_id.as_str())
+        || hypothesis
+            .evidence
+            .iter()
+            .any(|item| item.dataset_id == config.experiment.evidence_dataset_id)
+    {
+        return Err(AutonomousResearchError::EvidenceDatasetReused);
+    }
+
+    let ranked_candidates = rank_experiments(&hypothesis, experiments, selection_policy)
+        .map_err(AutonomousResearchError::Selection)?;
+    let selected = ranked_candidates
+        .iter()
+        .find(|candidate| candidate.is_worthwhile())
+        .cloned()
+        .ok_or(AutonomousResearchError::NoWorthwhileExperiment)?;
+    let experiment = experiments
+        .iter()
+        .find(|candidate| candidate.id == selected.experiment_id)
+        .ok_or(AutonomousResearchError::InvalidActionMapping)?;
+    if experiment.observation_probability_if_true <= 0.0
+        || experiment.observation_probability_if_true >= 1.0
+        || experiment.observation_probability_if_false <= 0.0
+        || experiment.observation_probability_if_false >= 1.0
+    {
+        return Err(AutonomousResearchError::InvalidLikelihoodModel);
+    }
+
+    let mut mapping_ids = BTreeSet::new();
+    for mapping in action_mappings {
+        if mapping.experiment_id.trim().is_empty()
+            || !mapping_ids.insert(mapping.experiment_id.as_str())
+        {
+            return Err(AutonomousResearchError::InvalidActionMapping);
+        }
+    }
+    let mapping = action_mappings
+        .iter()
+        .find(|mapping| mapping.experiment_id == selected.experiment_id)
+        .ok_or(AutonomousResearchError::MissingActionMapping)?;
+
+    let runtime = run_receding_horizon(
         adapter,
         active_model,
-        hypothesis_registry,
-        hypothesis_id,
-        experiments,
-        action_mappings,
-        selection_policy,
-        hypothesis_policy,
-        config.experiment,
+        std::slice::from_ref(&mapping.action),
+        config.experiment.runtime.clone(),
         journal,
-        artifact_store,
-        &utility,
-        positive_outcome,
+        utility,
     )
-    .map_err(AutonomousResearchError::Experiment)?;
+    .map_err(AutonomousResearchError::Runtime)?;
+    let last_step = runtime
+        .steps
+        .last()
+        .ok_or(AutonomousResearchError::NoExecutedAction)?;
+    if !last_step.outcome.completed {
+        return Err(AutonomousResearchError::ExperimentIncomplete);
+    }
+
+    let positive = positive_outcome(&runtime.final_observation.payload);
+    let probability_if_true = if positive {
+        experiment.observation_probability_if_true
+    } else {
+        1.0 - experiment.observation_probability_if_true
+    };
+    let probability_if_false = if positive {
+        experiment.observation_probability_if_false
+    } else {
+        1.0 - experiment.observation_probability_if_false
+    };
+    let likelihood_ratio = probability_if_true / probability_if_false;
+    let log_likelihood_ratio = likelihood_ratio.ln();
+    if !likelihood_ratio.is_finite() || !log_likelihood_ratio.is_finite() {
+        return Err(AutonomousResearchError::NumericalOverflow);
+    }
+
+    let evidence = EvidenceRecord {
+        evidence_ref: config.experiment.runtime.execution_id.clone(),
+        dataset_id: config.experiment.evidence_dataset_id.clone(),
+        log_likelihood_ratio,
+        rationale: config.experiment.evidence_rationale.clone(),
+    };
+    let updated_hypothesis = hypothesis_registry
+        .add_evidence(hypothesis_id, evidence.clone(), hypothesis_policy)
+        .map_err(AutonomousResearchError::Reasoning)?
+        .clone();
+    artifact_store
+        .put_hypothesis_registry(
+            config.experiment.hypothesis_registry_artifact_ref,
+            hypothesis_registry,
+        )
+        .map_err(AutonomousResearchError::Artifact)?;
 
     let learning = run_learning_cycle(
         candidate_model,
         journal.records(),
         validation_samples,
-        config.learning,
+        &config.learning,
         promotion_policy,
         artifact_store,
         model_registry,
         evaluate,
     );
 
-    Ok(AutonomousResearchReport { experiment, learning })
+    Ok(AutonomousResearchReport {
+        selected,
+        ranked_candidates,
+        runtime,
+        evidence,
+        updated_hypothesis,
+        learning,
+    })
 }
+
+fn run_learning_cycle<T, E>(
+    model: &mut T,
+    records: &[crate::experience::ExperienceRecord],
+    validation_samples: &[TransitionSample],
+    config: &LearningCycleConfig,
+    policy: ModelPromotionPolicy,
+    artifact_store: &mut ModelArtifactStore,
+    registry: &mut ModelRegistry,
+    evaluate: E,
+) -> Result<LearningCycleReport, LearningCycleError>
+where
+    T: TrainablePredictiveModel,
+    E: FnOnce(&T, &[TransitionSample]) -> Result<ModelEvaluation, String>,
+{
+    policy.validate().map_err(LearningCycleError::Registry)?;
+    if config.training_dataset_id == config.validation_dataset_id {
+        return Err(LearningCycleError::DatasetLeakage);
+    }
+    if validation_samples.is_empty() {
+        return Err(LearningCycleError::EmptyValidationSet);
+    }
+    let training_samples = extract_transition_samples(records, &config.episode_id);
+    if training_samples.is_empty() {
+        return Err(LearningCycleError::WorldModel(
+            WorldModelError::NoCompletedTransitions,
+        ));
+    }
+    if training_samples.len() > u32::MAX as usize
+        || validation_samples.len() > u32::MAX as usize
+    {
+        return Err(LearningCycleError::DatasetTooLarge);
+    }
+
+    model
+        .fit_samples(&config.training_dataset_id, &training_samples)
+        .map_err(LearningCycleError::WorldModel)?;
+    let evaluation = evaluate(model, validation_samples)
+        .map_err(LearningCycleError::EvaluationFailed)?;
+    if evaluation.evaluation_dataset_id != config.validation_dataset_id
+        || evaluation.sample_count != validation_samples.len()
+    {
+        return Err(LearningCycleError::EvaluationProvenanceMismatch);
+    }
+
+    artifact_store
+        .put_model(&config.model_artifact_ref, &*model as &dyn PredictiveModel)
+        .map_err(LearningCycleError::Artifact)?;
+    let spec = ModelCandidateSpec {
+        id: config.model_id.clone(),
+        version: config.model_version,
+        model_artifact_ref: config.model_artifact_ref.clone(),
+        environment_id: config.environment_id.clone(),
+        environment_version: config.environment_version.clone(),
+        training_dataset_id: config.training_dataset_id.clone(),
+    };
+    artifact_store
+        .register_model_candidate(registry, spec)
+        .map_err(LearningCycleError::Artifact)?;
+
+    if let Err(error) = registry.evaluate_candidate(
+        &config.model_id,
+        config.model_version,
+        evaluation.clone(),
+        policy,
+    ) {
+        persist_model_registry(artifact_store, registry, &config.model_registry_artifact_ref)?;
+        if error != ModelRegistryError::InsufficientEvaluationSamples {
+            return Err(LearningCycleError::Registry(error));
+        }
+        return learning_report(
+            registry,
+            &config.model_id,
+            config.model_version,
+            training_samples.len(),
+            validation_samples.len(),
+            evaluation,
+            false,
+        );
+    }
+
+    let promoted = match registry.promote(&config.model_id, config.model_version, policy) {
+        Ok(()) => true,
+        Err(ModelRegistryError::InsufficientImprovement | ModelRegistryError::UncalibratedUncertainty) => false,
+        Err(error) => {
+            persist_model_registry(artifact_store, registry, &config.model_registry_artifact_ref)?;
+            return Err(LearningCycleError::Registry(error));
+        }
+    };
+    persist_model_registry(artifact_store, registry, &config.model_registry_artifact_ref)?;
+    learning_report(
+        registry,
+        &config.model_id,
+        config.model_version,
+        training_samples.len(),
+        validation_samples.len(),
+        evaluation,
+        promoted,
+    )
+}
+
+fn persist_model_registry(
+    artifact_store: &mut ModelArtifactStore,
+    registry: &ModelRegistry,
+    artifact_ref: &str,
+) -> Result<(), LearningCycleError> {
+    artifact_store
+        .put_model_registry(artifact_ref, registry)
+        .map_err(LearningCycleError::Artifact)?;
+    Ok(())
+}
+
+fn learning_report(
+    registry: &ModelRegistry,
+    model_id: &str,
+    model_version: u64,
+    training_samples: usize,
+    validation_samples: usize,
+    evaluation: ModelEvaluation,
+    promoted: bool,
+) -> Result<LearningCycleReport, LearningCycleError> {
+    let record: &ModelRecord = registry
+        .get(model_id, model_version)
+        .ok_or(LearningCycleError::Registry(ModelRegistryError::ModelNotFound))?;
+    Ok(LearningCycleReport {
+        model_id: model_id.to_owned(),
+        model_version,
+        training_samples,
+        validation_samples,
+        evaluation,
+        status: record.status,
+        promoted,
+    })
+}
+
+#[derive(Debug)]
+pub enum LearningCycleError {
+    EmptyValidationSet,
+    DatasetLeakage,
+    DatasetTooLarge,
+    EvaluationFailed(String),
+    EvaluationProvenanceMismatch,
+    WorldModel(WorldModelError),
+    Registry(ModelRegistryError),
+    Artifact(ModelArtifactError),
+}
+
+impl std::fmt::Display for LearningCycleError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyValidationSet => write!(formatter, "learning cycle requires held-out validation transitions"),
+            Self::DatasetLeakage => write!(formatter, "training and validation dataset IDs must differ"),
+            Self::DatasetTooLarge => write!(formatter, "learning-cycle dataset exceeds supported sample counts"),
+            Self::EvaluationFailed(message) => write!(formatter, "candidate evaluation failed: {message}"),
+            Self::EvaluationProvenanceMismatch => write!(formatter, "evaluator dataset ID or sample count does not match the supplied holdout"),
+            Self::WorldModel(error) => write!(formatter, "candidate fitting failed: {error}"),
+            Self::Registry(error) => write!(formatter, "model lifecycle operation failed: {error}"),
+            Self::Artifact(error) => write!(formatter, "model artifact operation failed: {error}"),
+        }
+    }
+}
+impl std::error::Error for LearningCycleError {}
 
 #[derive(Debug)]
 pub enum AutonomousResearchError {
     InvalidConfiguration,
     EmptyValidationSet,
+    Environment(String),
     EnvironmentMismatch,
     ModelIdentityMismatch,
     ModelVersionMustIncrease,
     ArtifactReferenceAlreadyExists,
-    Experiment(ExperimentExecutionError),
+    HypothesisNotFound,
+    EvidenceAlreadyRecorded,
+    EvidenceDatasetReused,
+    NoWorthwhileExperiment,
+    InvalidLikelihoodModel,
+    InvalidActionMapping,
+    MissingActionMapping,
+    NoExecutedAction,
+    ExperimentIncomplete,
+    NumericalOverflow,
+    Selection(ExperimentSelectionError),
+    Reasoning(ReasoningError),
+    Runtime(RuntimeError),
     ModelRegistry(ModelRegistryError),
     Artifact(ModelArtifactError),
 }
@@ -156,258 +522,28 @@ impl std::fmt::Display for AutonomousResearchError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidConfiguration => write!(formatter, "autonomous research configuration is invalid"),
-            Self::EmptyValidationSet => write!(formatter, "autonomous research cycle requires held-out validation transitions"),
+            Self::EmptyValidationSet => write!(formatter, "autonomous research requires held-out validation transitions"),
+            Self::Environment(message) => write!(formatter, "environment descriptor is invalid: {message}"),
             Self::EnvironmentMismatch => write!(formatter, "candidate model environment contract does not match the adapter"),
             Self::ModelIdentityMismatch => write!(formatter, "candidate predictive model identity does not match the learning-cycle configuration"),
-            Self::ModelVersionMustIncrease => write!(formatter, "candidate model version must be newer than every registered version"),
+            Self::ModelVersionMustIncrease => write!(formatter, "candidate model version must exceed every registered version"),
             Self::ArtifactReferenceAlreadyExists => write!(formatter, "research cycle requires fresh immutable artifact references"),
-            Self::Experiment(error) => write!(formatter, "hypothesis experiment failed: {error}"),
-            Self::ModelRegistry(error) => write!(formatter, "model registry policy is invalid: {error}"),
-            Self::Artifact(error) => write!(formatter, "model artifact operation failed: {error}"),
+            Self::HypothesisNotFound => write!(formatter, "target hypothesis was not found"),
+            Self::EvidenceAlreadyRecorded => write!(formatter, "execution ID is already recorded as evidence for this hypothesis"),
+            Self::EvidenceDatasetReused => write!(formatter, "evidence dataset was already used for this hypothesis"),
+            Self::NoWorthwhileExperiment => write!(formatter, "no candidate passes safety constraints with positive adjusted utility"),
+            Self::InvalidLikelihoodModel => write!(formatter, "selected experiment requires likelihoods strictly between zero and one"),
+            Self::InvalidActionMapping => write!(formatter, "experiment action mapping is empty or duplicated"),
+            Self::MissingActionMapping => write!(formatter, "selected experiment has no caller-supplied action mapping"),
+            Self::NoExecutedAction => write!(formatter, "runtime returned no executed action"),
+            Self::ExperimentIncomplete => write!(formatter, "environment did not complete the selected experiment action"),
+            Self::NumericalOverflow => write!(formatter, "experiment likelihood ratio overflowed"),
+            Self::Selection(error) => write!(formatter, "experiment selection failed: {error}"),
+            Self::Reasoning(error) => write!(formatter, "hypothesis update failed: {error}"),
+            Self::Runtime(error) => write!(formatter, "experiment runtime failed: {error}"),
+            Self::ModelRegistry(error) => write!(formatter, "model promotion policy is invalid: {error}"),
+            Self::Artifact(error) => write!(formatter, "artifact operation failed: {error}"),
         }
     }
 }
-
 impl std::error::Error for AutonomousResearchError {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::action::{
-        ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
-    };
-    use crate::benchmark::ScoreDirection;
-    use crate::environment::{
-        ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
-    };
-    use crate::experiment_execution::ExperimentExecutionConfig;
-    use crate::model_registry::ModelStatus;
-    use crate::planning::PlanningConfig;
-    use crate::reasoning::{HypothesisSpec, HypothesisStatus};
-    use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
-    use crate::world_model::ActionDeltaModel;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-
-    fn path(kind: &str) -> std::path::PathBuf {
-        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("5413-research-{}-{kind}-{id}.bin", std::process::id()))
-    }
-
-    struct Counter {
-        descriptor: EnvironmentDescriptor,
-        position: f64,
-        sequence: u64,
-    }
-
-    impl Counter {
-        fn new() -> Self {
-            Self {
-                descriptor: EnvironmentDescriptor {
-                    id: "research-counter".to_owned(),
-                    version: "v1".to_owned(),
-                    observation_schemas: vec![SchemaDefinition {
-                        id: "state".to_owned(),
-                        version: 1,
-                        fields: vec![FieldSpec {
-                            name: "position".to_owned(),
-                            kind: ValueKind::Number,
-                            required: true,
-                        }],
-                        allow_additional_fields: false,
-                    }],
-                    actions: vec![ActionDescriptor {
-                        id: "advance".to_owned(),
-                        arguments: SchemaDefinition {
-                            id: "empty".to_owned(),
-                            version: 1,
-                            fields: Vec::new(),
-                            allow_additional_fields: false,
-                        },
-                        risk: ActionRisk::Reversible,
-                    }],
-                    supports_reset: false,
-                },
-                position: 0.0,
-                sequence: 0,
-            }
-        }
-
-        fn frame(&mut self) -> ObservationFrame {
-            let frame = ObservationFrame {
-                environment_id: "research-counter".to_owned(),
-                session_id: "research-session".to_owned(),
-                episode_id: "research-episode".to_owned(),
-                sequence: self.sequence,
-                observed_at_millis: self.sequence,
-                schema_id: "state".to_owned(),
-                schema_version: 1,
-                payload: DataValue::object([("position".to_owned(), DataValue::Number(self.position))]),
-            };
-            self.sequence += 1;
-            frame
-        }
-    }
-
-    impl EnvironmentAdapter for Counter {
-        fn descriptor(&self) -> &EnvironmentDescriptor { &self.descriptor }
-
-        fn observe(&mut self) -> Result<ObservationFrame, EnvironmentError> {
-            Ok(self.frame())
-        }
-
-        fn execute(&mut self, _action: crate::action::AuthorizedAction) -> Result<ActionOutcome, EnvironmentError> {
-            self.position += 1.0;
-            Ok(ActionOutcome {
-                action_id: "advance".to_owned(),
-                completed: true,
-                observations: Vec::new(),
-                feedback: DataValue::Null,
-            })
-        }
-    }
-
-    fn active_model() -> EnsembleWorldModel {
-        let mut model = ActionDeltaModel::new("research-active", 1).expect("model");
-        model.fit("initial-training", &[
-            TransitionSample {
-                action_id: "advance".to_owned(),
-                before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
-                after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
-            },
-            TransitionSample {
-                action_id: "advance".to_owned(),
-                before: DataValue::object([("position".to_owned(), DataValue::Number(3.0))]),
-                after: DataValue::object([("position".to_owned(), DataValue::Number(4.0))]),
-            },
-        ]).expect("fit");
-        EnsembleWorldModel::new(vec![Box::new(model) as Box<dyn PredictiveModel>]).expect("ensemble")
-    }
-
-    #[test]
-    fn experiment_updates_hypothesis_then_trains_and_registers_new_model() {
-        let journal_path = path("journal");
-        let artifact_path = path("artifacts");
-        let mut journal = ExperienceJournal::open(&journal_path).expect("journal");
-        let mut store = ModelArtifactStore::open(&artifact_path).expect("artifacts");
-        let mut environment = Counter::new();
-        let mut hypotheses = HypothesisRegistry::default();
-        let hypothesis_policy = HypothesisPolicy {
-            minimum_evidence_count: 1,
-            support_probability: 0.8,
-            refutation_probability: 0.2,
-        };
-        hypotheses.insert(HypothesisSpec {
-            id: "advance-changes-position".to_owned(),
-            claim: DataValue::Text("advance increases position".to_owned()),
-            description: "one advance increases the observed position".to_owned(),
-            prior_probability: 0.5,
-            source_dataset_id: None,
-        }, hypothesis_policy).expect("hypothesis");
-        let candidate_experiment = ExperimentCandidate {
-            id: "advance-once".to_owned(),
-            specification: DataValue::Text("execute one reversible advance action".to_owned()),
-            observation_probability_if_true: 0.9,
-            observation_probability_if_false: 0.1,
-            resource_cost: 1.0,
-            risk: 0.01,
-            irreversible: false,
-        };
-        let mut candidate_model = ActionDeltaModel::new("research-candidate", 1).expect("candidate");
-        let mut model_registry = ModelRegistry::default();
-        let report = run_autonomous_research_cycle(
-            &mut environment,
-            &active_model(),
-            &mut candidate_model,
-            &mut hypotheses,
-            "advance-changes-position",
-            &[candidate_experiment],
-            &[ExperimentActionMapping {
-                experiment_id: "advance-once".to_owned(),
-                action: ActionProposal {
-                    action_id: "advance".to_owned(),
-                    arguments: DataValue::object(std::iter::empty()),
-                },
-            }],
-            &[
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(20.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(21.0))]),
-                },
-                TransitionSample {
-                    action_id: "advance".to_owned(),
-                    before: DataValue::object([("position".to_owned(), DataValue::Number(30.0))]),
-                    after: DataValue::object([("position".to_owned(), DataValue::Number(31.0))]),
-                },
-            ],
-            ExperimentSelectionPolicy {
-                maximum_resource_cost: 5.0,
-                maximum_risk: 0.1,
-                resource_cost_weight: 0.0,
-                risk_weight: 0.0,
-                allow_irreversible: false,
-            },
-            hypothesis_policy,
-            ModelPromotionPolicy {
-                minimum_evaluation_samples: 2,
-                minimum_improvement: 0.0,
-                resource_cost_weight: 0.0,
-                require_calibrated_uncertainty: false,
-            },
-            AutonomousResearchConfig {
-                experiment: ExperimentExecutionConfig {
-                    runtime: crate::runtime::RuntimeConfig {
-                        execution_id: "research-run-1".to_owned(),
-                        episode_id: "research-episode".to_owned(),
-                        maximum_steps: 1,
-                        authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
-                        planning: PlanningConfig {
-                            horizon: 1,
-                            beam_width: 1,
-                            uncertainty_penalty: 0.0,
-                            uncalibrated_prediction_penalty: 0.0,
-                        },
-                    },
-                    evidence_dataset_id: "research-evidence-1".to_owned(),
-                    evidence_rationale: "observed final position after intervention".to_owned(),
-                    hypothesis_registry_artifact_ref: "research-hypotheses-v1".to_owned(),
-                },
-                learning: LearningCycleConfig {
-                    episode_id: "research-episode".to_owned(),
-                    training_dataset_id: "research-episode-training".to_owned(),
-                    validation_dataset_id: "research-holdout-v1".to_owned(),
-                    model_id: "research-candidate".to_owned(),
-                    model_version: 1,
-                    model_artifact_ref: "research-model-v1".to_owned(),
-                    model_registry_artifact_ref: "research-model-registry-v1".to_owned(),
-                    environment_id: "research-counter".to_owned(),
-                    environment_version: "v1".to_owned(),
-                },
-            },
-            &mut journal,
-            &mut store,
-            &mut model_registry,
-            |state| state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0),
-            |state| state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0) > 0.0,
-            |_model, samples| Ok(ModelEvaluation {
-                evaluation_dataset_id: "research-holdout-v1".to_owned(),
-                metric_id: "rmse".to_owned(),
-                direction: ScoreDirection::LowerIsBetter,
-                sample_count: samples.len(),
-                score: 0.0,
-                resource_cost: 1.0,
-                uncertainty_calibrated: true,
-            }),
-        ).expect("research cycle");
-
-        assert_eq!(report.experiment.updated_hypothesis.status, HypothesisStatus::Supported);
-        assert!(report.learning.expect("learning").promoted);
-        assert_eq!(model_registry.active("research-candidate").map(|record| record.status), Some(ModelStatus::Active));
-        drop(store);
-        drop(journal);
-        std::fs::remove_file(journal_path).expect("journal cleanup");
-        std::fs::remove_file(artifact_path).expect("artifact cleanup");
-    }
-}
