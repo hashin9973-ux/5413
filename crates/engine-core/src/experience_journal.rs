@@ -522,7 +522,9 @@ impl Encoder {
                 self.put_value(predicted, depth + 1)?;
                 self.put_value(observed, depth + 1)?;
             }
-            ExperienceEvent::EnvironmentResetStarted { previous_episode_id } => {
+            ExperienceEvent::EnvironmentResetStarted {
+                previous_episode_id,
+            } => {
                 self.put_u8(4);
                 self.put_string(previous_episode_id)?;
             }
@@ -1284,7 +1286,9 @@ mod tests {
         let path = test_path();
         let mut encoder = Encoder::default();
         encoder.put_u64(0);
-        encoder.put_string("v2-episode").expect("episode should encode");
+        encoder
+            .put_string("v2-episode")
+            .expect("episode should encode");
         encoder
             .put_optional_string(Some("v2-stable-key"))
             .expect("idempotency key should encode");

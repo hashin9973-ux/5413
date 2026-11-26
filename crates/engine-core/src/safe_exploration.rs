@@ -165,11 +165,7 @@ where
             let intent = ExperienceEvent::EnvironmentResetStarted {
                 previous_episode_id: previous_episode_id.clone(),
             };
-            match journal.append_idempotent(
-                &intent_key,
-                &previous_episode_id,
-                intent,
-            ) {
+            match journal.append_idempotent(&intent_key, &previous_episode_id, intent) {
                 Ok(IdempotentAppendOutcome::Appended { .. }) => {}
                 Ok(IdempotentAppendOutcome::AlreadyPresent { .. }) => {
                     failure = Some(SafeExplorationFailure::ResetIntentAlreadyPresent);
@@ -177,7 +173,9 @@ where
                     break;
                 }
                 Err(error) => {
-                    failure = Some(SafeExplorationFailure::ResetJournalFailed(error.to_string()));
+                    failure = Some(SafeExplorationFailure::ResetJournalFailed(
+                        error.to_string(),
+                    ));
                     termination = SafeExplorationTermination::StoppedAfterFailure;
                     break;
                 }
@@ -213,15 +211,13 @@ where
                 previous_episode_id: previous_episode_id.clone(),
                 new_episode_id: outcome.episode_id.clone(),
             };
-            match journal.append_idempotent(
-                &completion_key,
-                &outcome.episode_id,
-                completion,
-            ) {
+            match journal.append_idempotent(&completion_key, &outcome.episode_id, completion) {
                 Ok(IdempotentAppendOutcome::Appended { .. })
                 | Ok(IdempotentAppendOutcome::AlreadyPresent { .. }) => {}
                 Err(error) => {
-                    failure = Some(SafeExplorationFailure::ResetJournalFailed(error.to_string()));
+                    failure = Some(SafeExplorationFailure::ResetJournalFailed(
+                        error.to_string(),
+                    ));
                     termination = SafeExplorationTermination::StoppedAfterFailure;
                     episodes.push(SafeExplorationEpisodeReport {
                         episode_index,
@@ -730,11 +726,18 @@ mod tests {
             report.termination,
             SafeExplorationTermination::StepBudgetReached
         );
-        let reset_events: Vec<_> = journal.records().iter().filter_map(|record| {
-            match &record.event {
-                ExperienceEvent::EnvironmentResetStarted { previous_episode_id } => {
-                    Some((record.episode_id.as_str(), "started", previous_episode_id.as_str(), ""))
-                }
+        let reset_events: Vec<_> = journal
+            .records()
+            .iter()
+            .filter_map(|record| match &record.event {
+                ExperienceEvent::EnvironmentResetStarted {
+                    previous_episode_id,
+                } => Some((
+                    record.episode_id.as_str(),
+                    "started",
+                    previous_episode_id.as_str(),
+                    "",
+                )),
                 ExperienceEvent::EnvironmentResetCompleted {
                     previous_episode_id,
                     new_episode_id,
@@ -745,20 +748,28 @@ mod tests {
                     new_episode_id.as_str(),
                 )),
                 _ => None,
-            }
-        }).collect();
+            })
+            .collect();
         assert_eq!(
             reset_events,
             vec![
                 ("safe-episode-0", "started", "safe-episode-0", ""),
-                ("safe-episode-1", "completed", "safe-episode-0", "safe-episode-1"),
+                (
+                    "safe-episode-1",
+                    "completed",
+                    "safe-episode-0",
+                    "safe-episode-1"
+                ),
             ]
         );
         drop(journal);
         let restored = ExperienceJournal::open(&journal_path).expect("journal should reopen");
         assert_eq!(restored.records().len(), 20);
         assert!(matches!(
-            restored.replay_episode("safe-episode-1").next().map(|record| &record.event),
+            restored
+                .replay_episode("safe-episode-1")
+                .next()
+                .map(|record| &record.event),
             Some(ExperienceEvent::EnvironmentResetCompleted { .. })
         ));
         drop(restored);
