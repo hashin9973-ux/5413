@@ -18,6 +18,7 @@ The current implementation includes:
 - disagreement-based experiment ranking with declared action-risk, utility, and cost constraints;
 - bounded beam-search planning that scores predicted states and checks candidate actions against the environment's action policy;
 - a receding-horizon runtime that replans from fresh observations, durably journals action intents before adapter effects, reauthorizes before execution, and records prediction error against observed outcomes;
+- episode-scoped transition extraction that reconstructs completed `(state, action, next_state)` samples from journal events and excludes incomplete or mismatched actions;
 - examples for physics simulation, finite-state workflows, representation discovery, persistent journaling, and the world-model/experiment/planning loop.
 
 The implementation remains dependency-free and forbids unsafe Rust in the core crate.

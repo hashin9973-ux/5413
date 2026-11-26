@@ -52,6 +52,7 @@ The current implementation provides the first integrated learning loop, not gene
 - Immutable, checksummed model-artifact storage with explicit versioned serialization and restoration for the built-in statistical and contextual linear models.
 - Representation-registry state can be serialized and stored as immutable artifacts, preserving schema definitions, evaluation evidence, and lifecycle state with strict restore-time invariants.
 - Receding-horizon runtime with one-step replanning, durable pre-action intents, immediate reauthorization, outcome persistence, and numeric prediction-error metrics.
+- `extract_transition_samples` reconstructs completed state/action/next-state samples by episode, using the latest valid observation after a matching completed action; incomplete/mismatched actions and invalid state values are not trained on.
 - Runnable examples for a particle simulator, finite-state workflow, representation discovery/mapping, persistent journal replay, and a synthetic world-model/experiment/planning loop.
 
 ## Predictive-model semantics and limitations
