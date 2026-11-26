@@ -242,7 +242,9 @@ impl RepresentationRegistry {
 
     /// Restores all registry records while checking lifecycle and evaluation invariants.
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, RegistryError> {
-        let fields = value.as_object().ok_or(RegistryError::InvalidSerializedState)?;
+        let fields = value
+            .as_object()
+            .ok_or(RegistryError::InvalidSerializedState)?;
         if fields.len() != 2 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(RegistryError::InvalidSerializedState);
         }
@@ -278,7 +280,6 @@ impl RepresentationRegistry {
     }
 }
 
-
 fn record_to_value(record: &RepresentationRecord) -> DataValue {
     let kind = match &record.spec.kind {
         RepresentationKind::Relational => "relational".to_owned(),
@@ -290,8 +291,14 @@ fn record_to_value(record: &RepresentationRecord) -> DataValue {
         RepresentationKind::Custom(value) => format!("custom:{value}"),
     };
     let schema = DataValue::object([
-        ("id".to_owned(), DataValue::Text(record.spec.schema.id.clone())),
-        ("version".to_owned(), DataValue::Text(record.spec.schema.version.to_string())),
+        (
+            "id".to_owned(),
+            DataValue::Text(record.spec.schema.id.clone()),
+        ),
+        (
+            "version".to_owned(),
+            DataValue::Text(record.spec.schema.version.to_string()),
+        ),
         (
             "allow_additional_fields".to_owned(),
             DataValue::Bool(record.spec.schema.allow_additional_fields),
@@ -299,40 +306,87 @@ fn record_to_value(record: &RepresentationRecord) -> DataValue {
         (
             "fields".to_owned(),
             DataValue::Sequence(
-                record.spec.schema.fields.iter().map(|field| {
-                    DataValue::object([
-                        ("name".to_owned(), DataValue::Text(field.name.clone())),
-                        ("kind".to_owned(), DataValue::Text(value_kind_name(field.kind).to_owned())),
-                        ("required".to_owned(), DataValue::Bool(field.required)),
-                    ])
-                }).collect(),
+                record
+                    .spec
+                    .schema
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        DataValue::object([
+                            ("name".to_owned(), DataValue::Text(field.name.clone())),
+                            (
+                                "kind".to_owned(),
+                                DataValue::Text(value_kind_name(field.kind).to_owned()),
+                            ),
+                            ("required".to_owned(), DataValue::Bool(field.required)),
+                        ])
+                    })
+                    .collect(),
             ),
         ),
     ]);
     let evaluation = match &record.evaluation {
         None => DataValue::Null,
         Some(value) => DataValue::object([
-            ("evaluation_set_id".to_owned(), DataValue::Text(value.evaluation_set_id.clone())),
-            ("minimum_validation_samples".to_owned(), DataValue::Text(value.policy.minimum_validation_samples.to_string())),
-            ("minimum_valid_fraction".to_owned(), DataValue::Number(value.policy.minimum_valid_fraction)),
-            ("evaluated_samples".to_owned(), DataValue::Text(value.evaluated_samples.to_string())),
-            ("valid_samples".to_owned(), DataValue::Text(value.valid_samples.to_string())),
-            ("valid_fraction".to_owned(), DataValue::Number(value.valid_fraction)),
+            (
+                "evaluation_set_id".to_owned(),
+                DataValue::Text(value.evaluation_set_id.clone()),
+            ),
+            (
+                "minimum_validation_samples".to_owned(),
+                DataValue::Text(value.policy.minimum_validation_samples.to_string()),
+            ),
+            (
+                "minimum_valid_fraction".to_owned(),
+                DataValue::Number(value.policy.minimum_valid_fraction),
+            ),
+            (
+                "evaluated_samples".to_owned(),
+                DataValue::Text(value.evaluated_samples.to_string()),
+            ),
+            (
+                "valid_samples".to_owned(),
+                DataValue::Text(value.valid_samples.to_string()),
+            ),
+            (
+                "valid_fraction".to_owned(),
+                DataValue::Number(value.valid_fraction),
+            ),
             ("passed".to_owned(), DataValue::Bool(value.passed)),
         ]),
     };
     DataValue::object([
         ("id".to_owned(), DataValue::Text(record.spec.id.clone())),
-        ("version".to_owned(), DataValue::Text(record.spec.version.to_string())),
+        (
+            "version".to_owned(),
+            DataValue::Text(record.spec.version.to_string()),
+        ),
         ("kind".to_owned(), DataValue::Text(kind)),
         ("schema".to_owned(), schema),
-        ("description".to_owned(), DataValue::Text(record.spec.description.clone())),
-        ("training_set_id".to_owned(), DataValue::Text(record.spec.training_set_id.clone())),
+        (
+            "description".to_owned(),
+            DataValue::Text(record.spec.description.clone()),
+        ),
+        (
+            "training_set_id".to_owned(),
+            DataValue::Text(record.spec.training_set_id.clone()),
+        ),
         (
             "evidence_refs".to_owned(),
-            DataValue::Sequence(record.spec.evidence_refs.iter().cloned().map(DataValue::Text).collect()),
+            DataValue::Sequence(
+                record
+                    .spec
+                    .evidence_refs
+                    .iter()
+                    .cloned()
+                    .map(DataValue::Text)
+                    .collect(),
+            ),
         ),
-        ("status".to_owned(), DataValue::Text(status_name(record.status).to_owned())),
+        (
+            "status".to_owned(),
+            DataValue::Text(status_name(record.status).to_owned()),
+        ),
         ("evaluation".to_owned(), evaluation),
     ])
 }
@@ -377,8 +431,12 @@ fn parse_value_kind(value: &str) -> Result<crate::schema::ValueKind, RegistryErr
     }
 }
 
-fn object_fields(value: &DataValue) -> Result<&std::collections::BTreeMap<String, DataValue>, RegistryError> {
-    value.as_object().ok_or(RegistryError::InvalidSerializedState)
+fn object_fields(
+    value: &DataValue,
+) -> Result<&std::collections::BTreeMap<String, DataValue>, RegistryError> {
+    value
+        .as_object()
+        .ok_or(RegistryError::InvalidSerializedState)
 }
 
 fn text_field(
@@ -430,7 +488,11 @@ fn record_from_value(value: &DataValue) -> Result<RepresentationRecord, Registry
         _ => return Err(RegistryError::InvalidSerializedState),
     };
 
-    let schema_fields = object_fields(fields.get("schema").ok_or(RegistryError::InvalidSerializedState)?)?;
+    let schema_fields = object_fields(
+        fields
+            .get("schema")
+            .ok_or(RegistryError::InvalidSerializedState)?,
+    )?;
     if schema_fields.len() != 4 {
         return Err(RegistryError::InvalidSerializedState);
     }
@@ -459,15 +521,20 @@ fn record_from_value(value: &DataValue) -> Result<RepresentationRecord, Registry
         fields: decoded_fields,
         allow_additional_fields,
     };
-    schema.validate_definition().map_err(RegistryError::InvalidSchema)?;
+    schema
+        .validate_definition()
+        .map_err(RegistryError::InvalidSchema)?;
 
     let description = text_field(fields, "description")?;
     let training_set_id = text_field(fields, "training_set_id")?;
     let evidence_refs = match fields.get("evidence_refs") {
-        Some(DataValue::Sequence(values)) => values.iter().map(|value| match value {
-            DataValue::Text(value) => Ok(value.clone()),
-            _ => Err(RegistryError::InvalidSerializedState),
-        }).collect::<Result<Vec<_>, _>>()?,
+        Some(DataValue::Sequence(values)) => values
+            .iter()
+            .map(|value| match value {
+                DataValue::Text(value) => Ok(value.clone()),
+                _ => Err(RegistryError::InvalidSerializedState),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
         _ => return Err(RegistryError::InvalidSerializedState),
     };
     let status = match text_field(fields, "status")?.as_str() {
@@ -482,9 +549,13 @@ fn record_from_value(value: &DataValue) -> Result<RepresentationRecord, Registry
         Some(DataValue::Object(values)) if values.len() == 7 => {
             let evaluation_set_id = text_field(values, "evaluation_set_id")?;
             let policy = EvaluationPolicy {
-                minimum_validation_samples: usize::try_from(u64_field(values, "minimum_validation_samples")?)
-                    .map_err(|_| RegistryError::InvalidSerializedState)?,
-                minimum_valid_fraction: values.get("minimum_valid_fraction")
+                minimum_validation_samples: usize::try_from(u64_field(
+                    values,
+                    "minimum_validation_samples",
+                )?)
+                .map_err(|_| RegistryError::InvalidSerializedState)?,
+                minimum_valid_fraction: values
+                    .get("minimum_valid_fraction")
                     .and_then(DataValue::as_f64)
                     .ok_or(RegistryError::InvalidSerializedState)?,
             };
@@ -493,11 +564,16 @@ fn record_from_value(value: &DataValue) -> Result<RepresentationRecord, Registry
                 .map_err(|_| RegistryError::InvalidSerializedState)?;
             let valid_samples = usize::try_from(u64_field(values, "valid_samples")?)
                 .map_err(|_| RegistryError::InvalidSerializedState)?;
-            let valid_fraction = values.get("valid_fraction")
+            let valid_fraction = values
+                .get("valid_fraction")
                 .and_then(DataValue::as_f64)
                 .ok_or(RegistryError::InvalidSerializedState)?;
             let passed = bool_field(values, "passed")?;
-            let calculated_fraction = if evaluated_samples == 0 { 0.0 } else { valid_samples as f64 / evaluated_samples as f64 };
+            let calculated_fraction = if evaluated_samples == 0 {
+                0.0
+            } else {
+                valid_samples as f64 / evaluated_samples as f64
+            };
             let calculated_passed = evaluated_samples >= policy.minimum_validation_samples
                 && calculated_fraction >= policy.minimum_valid_fraction;
             if evaluation_set_id.trim().is_empty()
@@ -524,8 +600,10 @@ fn record_from_value(value: &DataValue) -> Result<RepresentationRecord, Registry
     if id.trim().is_empty()
         || version == 0
         || training_set_id.trim().is_empty()
-        || matches!(status, RepresentationStatus::Active | RepresentationStatus::Retired)
-            && !evaluation.as_ref().is_some_and(|value| value.passed)
+        || matches!(
+            status,
+            RepresentationStatus::Active | RepresentationStatus::Retired
+        ) && !evaluation.as_ref().is_some_and(|value| value.passed)
     {
         return Err(RegistryError::InvalidSerializedState);
     }
@@ -544,7 +622,6 @@ fn record_from_value(value: &DataValue) -> Result<RepresentationRecord, Registry
         evaluation,
     })
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RegistryError {
@@ -596,7 +673,9 @@ impl std::fmt::Display for RegistryError {
             Self::InvalidEvaluationPolicy => write!(formatter, "evaluation policy is invalid"),
             Self::MissingEvaluation => write!(formatter, "candidate has not been evaluated"),
             Self::EvaluationFailed => write!(formatter, "candidate did not pass evaluation"),
-            Self::InvalidSerializedState => write!(formatter, "serialized representation registry is invalid"),
+            Self::InvalidSerializedState => {
+                write!(formatter, "serialized representation registry is invalid")
+            }
         }
     }
 }
@@ -654,7 +733,9 @@ mod tests {
         let restored = RepresentationRegistry::from_artifact_value(&registry.to_artifact_value())
             .expect("restore");
         assert_eq!(
-            restored.active("state-model").map(|record| record.spec.version),
+            restored
+                .active("state-model")
+                .map(|record| record.spec.version),
             Some(1)
         );
         assert_eq!(
@@ -662,7 +743,9 @@ mod tests {
             Some(RepresentationStatus::Candidate)
         );
         assert_eq!(
-            restored.active("state-model").and_then(|record| record.evaluation.as_ref())
+            restored
+                .active("state-model")
+                .and_then(|record| record.evaluation.as_ref())
                 .map(|evaluation| evaluation.evaluation_set_id.as_str()),
             Some("held-out-v1")
         );
