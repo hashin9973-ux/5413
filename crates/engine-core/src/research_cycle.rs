@@ -1382,7 +1382,8 @@ mod tests {
                             },
                         },
                         evidence_dataset_id: "experiment-evidence-v3".to_owned(),
-                        evidence_rationale: "incomplete intervention must not become evidence".to_owned(),
+                        evidence_rationale: "incomplete intervention must not become evidence"
+                            .to_owned(),
                         hypothesis_registry_artifact_ref: "hypotheses-after-run-3".to_owned(),
                     },
                     learning: LearningCycleConfig {
