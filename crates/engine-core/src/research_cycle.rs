@@ -629,3 +629,343 @@ impl std::fmt::Display for AutonomousResearchError {
     }
 }
 impl std::error::Error for AutonomousResearchError {}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::action::{
+        ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
+        AuthorizedAction,
+    };
+    use crate::benchmark::ScoreDirection;
+    use crate::environment::{
+        ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
+    };
+    use crate::model_registry::ModelEvaluation as RegistryEvaluation;
+    use crate::planning::PlanningConfig;
+    use crate::schema::{FieldSpec, SchemaDefinition, ValueKind};
+    use crate::world_model::{evaluate_model, ActionDeltaModel};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+    fn temporary_path(label: &str) -> std::path::PathBuf {
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "5413-research-cycle-{}-{label}-{id}.bin",
+            std::process::id()
+        ))
+    }
+
+    struct CounterEnvironment {
+        descriptor: EnvironmentDescriptor,
+        position: f64,
+        sequence: u64,
+    }
+
+    impl CounterEnvironment {
+        fn new() -> Self {
+            Self {
+                descriptor: EnvironmentDescriptor {
+                    id: "research-counter".to_owned(),
+                    version: "v1".to_owned(),
+                    observation_schemas: vec![SchemaDefinition {
+                        id: "counter-state".to_owned(),
+                        version: 1,
+                        fields: vec![FieldSpec {
+                            name: "position".to_owned(),
+                            kind: ValueKind::Number,
+                            required: true,
+                        }],
+                        allow_additional_fields: false,
+                    }],
+                    actions: vec![ActionDescriptor {
+                        id: "advance".to_owned(),
+                        arguments: SchemaDefinition {
+                            id: "empty-arguments".to_owned(),
+                            version: 1,
+                            fields: Vec::new(),
+                            allow_additional_fields: false,
+                        },
+                        risk: ActionRisk::Reversible,
+                    }],
+                    supports_reset: false,
+                },
+                position: 0.0,
+                sequence: 0,
+            }
+        }
+
+        fn frame(&mut self) -> ObservationFrame {
+            let frame = ObservationFrame {
+                environment_id: "research-counter".to_owned(),
+                session_id: "research-session".to_owned(),
+                episode_id: "research-episode".to_owned(),
+                sequence: self.sequence,
+                observed_at_millis: self.sequence,
+                schema_id: "counter-state".to_owned(),
+                schema_version: 1,
+                payload: DataValue::object([(
+                    "position".to_owned(),
+                    DataValue::Number(self.position),
+                )]),
+            };
+            self.sequence += 1;
+            frame
+        }
+    }
+
+    impl EnvironmentAdapter for CounterEnvironment {
+        fn descriptor(&self) -> &EnvironmentDescriptor {
+            &self.descriptor
+        }
+
+        fn observe(&mut self) -> Result<ObservationFrame, EnvironmentError> {
+            Ok(self.frame())
+        }
+
+        fn execute(&mut self, _action: AuthorizedAction) -> Result<ActionOutcome, EnvironmentError> {
+            self.position += 1.0;
+            Ok(ActionOutcome {
+                action_id: "advance".to_owned(),
+                completed: true,
+                observations: Vec::new(),
+                feedback: DataValue::Null,
+            })
+        }
+    }
+
+    fn active_model() -> EnsembleWorldModel {
+        let mut model = ActionDeltaModel::new("research-active", 1).expect("active model");
+        model
+            .fit(
+                "active-training-v1",
+                &[
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(1.0),
+                        )]),
+                    },
+                    TransitionSample {
+                        action_id: "advance".to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(5.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(6.0),
+                        )]),
+                    },
+                ],
+            )
+            .expect("fit active model");
+        EnsembleWorldModel::new(vec![Box::new(model)]).expect("active ensemble")
+    }
+
+    #[test]
+    fn research_cycle_runs_experiment_updates_evidence_and_promotes_model() {
+        let journal_path = temporary_path("journal");
+        let artifact_path = temporary_path("artifacts");
+        let mut journal = ExperienceJournal::open(&journal_path).expect("journal");
+        let mut artifact_store = ModelArtifactStore::open(&artifact_path).expect("artifacts");
+        let mut adapter = CounterEnvironment::new();
+        let mut candidate_model =
+            ActionDeltaModel::new("research-candidate", 1).expect("candidate model");
+        let mut hypothesis_registry = HypothesisRegistry::default();
+        let hypothesis_policy = HypothesisPolicy {
+            minimum_evidence_count: 1,
+            support_probability: 0.8,
+            refutation_probability: 0.2,
+        };
+        hypothesis_registry
+            .insert(
+                HypothesisSpec {
+                    id: "advance-increases-position".to_owned(),
+                    claim: DataValue::Text("advance increases position".to_owned()),
+                    description: "one advance increases the position observation".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: Some("initial-discovery".to_owned()),
+                },
+                hypothesis_policy,
+            )
+            .expect("hypothesis");
+
+        let experiments = [ExperimentCandidate {
+            id: "advance-once".to_owned(),
+            specification: DataValue::Text("apply one reversible advance action".to_owned()),
+            observation_probability_if_true: 0.9,
+            observation_probability_if_false: 0.1,
+            resource_cost: 1.0,
+            risk: 0.01,
+            irreversible: false,
+        }];
+        let action_mappings = [ExperimentActionMapping {
+            experiment_id: "advance-once".to_owned(),
+            action: ActionProposal {
+                action_id: "advance".to_owned(),
+                arguments: DataValue::Object(Default::default()),
+            },
+        }];
+        let validation_samples = [
+            TransitionSample {
+                action_id: "advance".to_owned(),
+                before: DataValue::object([(
+                    "position".to_owned(),
+                    DataValue::Number(10.0),
+                )]),
+                after: DataValue::object([(
+                    "position".to_owned(),
+                    DataValue::Number(11.0),
+                )]),
+            },
+            TransitionSample {
+                action_id: "advance".to_owned(),
+                before: DataValue::object([(
+                    "position".to_owned(),
+                    DataValue::Number(20.0),
+                )]),
+                after: DataValue::object([(
+                    "position".to_owned(),
+                    DataValue::Number(21.0),
+                )]),
+            },
+        ];
+        let promotion_policy = ModelPromotionPolicy {
+            minimum_evaluation_samples: 2,
+            minimum_improvement: 0.0,
+            resource_cost_weight: 0.0,
+            require_calibrated_uncertainty: false,
+        };
+
+        let report = run_autonomous_research_cycle(
+            AutonomousResearchContext {
+                adapter: &mut adapter,
+                active_model: &active_model(),
+                candidate_model: &mut candidate_model,
+                hypothesis_registry: &mut hypothesis_registry,
+                journal: &mut journal,
+                artifact_store: &mut artifact_store,
+                model_registry: &mut ModelRegistry::default(),
+            },
+            AutonomousResearchRequest {
+                hypothesis_id: "advance-increases-position",
+                experiments: &experiments,
+                action_mappings: &action_mappings,
+                validation_samples: &validation_samples,
+                selection_policy: ExperimentSelectionPolicy {
+                    maximum_resource_cost: 10.0,
+                    maximum_risk: 0.1,
+                    resource_cost_weight: 0.0,
+                    risk_weight: 0.0,
+                    allow_irreversible: false,
+                },
+                hypothesis_policy,
+                promotion_policy,
+                config: AutonomousResearchConfig {
+                    experiment: ExperimentExecutionConfig {
+                        runtime: RuntimeConfig {
+                            execution_id: "research-run-1".to_owned(),
+                            episode_id: "research-episode".to_owned(),
+                            maximum_steps: 1,
+                            authorizer: ActionAuthorizer::new(
+                                ActionAuthorizationPolicy::new(ActionRisk::Reversible),
+                            ),
+                            planning: PlanningConfig {
+                                horizon: 1,
+                                beam_width: 1,
+                                uncertainty_penalty: 0.0,
+                                uncalibrated_prediction_penalty: 0.0,
+                            },
+                        },
+                        evidence_dataset_id: "experiment-evidence-v1".to_owned(),
+                        evidence_rationale: "final position observed after intervention".to_owned(),
+                        hypothesis_registry_artifact_ref: "hypotheses-after-run-1".to_owned(),
+                    },
+                    learning: LearningCycleConfig {
+                        episode_id: "research-episode".to_owned(),
+                        training_dataset_id: "episode-training-v1".to_owned(),
+                        validation_dataset_id: "model-holdout-v1".to_owned(),
+                        model_id: "research-candidate".to_owned(),
+                        model_version: 1,
+                        model_artifact_ref: "research-candidate-artifact-v1".to_owned(),
+                        model_registry_artifact_ref: "model-registry-after-run-1".to_owned(),
+                        environment_id: "research-counter".to_owned(),
+                        environment_version: "v1".to_owned(),
+                    },
+                },
+            },
+            AutonomousResearchCallbacks {
+                utility: |state| state
+                    .get("position")
+                    .and_then(DataValue::as_f64)
+                    .unwrap_or(0.0),
+                positive_outcome: |state| state
+                    .get("position")
+                    .and_then(DataValue::as_f64)
+                    .is_some_and(|position| position > 0.0),
+                evaluate: |model, samples| {
+                    let measured = evaluate_model(model, "model-holdout-v1", samples)
+                        .map_err(|error| error.to_string())?;
+                    Ok(RegistryEvaluation {
+                        evaluation_dataset_id: measured.evaluation_dataset_id,
+                        metric_id: "rmse".to_owned(),
+                        direction: ScoreDirection::LowerIsBetter,
+                        sample_count: measured.evaluated_transitions,
+                        score: measured.root_mean_squared_error,
+                        resource_cost: 1.0,
+                        uncertainty_calibrated: measured.calibrated_predictions
+                            == measured.predicted_fields,
+                    })
+                },
+            },
+        )
+        .expect("research cycle");
+
+        assert_eq!(report.runtime.steps.len(), 1);
+        assert_eq!(
+            report
+                .runtime
+                .final_observation
+                .payload
+                .get("position")
+                .and_then(DataValue::as_f64),
+            Some(1.0)
+        );
+        assert_eq!(
+            report.updated_hypothesis.status,
+            crate::reasoning::HypothesisStatus::Supported
+        );
+        assert!((report.updated_hypothesis.posterior_probability - 0.9).abs() < 1e-12);
+        let learning = report.learning.expect("learning outcome");
+        assert!(learning.promoted);
+        assert_eq!(learning.training_samples, 1);
+        assert_eq!(learning.validation_samples, 2);
+
+        let restored_hypotheses = artifact_store
+            .load_hypothesis_registry("hypotheses-after-run-1", hypothesis_policy)
+            .expect("restore hypothesis registry");
+        assert_eq!(restored_hypotheses, hypothesis_registry);
+        let restored_models = artifact_store
+            .load_model_registry("model-registry-after-run-1")
+            .expect("restore model registry");
+        assert_eq!(
+            restored_models
+                .active("research-candidate")
+                .map(|record| record.spec.version),
+            Some(1)
+        );
+
+        drop(artifact_store);
+        drop(journal);
+        std::fs::remove_file(journal_path).expect("remove journal");
+        std::fs::remove_file(artifact_path).expect("remove artifacts");
+    }
+}
