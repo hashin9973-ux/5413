@@ -135,3 +135,8 @@ The journal's stress and fault-injection tests validate deterministic software r
 ### Post-execution evidence handling
 
 After a completed environment action, `AutonomousResearchReport` retains the runtime report and exposes `EvidenceCommitOutcome`: persisted update, rejected in-memory update, or successful in-memory update with failed durable snapshot. The cycle precomputes both possible log-likelihood updates and checks posterior log-odds finiteness before the environment effect. This avoids losing the recorded experiment result when the separate hypothesis-persistence operation fails. The journal remains the primary durable record of the observed action and outcome.
+
+
+## Model-disagreement exploration
+
+`rank_model_disagreement_actions` ranks caller-supplied action proposals using one-step predicted task utility and the root-sum-square of ensemble epistemic standard deviations, less declared resource and risk penalties. It requires at least two models, validates each action through the environment descriptor and `ActionAuthorizer`, and applies hard maximum cost/risk filters before ranking. The disagreement term is scale-dependent and is an exploration heuristic, not a calibrated mutual-information estimate; reward and risk estimates remain supplied by the caller/environment integration.

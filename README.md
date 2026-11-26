@@ -56,3 +56,8 @@ See [docs/architecture.md](docs/architecture.md) for contracts, safety boundarie
 
 
 The research-cycle report preserves the completed runtime result after an environment action. Hypothesis update and durable snapshot failures are represented separately as `EvidenceCommitOutcome`, rather than discarding the experiment report. Both possible binary-outcome log-likelihood updates are checked for numerical validity before the intervention.
+
+
+### Model-disagreement exploration
+
+`rank_model_disagreement_actions` ranks caller-supplied action proposals by predicted task utility plus ensemble epistemic disagreement, minus declared resource and risk penalties. It requires multiple predictive models and applies the environment descriptor, action authorization, action-risk ceiling, and resource ceiling before ranking. The disagreement term is scale-dependent and remains an exploration heuristic, not a calibrated information-gain estimate.

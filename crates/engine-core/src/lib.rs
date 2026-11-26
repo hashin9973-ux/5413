@@ -58,6 +58,11 @@ pub use experimentation::{
     rank_experiments, ExperimentCandidate, ExperimentError, ExperimentPolicy, ExperimentRanking,
     ExperimentScore,
 };
+pub use experiment_selection::{
+    rank_model_disagreement_actions, ExperimentSelectionError, ExperimentSelectionPolicy,
+    ModelExplorationCandidate, ModelExplorationPolicy, ModelExplorationRanking,
+    RankedExplorationAction,
+};
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
