@@ -181,7 +181,6 @@ mod tests {
         ActionOutcome, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
     };
     use crate::experiment_execution::ExperimentExecutionConfig;
-    use crate::experience::ExperienceEvent;
     use crate::model_registry::ModelStatus;
     use crate::planning::PlanningConfig;
     use crate::reasoning::{HypothesisSpec, HypothesisStatus};
