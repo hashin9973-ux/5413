@@ -1,3 +1,4 @@
+use crate::experience::{ExperienceEvent, ExperienceRecord};
 use crate::value::DataValue;
 use std::collections::BTreeMap;
 
@@ -7,6 +8,93 @@ pub struct TransitionSample {
     pub before: DataValue,
     pub after: DataValue,
 }
+
+#[derive(Clone, Debug)]
+struct PendingTransition {
+    action_id: String,
+    before: DataValue,
+    completed: bool,
+    observed_after: Option<DataValue>,
+}
+
+/// Reconstructs completed state transitions from one episode's ordered journal
+/// records. For a completed action, the last subsequent valid observation before
+/// the next proposal is used as its observed next state. Incomplete or mismatched
+/// action outcomes are excluded.
+pub fn extract_transition_samples(
+    records: &[ExperienceRecord],
+    episode_id: &str,
+) -> Vec<TransitionSample> {
+    if episode_id.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let mut current_state: Option<DataValue> = None;
+    let mut pending: Option<PendingTransition> = None;
+    let mut samples = Vec::new();
+
+    for record in records.iter().filter(|record| record.episode_id == episode_id) {
+        match &record.event {
+            ExperienceEvent::Observation(observation) => {
+                if observation.payload.validate_finite().is_err() {
+                    current_state = None;
+                    if let Some(active) = pending.as_mut() {
+                        active.observed_after = None;
+                    }
+                    continue;
+                }
+                if let Some(active) = pending.as_mut() {
+                    if active.completed {
+                        active.observed_after = Some(observation.payload.clone());
+                    }
+                }
+                current_state = Some(observation.payload.clone());
+            }
+            ExperienceEvent::ActionProposed(proposal) => {
+                if let Some(previous) = pending.take() {
+                    append_completed_transition(previous, &mut samples);
+                }
+                pending = current_state.clone().map(|before| PendingTransition {
+                    action_id: proposal.action_id.clone(),
+                    before,
+                    completed: false,
+                    observed_after: None,
+                });
+            }
+            ExperienceEvent::ActionCompleted(outcome) => {
+                if let Some(active) = pending.as_mut() {
+                    active.completed =
+                        outcome.completed && outcome.action_id == active.action_id;
+                    active.observed_after = None;
+                }
+            }
+            ExperienceEvent::PredictionEvaluated { .. } => {}
+        }
+    }
+
+    if let Some(last) = pending {
+        append_completed_transition(last, &mut samples);
+    }
+    samples
+}
+
+fn append_completed_transition(
+    pending: PendingTransition,
+    samples: &mut Vec<TransitionSample>,
+) {
+    if !pending.completed {
+        return;
+    }
+    let Some(after) = pending.observed_after else {
+        return;
+    };
+    samples.push(TransitionSample {
+        action_id: pending.action_id,
+        before: pending.before,
+        after,
+    });
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FieldPrediction {
@@ -362,5 +450,109 @@ mod tests {
             .predict_next("decrease", &state(2.0, "c"))
             .expect("prediction");
         assert!(!prediction.contains_key("position"));
+    }
+}
+
+
+#[cfg(test)]
+mod transition_extraction_tests {
+    use super::*;
+    use crate::action::ActionProposal;
+    use crate::environment::{ActionOutcome, ObservationFrame};
+    use crate::value::DataValue;
+
+    fn observation(sequence: u64, position: f64) -> ExperienceEvent {
+        ExperienceEvent::Observation(ObservationFrame {
+            environment_id: "counter".to_owned(),
+            session_id: "session".to_owned(),
+            episode_id: "episode-a".to_owned(),
+            sequence,
+            observed_at_millis: sequence,
+            schema_id: "state".to_owned(),
+            schema_version: 1,
+            payload: DataValue::object([(
+                "position".to_owned(),
+                DataValue::Number(position),
+            )]),
+        })
+    }
+
+    fn proposal(action_id: &str) -> ExperienceEvent {
+        ExperienceEvent::ActionProposed(ActionProposal {
+            action_id: action_id.to_owned(),
+            arguments: DataValue::Null,
+        })
+    }
+
+    fn outcome(action_id: &str, completed: bool) -> ExperienceEvent {
+        ExperienceEvent::ActionCompleted(ActionOutcome {
+            action_id: action_id.to_owned(),
+            completed,
+            observations: Vec::new(),
+            feedback: DataValue::Null,
+        })
+    }
+
+    fn record(sequence: u64, event: ExperienceEvent, episode_id: &str) -> ExperienceRecord {
+        ExperienceRecord {
+            sequence,
+            episode_id: episode_id.to_owned(),
+            event,
+        }
+    }
+
+    #[test]
+    fn extracts_only_completed_episode_scoped_transitions() {
+        let records = vec![
+            record(0, observation(0, 0.0), "episode-a"),
+            record(1, proposal("advance"), "episode-a"),
+            record(2, outcome("advance", true), "episode-a"),
+            record(3, observation(1, 1.0), "episode-a"),
+            record(4, proposal("advance"), "episode-a"),
+            record(5, outcome("advance", false), "episode-a"),
+            record(6, observation(2, 1.0), "episode-a"),
+            record(7, observation(0, 50.0), "episode-b"),
+        ];
+
+        let samples = extract_transition_samples(&records, "episode-a");
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].action_id, "advance");
+        assert_eq!(
+            samples[0].before.get("position").and_then(DataValue::as_f64),
+            Some(0.0)
+        );
+        assert_eq!(
+            samples[0].after.get("position").and_then(DataValue::as_f64),
+            Some(1.0)
+        );
+        assert!(extract_transition_samples(&records, "").is_empty());
+    }
+
+    #[test]
+    fn uses_latest_observation_after_completed_action() {
+        let records = vec![
+            record(0, observation(0, 0.0), "episode-a"),
+            record(1, proposal("advance"), "episode-a"),
+            record(2, outcome("advance", true), "episode-a"),
+            record(3, observation(1, 0.5), "episode-a"),
+            record(4, observation(2, 1.0), "episode-a"),
+        ];
+        let samples = extract_transition_samples(&records, "episode-a");
+        assert_eq!(samples.len(), 1);
+        assert_eq!(
+            samples[0].after.get("position").and_then(DataValue::as_f64),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn ignores_mismatched_action_outcomes() {
+        let records = vec![
+            record(0, observation(0, 0.0), "episode-a"),
+            record(1, proposal("advance"), "episode-a"),
+            record(2, outcome("different-action", true), "episode-a"),
+            record(3, observation(1, 1.0), "episode-a"),
+        ];
+        assert!(extract_transition_samples(&records, "episode-a").is_empty());
     }
 }
