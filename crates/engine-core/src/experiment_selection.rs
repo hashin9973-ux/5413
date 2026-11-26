@@ -26,7 +26,7 @@ pub struct ExperimentCandidate {
 }
 
 impl ExperimentCandidate {
-    fn validate(&self) -> Result<(), ExperimentSelectionError> {
+    pub fn validate(&self) -> Result<(), ExperimentSelectionError> {
         if self.id.trim().is_empty()
             || !self.observation_probability_if_true.is_finite()
             || !(0.0..=1.0).contains(&self.observation_probability_if_true)

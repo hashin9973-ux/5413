@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 pub mod action;
+pub mod active_exploration;
+pub mod active_exploration;
 pub mod benchmark;
 pub mod calibration;
 pub mod causal;
