@@ -4,7 +4,8 @@
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
 use crate::benchmark::{
-    BenchmarkError, LearningEfficiencyCurve, TransferBenchmark, TransferMatrix,
+    BenchmarkError, LearningEfficiencyBenchmark, LearningEfficiencyCurve, TransferBenchmark,
+    TransferMatrix,
 };
 use crate::calibration::{ConformalCalibrationError, ConformalCalibrator};
 use crate::causal::{CausalError, PairedRandomizedStudy};
@@ -270,6 +271,27 @@ impl ModelArtifactStore {
             .get(artifact_ref)
             .ok_or(ModelArtifactError::NotFound)?;
         LearningEfficiencyCurve::from_artifact_value(artifact)
+            .map_err(ModelArtifactError::Benchmark)
+    }
+
+    /// Persists a repeated-seed sample-efficiency benchmark.
+    pub fn put_learning_efficiency_benchmark(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        benchmark: &LearningEfficiencyBenchmark,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        self.put(artifact_ref, benchmark.to_artifact_value())
+    }
+
+    pub fn load_learning_efficiency_benchmark(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<LearningEfficiencyBenchmark, ModelArtifactError> {
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        LearningEfficiencyBenchmark::from_artifact_value(artifact)
             .map_err(ModelArtifactError::Benchmark)
     }
 

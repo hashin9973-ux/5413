@@ -824,6 +824,251 @@ impl LearningEfficiencyCurve {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LearningEfficiencyBenchmark {
+    curves: BTreeMap<String, LearningEfficiencyCurve>,
+}
+
+impl LearningEfficiencyBenchmark {
+    pub fn record(&mut self, curve: LearningEfficiencyCurve) -> Result<(), BenchmarkError> {
+        curve.validate()?;
+        if self.curves.contains_key(&curve.curve_id) {
+            return Err(BenchmarkError::DuplicateLearningCurve);
+        }
+        let key = learning_efficiency_group_key(&curve);
+        if self
+            .curves
+            .values()
+            .any(|existing| learning_efficiency_group_key(existing) == key && existing.seed == curve.seed)
+        {
+            return Err(BenchmarkError::DuplicateLearningSeed);
+        }
+        self.curves.insert(curve.curve_id.clone(), curve);
+        Ok(())
+    }
+
+    pub fn get(&self, curve_id: &str) -> Option<&LearningEfficiencyCurve> {
+        self.curves.get(curve_id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &LearningEfficiencyCurve> {
+        self.curves.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.curves.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.curves.is_empty()
+    }
+
+    /// Aggregates only repeated runs with exactly matching task, strategies,
+    /// metric direction, evaluation size, and training-sample budgets.
+    pub fn summarize(
+        &self,
+        metric_id: &str,
+        target_improvement: f64,
+    ) -> Result<Vec<LearningEfficiencySummary>, BenchmarkError> {
+        if metric_id.trim().is_empty() {
+            return Err(BenchmarkError::InvalidMetric);
+        }
+        if !target_improvement.is_finite() || target_improvement < 0.0 {
+            return Err(BenchmarkError::InvalidLearningEfficiencyTarget);
+        }
+        let mut groups: BTreeMap<LearningEfficiencyGroupKey, Vec<&LearningEfficiencyCurve>> =
+            BTreeMap::new();
+        for curve in self.curves.values().filter(|curve| curve.metric_id == metric_id) {
+            groups
+                .entry(learning_efficiency_group_key(curve))
+                .or_default()
+                .push(curve);
+        }
+        if groups.is_empty() {
+            return Err(BenchmarkError::NoMatchingCases);
+        }
+
+        let mut summaries = Vec::with_capacity(groups.len());
+        for (key, curves) in groups {
+            let first = curves
+                .first()
+                .copied()
+                .ok_or(BenchmarkError::InvalidLearningEfficiencyCurve)?;
+            let budgets: Vec<usize> = first
+                .points
+                .iter()
+                .map(|point| point.training_samples)
+                .collect();
+            let mut mean_improvement_by_budget = Vec::with_capacity(budgets.len());
+            let mut standard_error_by_budget = Vec::with_capacity(budgets.len());
+            for index in 0..budgets.len() {
+                let values: Vec<f64> = curves
+                    .iter()
+                    .map(|curve| curve.improvements_unchecked()[index])
+                    .collect();
+                let (mean, standard_error) = mean_and_standard_error(&values)?;
+                mean_improvement_by_budget.push(mean);
+                standard_error_by_budget.push(standard_error);
+            }
+            let areas = curves
+                .iter()
+                .map(|curve| curve.area_under_improvement_curve())
+                .collect::<Result<Vec<_>, _>>()?;
+            let (mean_area_under_curve, standard_error_area_under_curve) =
+                mean_and_standard_error(&areas)?;
+            let target_budgets: Vec<usize> = curves
+                .iter()
+                .filter_map(|curve| {
+                    curve
+                        .samples_to_target_improvement(target_improvement)
+                        .ok()
+                        .flatten()
+                })
+                .collect();
+            let target_reach_rate = target_budgets.len() as f64 / curves.len() as f64;
+            let mean_samples_to_target = if target_budgets.is_empty() {
+                None
+            } else {
+                Some(
+                    target_budgets.iter().map(|value| *value as f64).sum::<f64>()
+                        / target_budgets.len() as f64,
+                )
+            };
+            summaries.push(LearningEfficiencySummary {
+                environment_id: key.environment_id,
+                environment_version: key.environment_version,
+                task_id: key.task_id,
+                learner_strategy_id: key.learner_strategy_id,
+                reference_strategy_id: key.reference_strategy_id,
+                metric_id: key.metric_id,
+                direction: first.direction,
+                evaluation_sample_count: key.evaluation_sample_count,
+                seed_count: curves.len(),
+                sample_budgets: budgets,
+                mean_improvement_by_budget,
+                standard_error_by_budget,
+                mean_area_under_curve,
+                standard_error_area_under_curve,
+                target_improvement,
+                target_reach_rate,
+                mean_samples_to_target,
+            });
+        }
+        Ok(summaries)
+    }
+
+    pub fn to_artifact_value(&self) -> DataValue {
+        DataValue::object([
+            ("artifact_version".to_owned(), DataValue::Integer(1)),
+            (
+                "curves".to_owned(),
+                DataValue::Sequence(
+                    self.curves
+                        .values()
+                        .map(LearningEfficiencyCurve::to_artifact_value)
+                        .collect(),
+                ),
+            ),
+        ])
+    }
+
+    pub fn from_artifact_value(value: &DataValue) -> Result<Self, BenchmarkError> {
+        let fields = value
+            .as_object()
+            .ok_or(BenchmarkError::InvalidLearningEfficiencyBenchmark)?;
+        if fields.len() != 2
+            || fields.get("artifact_version") != Some(&DataValue::Integer(1))
+        {
+            return Err(BenchmarkError::InvalidLearningEfficiencyBenchmark);
+        }
+        let encoded = match fields.get("curves") {
+            Some(DataValue::Sequence(values)) => values,
+            _ => return Err(BenchmarkError::InvalidLearningEfficiencyBenchmark),
+        };
+        let mut benchmark = Self::default();
+        for value in encoded {
+            let curve = LearningEfficiencyCurve::from_artifact_value(value)
+                .map_err(|_| BenchmarkError::InvalidLearningEfficiencyBenchmark)?;
+            benchmark.record(curve)
+                .map_err(|_| BenchmarkError::InvalidLearningEfficiencyBenchmark)?;
+        }
+        Ok(benchmark)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct LearningEfficiencyGroupKey {
+    environment_id: String,
+    environment_version: String,
+    task_id: String,
+    learner_strategy_id: String,
+    reference_strategy_id: String,
+    metric_id: String,
+    direction: String,
+    evaluation_sample_count: usize,
+    sample_budgets: Vec<usize>,
+}
+
+fn learning_efficiency_group_key(curve: &LearningEfficiencyCurve) -> LearningEfficiencyGroupKey {
+    LearningEfficiencyGroupKey {
+        environment_id: curve.environment_id.clone(),
+        environment_version: curve.environment_version.clone(),
+        task_id: curve.task_id.clone(),
+        learner_strategy_id: curve.learner_strategy_id.clone(),
+        reference_strategy_id: curve.reference_strategy_id.clone(),
+        metric_id: curve.metric_id.clone(),
+        direction: direction_name(curve.direction).to_owned(),
+        evaluation_sample_count: curve.evaluation_sample_count,
+        sample_budgets: curve.points.iter().map(|point| point.training_samples).collect(),
+    }
+}
+
+fn mean_and_standard_error(values: &[f64]) -> Result<(f64, Option<f64>), BenchmarkError> {
+    if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
+        return Err(BenchmarkError::NumericalOverflow);
+    }
+    let count = values.len() as f64;
+    let mean = values.iter().sum::<f64>() / count;
+    if !mean.is_finite() {
+        return Err(BenchmarkError::NumericalOverflow);
+    }
+    if values.len() < 2 {
+        return Ok((mean, None));
+    }
+    let variance = values
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / (count - 1.0);
+    let standard_error = (variance / count).sqrt();
+    if !variance.is_finite() || !standard_error.is_finite() {
+        return Err(BenchmarkError::NumericalOverflow);
+    }
+    Ok((mean, Some(standard_error)))
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LearningEfficiencySummary {
+    pub environment_id: String,
+    pub environment_version: String,
+    pub task_id: String,
+    pub learner_strategy_id: String,
+    pub reference_strategy_id: String,
+    pub metric_id: String,
+    pub direction: ScoreDirection,
+    pub evaluation_sample_count: usize,
+    pub seed_count: usize,
+    pub sample_budgets: Vec<usize>,
+    pub mean_improvement_by_budget: Vec<f64>,
+    pub standard_error_by_budget: Vec<Option<f64>>,
+    pub mean_area_under_curve: f64,
+    pub standard_error_area_under_curve: Option<f64>,
+    pub target_improvement: f64,
+    pub target_reach_rate: f64,
+    /// Mean sample budget among runs that reached the target; None if no run did.
+    pub mean_samples_to_target: Option<f64>,
+}
+
 /// Aggregated results for one directed source-to-target environment pair.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransferMatrixCell {
@@ -1237,6 +1482,9 @@ pub enum BenchmarkError {
     InvalidNegativeTransferPolicy,
     InvalidLearningEfficiencyCurve,
     InvalidLearningEfficiencyTarget,
+    DuplicateLearningCurve,
+    DuplicateLearningSeed,
+    InvalidLearningEfficiencyBenchmark,
 }
 
 impl std::fmt::Display for BenchmarkError {
@@ -1523,6 +1771,77 @@ mod tests {
                 .expect("restore"),
             curve
         );
+    }
+
+    fn learning_curve(curve_id: &str, seed: u64, learner_scores: [f64; 3]) -> LearningEfficiencyCurve {
+        LearningEfficiencyCurve {
+            curve_id: curve_id.to_owned(),
+            environment_id: "grid".to_owned(),
+            environment_version: "v1".to_owned(),
+            task_id: "reach-goal".to_owned(),
+            learner_strategy_id: "active".to_owned(),
+            reference_strategy_id: "random".to_owned(),
+            learner_artifact_ref: format!("active-model-{seed}"),
+            training_dataset_id: format!("train-{seed}"),
+            evaluation_dataset_id: format!("holdout-{seed}"),
+            metric_id: "success-rate".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
+            seed,
+            evaluation_sample_count: 100,
+            points: [0usize, 10, 20]
+                .into_iter()
+                .zip(learner_scores)
+                .map(|(training_samples, learner_score)| LearningEfficiencyPoint {
+                    training_samples,
+                    learner_score,
+                    reference_score: 0.2,
+                    learner_resource_cost: training_samples as f64,
+                    reference_resource_cost: training_samples as f64,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn repeated_seed_benchmark_aggregates_only_comparable_curves() {
+        let mut benchmark = LearningEfficiencyBenchmark::default();
+        benchmark.record(learning_curve("seed-1", 1, [0.2, 0.4, 0.6])).expect("seed 1");
+        benchmark.record(learning_curve("seed-2", 2, [0.2, 0.5, 0.7])).expect("seed 2");
+        assert_eq!(
+            benchmark.record(learning_curve("duplicate-seed", 1, [0.2, 0.5, 0.7])),
+            Err(BenchmarkError::DuplicateLearningSeed)
+        );
+        let summaries = benchmark.summarize("success-rate", 0.35).expect("summaries");
+        assert_eq!(summaries.len(), 1);
+        let summary = &summaries[0];
+        assert_eq!(summary.seed_count, 2);
+        assert_eq!(summary.sample_budgets, vec![0, 10, 20]);
+        assert!((summary.mean_improvement_by_budget[0] - 0.0).abs() < 1e-12);
+        assert!((summary.mean_improvement_by_budget[1] - 0.25).abs() < 1e-12);
+        assert!((summary.mean_improvement_by_budget[2] - 0.45).abs() < 1e-12);
+        assert!(summary.standard_error_by_budget[1].is_some());
+        assert!((summary.target_reach_rate - 0.5).abs() < 1e-12);
+        assert_eq!(summary.mean_samples_to_target, Some(20.0));
+        let restored = LearningEfficiencyBenchmark::from_artifact_value(&benchmark.to_artifact_value())
+            .expect("restore");
+        assert_eq!(restored, benchmark);
+    }
+
+    #[test]
+    fn repeated_seed_benchmark_keeps_different_budgets_in_separate_groups() {
+        let mut benchmark = LearningEfficiencyBenchmark::default();
+        let mut first = learning_curve("first", 1, [0.2, 0.5, 0.7]);
+        let mut second = learning_curve("second", 2, [0.2, 0.5, 0.7]);
+        second.points.pop();
+        benchmark.record(first.clone()).expect("first");
+        benchmark.record(second).expect("second");
+        let summaries = benchmark.summarize("success-rate", 0.1).expect("summaries");
+        assert_eq!(summaries.len(), 2);
+        assert!(summaries.iter().all(|summary| summary.seed_count == 1));
+        first.seed = 3;
+        first.curve_id = "third".to_owned();
+        first.environment_version = "v2".to_owned();
+        benchmark.record(first).expect("different group");
     }
 
     #[test]

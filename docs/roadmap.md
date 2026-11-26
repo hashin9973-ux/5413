@@ -94,7 +94,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
 - [x] Per-seed sample-efficiency curves against caller-declared reference strategies, with area under improvement and samples-to-target metrics
-- [ ] Aggregate confidence intervals across repeated benchmark seeds and benchmark-protocol runner
+- [x] Aggregate repeated learning-curve seeds only within matching protocol signatures, with per-budget standard errors, AUC uncertainty, and target-reach statistics
+- [ ] Executable benchmark-protocol runner and confidence intervals robust to non-normal seed distributions
 - [ ] Calibration, robustness, and out-of-distribution benchmark suites
 - [ ] Transfer evaluation against independent-learning baselines
 - [ ] Environment adaptation without environment-specific changes in the intelligence core

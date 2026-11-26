@@ -36,7 +36,8 @@ pub use active_exploration::{
     ActiveExplorationRequest,
 };
 pub use benchmark::{
-    BenchmarkError, FewShotTransferCurve, LearningEfficiencyCurve, LearningEfficiencyPoint,
+    BenchmarkError, FewShotTransferCurve, LearningEfficiencyBenchmark, LearningEfficiencyCurve,
+    LearningEfficiencyPoint, LearningEfficiencySummary,
     NegativeTransferDiagnosis, NegativeTransferPolicy, ScoreDirection, TransferAdaptationPoint,
     TransferBenchmark, TransferEvaluation, TransferMatrix, TransferMatrixCell, TransferSummary,
 };
