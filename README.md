@@ -8,6 +8,7 @@ The current implementation includes:
 - explicit action authorization, with read-only default policy;
 - append-only experience capture with a versioned, checksummed file journal, bounded decoding, torn-tail recovery, episode replay, and durable idempotency keys;
 - a separately versioned append-only checkpoint log with torn-tail recovery, monotonic/idempotent snapshot writes, environment/schema binding, and deterministic callback-driven replay after a checkpoint;
+- immutable, checksummed model-artifact persistence with versioned parameter serialization and restoration for built-in statistical and contextual models;
 - versioned, held-out-evaluated representations and explicit mappings;
 - recursive structural profiling for nested objects and sequences;
 - a pluggable predictive-model contract, an action-conditioned statistical model, and contextual ridge regression;
@@ -23,7 +24,7 @@ The implementation remains dependency-free and forbids unsafe Rust in the core c
 
 This is a meaningful first intelligence loop, not a claim of general intelligence. Predictive models currently emit numeric next-state estimates. The contextual model is a batch ridge-regression baseline, and the ensemble is empirical rather than Bayesian. The experiment selector uses a disagreement-based information proxy rather than exact expected information gain. Planning is bounded beam search over caller-supplied action proposals; it does not execute actions, synthesize arguments, or guarantee goal satisfaction. Plans must be re-authorized immediately before execution.
 
-Model artifact persistence (checkpoints currently retain artifact references only), temporal and relational models, causal identification, cross-environment transfer evaluation, a persistent executive runtime, and meta-learning strategy synthesis remain future work.
+Temporal and relational models, causal identification, cross-environment transfer evaluation, a persistent executive runtime, and meta-learning strategy synthesis remain future work. Model artifact references are caller-supplied stable identifiers, not cryptographic content hashes; artifact compaction is not implemented.
 
 ## Development
 

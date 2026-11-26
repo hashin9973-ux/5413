@@ -167,6 +167,111 @@ impl NumericDeltaModel {
     pub fn transitions_seen(&self) -> u64 {
         self.transitions_seen
     }
+
+    /// Exports sufficient statistics in a deterministic, versionable data form.
+    pub fn to_artifact_value(&self) -> DataValue {
+        let statistics = self
+            .statistics
+            .iter()
+            .map(|((action_id, field), stats)| {
+                DataValue::object([
+                    ("action_id".to_owned(), DataValue::Text(action_id.clone())),
+                    ("field".to_owned(), DataValue::Text(field.clone())),
+                    ("count".to_owned(), DataValue::Text(stats.count.to_string())),
+                    ("mean".to_owned(), DataValue::Number(stats.mean)),
+                    (
+                        "sum_squared_deviations".to_owned(),
+                        DataValue::Number(stats.sum_squared_deviations),
+                    ),
+                ])
+            })
+            .collect();
+        DataValue::object([
+            (
+                "transitions_seen".to_owned(),
+                DataValue::Text(self.transitions_seen.to_string()),
+            ),
+            ("statistics".to_owned(), DataValue::Sequence(statistics)),
+        ])
+    }
+
+    /// Restores sufficient statistics after strict shape, range, and finiteness checks.
+    pub fn from_artifact_value(value: &DataValue) -> Result<Self, LearningError> {
+        let fields = value
+            .as_object()
+            .ok_or(LearningError::InvalidSerializedState)?;
+        if fields.len() != 2 {
+            return Err(LearningError::InvalidSerializedState);
+        }
+        let transitions_seen = match fields.get("transitions_seen") {
+            Some(DataValue::Text(value)) => value
+                .parse::<u64>()
+                .map_err(|_| LearningError::InvalidSerializedState)?,
+            _ => return Err(LearningError::InvalidSerializedState),
+        };
+        let values = match fields.get("statistics") {
+            Some(DataValue::Sequence(values)) => values,
+            _ => return Err(LearningError::InvalidSerializedState),
+        };
+
+        let mut statistics = BTreeMap::new();
+        for entry in values {
+            let entry = entry
+                .as_object()
+                .ok_or(LearningError::InvalidSerializedState)?;
+            if entry.len() != 5 {
+                return Err(LearningError::InvalidSerializedState);
+            }
+            let action_id = match entry.get("action_id") {
+                Some(DataValue::Text(value)) if !value.trim().is_empty() => value.clone(),
+                _ => return Err(LearningError::InvalidSerializedState),
+            };
+            let field = match entry.get("field") {
+                Some(DataValue::Text(value)) if !value.trim().is_empty() => value.clone(),
+                _ => return Err(LearningError::InvalidSerializedState),
+            };
+            let count = match entry.get("count") {
+                Some(DataValue::Text(value)) => value
+                    .parse::<u64>()
+                    .map_err(|_| LearningError::InvalidSerializedState)?,
+                _ => return Err(LearningError::InvalidSerializedState),
+            };
+            let mean = entry
+                .get("mean")
+                .and_then(DataValue::as_f64)
+                .ok_or(LearningError::InvalidSerializedState)?;
+            let sum_squared_deviations = entry
+                .get("sum_squared_deviations")
+                .and_then(DataValue::as_f64)
+                .ok_or(LearningError::InvalidSerializedState)?;
+            if count == 0
+                || count > transitions_seen
+                || !mean.is_finite()
+                || !sum_squared_deviations.is_finite()
+                || sum_squared_deviations < 0.0
+            {
+                return Err(LearningError::InvalidSerializedState);
+            }
+            if statistics
+                .insert(
+                    (action_id, field),
+                    DeltaStatistics {
+                        count,
+                        mean,
+                        sum_squared_deviations,
+                    },
+                )
+                .is_some()
+            {
+                return Err(LearningError::InvalidSerializedState);
+            }
+        }
+
+        Ok(Self {
+            statistics,
+            transitions_seen,
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,6 +281,7 @@ pub enum LearningError {
     NonFiniteDelta(String),
     NonFinitePrediction(String),
     SampleCountExhausted,
+    InvalidSerializedState,
 }
 
 impl std::fmt::Display for LearningError {
@@ -192,6 +298,7 @@ impl std::fmt::Display for LearningError {
                 write!(formatter, "non-finite prediction for field {field}")
             }
             Self::SampleCountExhausted => write!(formatter, "learning sample count is exhausted"),
+            Self::InvalidSerializedState => write!(formatter, "serialized learner state is invalid"),
         }
     }
 }

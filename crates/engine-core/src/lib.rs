@@ -9,6 +9,7 @@ pub mod experience_journal;
 pub mod experimentation;
 pub mod learning;
 pub mod mapping;
+pub mod model_artifact;
 pub mod planning;
 pub mod representation;
 pub mod schema;
@@ -38,6 +39,7 @@ pub use experimentation::{
     ExperimentScore,
 };
 pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
+pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
     RepresentationMapping, RepresentationRef,
@@ -58,5 +60,5 @@ pub use value::{DataValue, DataValueError};
 pub use world_model::{
     evaluate_ensemble, evaluate_model, ActionDeltaModel, ContextualLinearModel, EnsembleWorldModel,
     FieldEstimate, ModelEvaluation, ModelFitReport, ModelIdentity, ModelPrediction,
-    PredictiveModel, WorldModelError,
+    restore_predictive_model, PredictiveModel, WorldModelError,
 };

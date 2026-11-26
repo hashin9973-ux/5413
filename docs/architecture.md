@@ -48,13 +48,14 @@ The current implementation provides the first integrated learning loop, not gene
 - Held-out model evaluation reports MAE, RMSE, mean predicted spread, and empirical 95% interval coverage where uncertainty is marked calibrated. Evaluation checks the supplied dataset ID against model training provenance; it cannot independently verify the underlying sample split.
 - Experiment ranking using a disagreement-based information-gain proxy, supplied utility/cost estimates, and descriptor-declared action risk. It filters invalid or unauthorized proposals but does not execute interventions.
 - Bounded beam-search planning over caller-supplied action proposals with risk/schema checks, configurable uncertainty penalties, and a caller-supplied utility function. The planner returns proposals and predicted states; the caller must re-authorize before execution.
+- Immutable, checksummed model-artifact storage with explicit versioned serialization and restoration for the built-in statistical and contextual linear models.
 - Runnable examples for a particle simulator, finite-state workflow, representation discovery/mapping, persistent journal replay, and a synthetic world-model/experiment/planning loop.
 
 ## Predictive-model semantics and limitations
 
 Predictive-model fitting receives an explicit training dataset ID. Held-out evaluation rejects an evaluation ID equal to the model's training ID. The caller remains responsible for genuinely disjoint datasets; identifiers are not cryptographic provenance.
 
-The statistical delta model estimates per-action mean numeric changes. The contextual linear model fits regularized least-squares models from numeric fields in the current object and one-hot action features. Missing features are treated as zero, so the caller should maintain stable observation semantics or encode missingness explicitly. The current regression model is batch-oriented and retains fitted coefficients in memory; it does not implement incremental updates, temporal sequence modeling, arbitrary distributions, or model artifact persistence.
+The statistical delta model estimates per-action mean numeric changes. The contextual linear model fits regularized least-squares models from numeric fields in the current object and one-hot action features. Missing features are treated as zero, so the caller should maintain stable observation semantics or encode missingness explicitly. The current regression model is batch-oriented and does not implement incremental updates, temporal sequence modeling, or arbitrary distributions. Its fitted parameters can be exported as a versioned `DataValue` artifact and stored through `ModelArtifactStore`.
 
 A field estimate includes an estimated mean, aleatoric spread, epistemic spread, sample count, and an uncertainty-calibration flag. A false calibration flag means the system does not have enough residual degrees of freedom to claim calibrated uncertainty. The current empirical ensemble estimates epistemic disagreement from member means plus member-level estimates; it is not a Bayesian posterior and does not guarantee statistically calibrated intervals.
 
@@ -68,7 +69,7 @@ The planner uses bounded beam search over caller-provided action proposals. It e
 
 ## Deliberately not implemented yet
 
-- Indexed event retrieval, journal/checkpoint compaction, and model artifact persistence. Checkpoints currently retain external model-artifact references rather than artifact bytes.
+- Indexed event retrieval, journal/checkpoint/artifact compaction, representation-registry persistence, and cryptographic content addressing. Checkpoints store external model-artifact references; actual built-in model parameters are persisted separately through `ModelArtifactStore`.
 - Representation-registry persistence and recovery.
 - Async/streaming adapters and concurrent or multi-writer journal operation.
 - Tensor/image/audio payload storage and modality-specific encoders.
@@ -102,7 +103,7 @@ An authorized action is bound to environment ID and version. Adapters validate t
 
 ## Checkpoint and restoration guarantees and limits
 
-`CheckpointStore` stores snapshots in a separate single-writer append-only file. Every frame has a magic marker, format version, payload length, and CRC-32 checksum. The store synchronizes each append, treats identical latest snapshots as idempotent, rejects sequence regression and same-sequence conflicts, truncates an incomplete final frame on reopen, and fails closed on complete-frame corruption. Snapshots bind environment ID/version, state-schema ID/version, last-applied experience sequence, logical state, and external model-artifact references. `restore_state` verifies contiguous journal sequence numbers, environment/schema identity, and that the checkpoint high-water mark exists in the journal, then applies only later records through a caller-provided callback. The callback must be deterministic and idempotent with respect to its inputs for reproducible replay. The restore function validates finite state after every applied event. It does not execute an environment or automatically interpret event variants. Checkpoint storage does not yet coordinate multiple writers, compact old snapshots, or store model artifact bytes.
+`CheckpointStore` stores snapshots in a separate single-writer append-only file. Every frame has a magic marker, format version, payload length, and CRC-32 checksum. The store synchronizes each append, treats identical latest snapshots as idempotent, rejects sequence regression and same-sequence conflicts, truncates an incomplete final frame on reopen, and fails closed on complete-frame corruption. Snapshots bind environment ID/version, state-schema ID/version, last-applied experience sequence, logical state, and external model-artifact references. `restore_state` verifies contiguous journal sequence numbers, environment/schema identity, and that the checkpoint high-water mark exists in the journal, then applies only later records through a caller-provided callback. The callback must be deterministic and idempotent with respect to its inputs for reproducible replay. The restore function validates finite state after every applied event. It does not execute an environment or automatically interpret event variants. Checkpoint storage does not yet coordinate multiple writers or compact old snapshots. Learned model artifacts live in a separate immutable store and are referenced by checkpoints; artifact compaction and cryptographic integrity/authenticity are not implemented.
 
 ## Experience journal guarantees and limits
 

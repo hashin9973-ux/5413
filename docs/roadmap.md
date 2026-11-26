@@ -24,7 +24,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Fault-injected partial-write and sync-failure recovery tests
 - [ ] Journal format rewrite/migration tooling (v1 read compatibility is implemented)
 - [ ] Indexed event retrieval and bounded-memory segment compaction
-- [ ] Model artifact persistence and provenance registry
+- [x] Versioned immutable model-artifact persistence and restoration for built-in statistical and contextual models
+- [ ] Artifact compaction, cryptographic content addressing, and full training-manifest provenance
 
 ## Milestone 3 — Dynamic representation learning
 
