@@ -369,7 +369,7 @@ fn evaluate_one<E: BenchmarkProtocolExecutor>(
         && result
             .model_artifact_ref
             .as_deref()
-            .is_none_or(|reference| reference.trim().is_empty())
+            .map_or(true, |reference| reference.trim().is_empty())
     {
         return Err(BenchmarkProtocolError::MissingLearnerArtifact);
     }
