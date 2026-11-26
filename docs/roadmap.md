@@ -38,7 +38,10 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Compile recursive structural profiles into recursively validated schemas
 - [ ] Semantic representation quality scoring beyond schema validity
 - [ ] Automated mapping discovery and held-out rollback experiments
-- [ ] Temporal, relational, and entity-level representation learning
+- [x] Temporal numeric profiles over ordered observations, including drift, variance, extrema, missing transitions, and direction changes
+- [x] Relationship graph extraction from caller-declared identity/reference fields with unresolved-reference policy
+- [x] Distribution-based field-role candidates for numeric, boolean, categorical, identifier-like, structured, and heterogeneous values
+- [ ] Learned temporal/relational representations and semantic concept induction
 
 ## Milestone 4 — Predictive world models
 

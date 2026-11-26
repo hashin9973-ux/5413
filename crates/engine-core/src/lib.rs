@@ -93,8 +93,10 @@ pub use schema::{
     FieldSpec, SchemaDefinition, SchemaDefinitionError, SchemaValidationError, ValueKind,
 };
 pub use structure::{
-    infer_recursive_structure, DiscoveredKind, DiscoveryLimits, StructureDiscoveryError,
-    StructureNode, StructureProfile,
+    analyze_temporal_sequence, discover_relationships, infer_recursive_structure, profile_fields,
+    DiscoveredKind, DiscoveryLimits, FieldProfile, FieldProfilePolicy, FieldRole, RelationEdge,
+    RelationshipGraph, SemanticProfile, StructureDiscoveryError, StructureNode, StructureProfile,
+    TemporalFieldProfile, TemporalProfile, UnresolvedReferencePolicy,
 };
 pub use value::{DataValue, DataValueError};
 pub use world_model::{

@@ -12,6 +12,7 @@ The current implementation includes:
 - durable representation-registry snapshots preserving schemas, versions, evaluation evidence, and candidate/active/rejected/retired lifecycle state;
 - versioned, held-out-evaluated representations and explicit mappings;
 - recursive structural profiling for nested objects and sequences;
+- temporal numeric-delta profiles, caller-declared entity relationship graphs, and distribution-based field-role candidates;
 - a pluggable predictive-model contract, an action-conditioned statistical model, and contextual ridge regression;
 - empirical model ensembles that report within-model spread and between-model disagreement separately;
 - held-out prediction evaluation with a dataset-ID leakage guard;
