@@ -52,7 +52,9 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Action-conditioned statistical delta model
 - [x] Contextual numeric ridge-regression model with dynamically discovered features
 - [x] Empirical model ensemble with separate aleatoric and disagreement-based epistemic uncertainty estimates
+- [x] Overflow-resistant ensemble mean and population-spread calculations, scaled aleatoric/epistemic aggregation, stable total-standard-deviation composition, and invalid uncertainty rejection
 - [x] Held-out model evaluation with MAE, RMSE, spread, empirical coverage, and dataset-ID leakage guard
+- [x] Stable contextual residual-spread fitting for very large finite residuals without intermediate square overflow
 - [ ] Temporal sequence models and relational dynamics
 - [ ] Symbolic transition-rule induction and competing hypotheses
 - [ ] Better calibrated predictive distributions and proper scoring rules
@@ -69,6 +71,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Controlled causal interventions with confounder-aware evaluation
 - [ ] Goal predicates, hard constraints, resource budgets, and terminal conditions
 - [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
+- [x] Overflow-resistant runtime and held-out MAE/RMSE accumulation plus scaled planner uncertainty aggregation and finite-score guards
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
 - [x] Bounded one-step research-cycle orchestration linking experiment selection, authorized runtime execution, durable evidence, episode training, held-out evaluation, and model promotion
 - [x] Preserve completed runtime reports across subsequent evidence update/persistence and learning failures; preflight both possible likelihood updates for numerical validity
