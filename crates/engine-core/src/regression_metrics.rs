@@ -63,8 +63,7 @@ impl RegressionErrorAccumulator {
     }
 }
 
-/// Online mean for non-negative finite measurements such as absolute errors
-/// and predicted standard deviations.
+/// Online mean for finite measurements, with a non-negative validation helper.
 #[derive(Debug)]
 pub(crate) struct OnlineMean {
     count: usize,
@@ -192,7 +191,6 @@ impl ScaledSumSquares {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn online_mean_handles_opposite_sign_extreme_values() {
