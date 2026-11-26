@@ -51,3 +51,6 @@ jobs:
       - name: Run autonomous research example
         run: cargo run -p engine-core --example autonomous_research_demo
 
+      - name: Run active exploration example
+        run: cargo run -p engine-core --example active_exploration_demo
+

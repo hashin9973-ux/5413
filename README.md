@@ -50,6 +50,7 @@ cargo run -p engine-core --example representation_discovery_demo
 cargo run -p engine-core --example experience_journal_demo
 cargo run -p engine-core --example world_model_demo
 cargo run -p engine-core --example autonomous_research_demo
+cargo run -p engine-core --example active_exploration_demo
 ~~~
 
 See [docs/architecture.md](docs/architecture.md) for contracts, safety boundaries, and implementation limits, and [docs/roadmap.md](docs/roadmap.md) for staged milestones.
