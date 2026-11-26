@@ -3,7 +3,7 @@
 //! References are caller-supplied stable identifiers, not hashes. CRC-32 detects
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
-use crate::benchmark::{BenchmarkError, TransferBenchmark};
+use crate::benchmark::{BenchmarkError, TransferBenchmark, TransferMatrix};
 use crate::calibration::{ConformalCalibrationError, ConformalCalibrator};
 use crate::causal::{CausalError, PairedRandomizedStudy};
 use crate::experience_journal::{
@@ -226,6 +226,24 @@ impl ModelArtifactStore {
             .get(artifact_ref)
             .ok_or(ModelArtifactError::NotFound)?;
         TransferBenchmark::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
+    }
+
+    /// Persists a derived source-to-target transfer matrix.
+    pub fn put_transfer_matrix(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        matrix: &TransferMatrix,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        matrix.validate().map_err(ModelArtifactError::Benchmark)?;
+        self.put(artifact_ref, matrix.to_artifact_value())
+    }
+
+    pub fn load_transfer_matrix(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<TransferMatrix, ModelArtifactError> {
+        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        TransferMatrix::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
     }
 
     /// Registers only a candidate whose artifact loads and matches its declared identity.

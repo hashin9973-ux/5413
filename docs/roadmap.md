@@ -88,7 +88,9 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Transfer benchmark records with source/target environment identities and dataset-leakage checks
 - [x] Aggregate transfer improvement, win rate, case-level standard error, and resource cost
 - [x] Few-shot transfer curves over strictly increasing adaptation sample counts, with direction-aware improvement and area-under-curve metric
-- [ ] Multi-task transfer matrices and negative-transfer diagnosis
+- [x] Sparse directed multi-task transfer matrices with per-pair improvement, win/loss rates, uncertainty, and resource cost
+- [x] Configurable negative-transfer diagnosis with minimum case count and negative-outcome rate
+- [ ] Multi-task transfer graph optimization and source-selection policy
 
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
 - [ ] Sample-efficiency curves against random and passive-learning baselines
