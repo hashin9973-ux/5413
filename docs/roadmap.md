@@ -97,7 +97,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Typed, versioned declarative strategy definitions and DAG validation
 - [x] Same-heldout strategy evaluation, resource weighting, guarded candidate promotion, and version retirement
 - [x] Deterministic DAG interpreter over caller-supplied trusted operators with runtime port/type checks and declared cost-budget enforcement
-- [ ] Bounded composition/synthesis of new typed strategy graphs
+- [x] Bounded unary-chain synthesis from trusted operator specs with depth, cost, expansion, and candidate limits
+- [ ] Multi-input DAG composition/synthesis and strategy search guided by measured task performance
 - [ ] Strategy selection conditioned on measured environment characteristics
 - [ ] Held-out learning-efficiency benchmarks and candidate rollback
 - [ ] Persistent strategy memory and provenance

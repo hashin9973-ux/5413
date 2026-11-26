@@ -865,6 +865,218 @@ fn status_name(status: StrategyStatus) -> &'static str {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StrategySynthesisPolicy {
+    pub input_name: String,
+    pub output_name: String,
+    pub input_kind: ValueKind,
+    pub output_kind: ValueKind,
+    pub maximum_depth: usize,
+    pub maximum_cost_units: u64,
+    pub maximum_candidates: usize,
+    pub maximum_expansions: usize,
+    pub allow_nondeterministic: bool,
+}
+
+impl StrategySynthesisPolicy {
+    pub fn validate(&self) -> Result<(), StrategySynthesisError> {
+        if self.input_name.trim().is_empty()
+            || self.output_name.trim().is_empty()
+            || self.maximum_depth == 0
+            || self.maximum_candidates == 0
+            || self.maximum_expansions == 0
+        {
+            return Err(StrategySynthesisError::InvalidPolicy);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SynthesizedStrategy {
+    pub id: String,
+    pub graph: StrategyGraph,
+    pub cost_units: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StrategySynthesisResult {
+    pub candidates: Vec<SynthesizedStrategy>,
+    pub expanded_states: usize,
+    pub truncated: bool,
+}
+
+#[derive(Clone)]
+struct StrategySynthesisState {
+    chain: Vec<OperatorSpec>,
+    used_operator_ids: BTreeSet<String>,
+    output_kind: ValueKind,
+    cost_units: u64,
+}
+
+/// Enumerates type-compatible unary operator chains from one declared input
+/// to one declared output. Operators are selected from the trusted catalogue;
+/// no source code is generated or compiled.
+///
+/// Search is breadth-first and deterministic. It is bounded by depth, total
+/// declared cost, expanded states, and returned candidate count. Each generated
+/// graph is passed through the normal strategy graph validator.
+pub fn synthesize_unary_strategy_chains(
+    catalogue: &OperatorCatalogue,
+    policy: StrategySynthesisPolicy,
+) -> Result<StrategySynthesisResult, StrategySynthesisError> {
+    policy.validate()?;
+    let mut queue = VecDeque::from([StrategySynthesisState {
+        chain: Vec::new(),
+        used_operator_ids: BTreeSet::new(),
+        output_kind: policy.input_kind,
+        cost_units: 0,
+    }]);
+    let mut candidates = Vec::new();
+    let mut expanded_states = 0usize;
+    let mut truncated = false;
+
+    while let Some(state) = queue.pop_front() {
+        if expanded_states >= policy.maximum_expansions {
+            truncated = true;
+            break;
+        }
+        expanded_states += 1;
+        if state.chain.len() >= policy.maximum_depth {
+            continue;
+        }
+
+        for operator in catalogue.iter() {
+            if operator.inputs.len() != 1
+                || operator.outputs.len() != 1
+                || operator.inputs[0].kind != state.output_kind
+                || state.used_operator_ids.contains(&operator.id)
+                || (!policy.allow_nondeterministic && !operator.deterministic)
+            {
+                continue;
+            }
+
+            let cost_units = state
+                .cost_units
+                .checked_add(operator.cost_units)
+                .ok_or(StrategySynthesisError::CostOverflow)?;
+            if cost_units > policy.maximum_cost_units {
+                continue;
+            }
+
+            let mut next = state.clone();
+            next.chain.push(operator.clone());
+            next.used_operator_ids.insert(operator.id.clone());
+            next.output_kind = operator.outputs[0].kind;
+            next.cost_units = cost_units;
+
+            if next.output_kind == policy.output_kind {
+                let graph = graph_from_unary_chain(&next.chain, &policy)?;
+                graph
+                    .validate(catalogue)
+                    .map_err(StrategySynthesisError::Graph)?;
+                let id = format!(
+                    "synthesized-{}",
+                    next.chain
+                        .iter()
+                        .map(|item| item.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join("-")
+                );
+                candidates.push(SynthesizedStrategy {
+                    id,
+                    graph,
+                    cost_units,
+                });
+                if candidates.len() >= policy.maximum_candidates {
+                    return Ok(StrategySynthesisResult {
+                        candidates,
+                        expanded_states,
+                        truncated: true,
+                    });
+                }
+            }
+
+            if next.chain.len() < policy.maximum_depth {
+                queue.push_back(next);
+            }
+        }
+    }
+
+    Ok(StrategySynthesisResult {
+        candidates,
+        expanded_states,
+        truncated,
+    })
+}
+
+fn graph_from_unary_chain(
+    chain: &[OperatorSpec],
+    policy: &StrategySynthesisPolicy,
+) -> Result<StrategyGraph, StrategySynthesisError> {
+    if chain.is_empty() {
+        return Err(StrategySynthesisError::EmptyChain);
+    }
+
+    let mut nodes = Vec::with_capacity(chain.len());
+    for (index, operator) in chain.iter().enumerate() {
+        let input_binding = if index == 0 {
+            InputBinding::External(policy.input_name.clone())
+        } else {
+            InputBinding::NodeOutput {
+                node_id: format!("step-{}", index - 1),
+                port: chain[index - 1].outputs[0].name.clone(),
+            }
+        };
+        nodes.push(StrategyNode {
+            id: format!("step-{index}"),
+            operator_id: operator.id.clone(),
+            inputs: BTreeMap::from([(
+                operator.inputs[0].name.clone(),
+                input_binding,
+            )]),
+        });
+    }
+
+    let last_index = chain.len() - 1;
+    let last_operator = chain.last().ok_or(StrategySynthesisError::EmptyChain)?;
+    Ok(StrategyGraph {
+        external_inputs: BTreeMap::from([(
+            policy.input_name.clone(),
+            policy.input_kind,
+        )]),
+        nodes,
+        outputs: BTreeMap::from([(
+            policy.output_name.clone(),
+            InputBinding::NodeOutput {
+                node_id: format!("step-{last_index}"),
+                port: last_operator.outputs[0].name.clone(),
+            },
+        )]),
+    })
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StrategySynthesisError {
+    InvalidPolicy,
+    CostOverflow,
+    EmptyChain,
+    Graph(StrategyError),
+}
+
+impl std::fmt::Display for StrategySynthesisError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidPolicy => write!(formatter, "strategy synthesis policy is invalid"),
+            Self::CostOverflow => write!(formatter, "strategy synthesis cost overflowed"),
+            Self::EmptyChain => write!(formatter, "cannot synthesize a graph from an empty operator chain"),
+            Self::Graph(error) => write!(formatter, "synthesized strategy graph is invalid: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for StrategySynthesisError {}
+
 /// Trusted implementation boundary for declarative strategy operators.
 ///
 /// The engine never compiles or evaluates generated source. A runtime supplies
@@ -1545,6 +1757,90 @@ mod tests {
             ),
             Err(StrategyExecutionError::RuntimeOutputTypeMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn synthesizes_bounded_type_compatible_unary_chains() {
+        let mut catalogue = catalogue();
+        catalogue
+            .register(OperatorSpec {
+                id: "textualize".to_owned(),
+                inputs: vec![PortSpec {
+                    name: "number".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                outputs: vec![PortSpec {
+                    name: "text".to_owned(),
+                    kind: ValueKind::Text,
+                }],
+                cost_units: 1,
+                deterministic: true,
+            })
+            .expect("register textualize");
+
+        let result = synthesize_unary_strategy_chains(
+            &catalogue,
+            StrategySynthesisPolicy {
+                input_name: "observation".to_owned(),
+                output_name: "prediction".to_owned(),
+                input_kind: ValueKind::Number,
+                output_kind: ValueKind::Number,
+                maximum_depth: 2,
+                maximum_cost_units: 7,
+                maximum_candidates: 10,
+                maximum_expansions: 100,
+                allow_nondeterministic: false,
+            },
+        )
+        .expect("synthesize");
+        assert_eq!(result.candidates.len(), 4);
+        assert!(!result.truncated);
+        for candidate in &result.candidates {
+            candidate
+                .graph
+                .validate(&catalogue)
+                .expect("generated graph validates");
+            assert!(candidate.cost_units <= 7);
+        }
+    }
+
+    #[test]
+    fn synthesis_respects_candidate_count_and_cost_budgets() {
+        let catalogue = catalogue();
+        let limited = synthesize_unary_strategy_chains(
+            &catalogue,
+            StrategySynthesisPolicy {
+                input_name: "input".to_owned(),
+                output_name: "output".to_owned(),
+                input_kind: ValueKind::Number,
+                output_kind: ValueKind::Number,
+                maximum_depth: 3,
+                maximum_cost_units: 6,
+                maximum_candidates: 1,
+                maximum_expansions: 100,
+                allow_nondeterministic: false,
+            },
+        )
+        .expect("bounded synthesis");
+        assert_eq!(limited.candidates.len(), 1);
+        assert!(limited.truncated);
+
+        let no_candidate = synthesize_unary_strategy_chains(
+            &catalogue,
+            StrategySynthesisPolicy {
+                input_name: "input".to_owned(),
+                output_name: "output".to_owned(),
+                input_kind: ValueKind::Text,
+                output_kind: ValueKind::Number,
+                maximum_depth: 3,
+                maximum_cost_units: 100,
+                maximum_candidates: 10,
+                maximum_expansions: 100,
+                allow_nondeterministic: false,
+            },
+        )
+        .expect("empty compatible search");
+        assert!(no_candidate.candidates.is_empty());
     }
 
     #[test]
