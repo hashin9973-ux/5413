@@ -3,6 +3,7 @@
 //! This module measures supplied baseline and transferred-model evaluations.
 //! It does not train, execute, or infer transfer from schema compatibility.
 
+use crate::regression_metrics::{OnlineMean, ScaledSumSquares};
 use crate::value::DataValue;
 use std::collections::BTreeMap;
 
@@ -47,6 +48,9 @@ impl TransferEvaluation {
         }
         if self.source_environment_id == self.target_environment_id {
             return Err(BenchmarkError::NotCrossEnvironment);
+        }
+        if !self.improvement().is_finite() {
+            return Err(BenchmarkError::NumericalOverflow);
         }
         if self.source_training_dataset_id == self.target_evaluation_dataset_id {
             return Err(BenchmarkError::DatasetLeakage);
@@ -123,30 +127,20 @@ impl TransferBenchmark {
             .map(|evaluation| evaluation.improvement())
             .collect();
         let count = improvements.len() as f64;
-        let mean_improvement = improvements.iter().sum::<f64>() / count;
+        let (mean_improvement, standard_error) = mean_and_standard_error(&improvements)?;
         let wins = improvements
             .iter()
             .filter(|improvement| **improvement > 0.0)
             .count();
-        let sample_variance = if improvements.len() > 1 {
-            improvements
-                .iter()
-                .map(|improvement| (improvement - mean_improvement).powi(2))
-                .sum::<f64>()
-                / (count - 1.0)
-        } else {
-            0.0
-        };
-        let standard_error = if improvements.len() > 1 {
-            Some((sample_variance / count).sqrt())
-        } else {
-            None
-        };
-        let mean_resource_cost = selected
-            .iter()
-            .map(|evaluation| evaluation.resource_cost)
-            .sum::<f64>()
-            / count;
+        let mut resource_cost_mean = OnlineMean::default();
+        for evaluation in &selected {
+            if !resource_cost_mean.push_nonnegative(evaluation.resource_cost) {
+                return Err(BenchmarkError::NumericalOverflow);
+            }
+        }
+        let mean_resource_cost = resource_cost_mean
+            .mean()
+            .ok_or(BenchmarkError::NumericalOverflow)?;
         let total_samples = selected.iter().try_fold(0usize, |sum, evaluation| {
             sum.checked_add(evaluation.sample_count)
                 .ok_or(BenchmarkError::NumericalOverflow)
@@ -1030,24 +1024,42 @@ fn learning_efficiency_group_key(curve: &LearningEfficiencyCurve) -> LearningEff
 }
 
 fn mean_and_standard_error(values: &[f64]) -> Result<(f64, Option<f64>), BenchmarkError> {
-    if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
+    if values.is_empty() {
         return Err(BenchmarkError::NumericalOverflow);
     }
-    let count = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / count;
-    if !mean.is_finite() {
-        return Err(BenchmarkError::NumericalOverflow);
+
+    let mut mean = OnlineMean::default();
+    let mut scale = 0.0_f64;
+    for value in values {
+        if !mean.push_finite(*value) {
+            return Err(BenchmarkError::NumericalOverflow);
+        }
+        scale = scale.max(value.abs());
     }
+    let mean = mean.mean().ok_or(BenchmarkError::NumericalOverflow)?;
     if values.len() < 2 {
         return Ok((mean, None));
     }
-    let variance = values
-        .iter()
-        .map(|value| (value - mean).powi(2))
-        .sum::<f64>()
-        / (count - 1.0);
-    let standard_error = (variance / count).sqrt();
-    if !variance.is_finite() || !standard_error.is_finite() {
+    if scale == 0.0 {
+        return Ok((mean, Some(0.0)));
+    }
+
+    // Center normalized inputs to avoid overflowing value - mean at opposite
+    // finite extremes; scaled RMS then yields the sample standard error.
+    let normalized_mean = mean / scale;
+    let mut deviations = ScaledSumSquares::default();
+    for value in values {
+        let deviation = (*value / scale) - normalized_mean;
+        if !deviations.push_nonnegative(deviation.abs()) {
+            return Err(BenchmarkError::NumericalOverflow);
+        }
+    }
+    let normalized_rms = deviations
+        .root_mean_square()
+        .ok_or(BenchmarkError::NumericalOverflow)?;
+    let standard_error =
+        scale * (normalized_rms / ((values.len() - 1) as f64).sqrt());
+    if !standard_error.is_finite() {
         return Err(BenchmarkError::NumericalOverflow);
     }
     Ok((mean, Some(standard_error)))
@@ -1142,36 +1154,24 @@ impl TransferMatrix {
         for ((source_environment_id, target_environment_id), evaluations) in pairs {
             let mut improvements = Vec::with_capacity(evaluations.len());
             let mut total_evaluation_samples = 0usize;
-            let mut total_resource_cost = 0.0;
+            let mut resource_cost_mean = OnlineMean::default();
             for evaluation in &evaluations {
                 let improvement = evaluation.improvement();
-                if !improvement.is_finite() {
+                if !improvement.is_finite() || !resource_cost_mean.push_nonnegative(evaluation.resource_cost) {
                     return Err(BenchmarkError::NumericalOverflow);
                 }
                 improvements.push(improvement);
                 total_evaluation_samples = total_evaluation_samples
                     .checked_add(evaluation.sample_count)
                     .ok_or(BenchmarkError::NumericalOverflow)?;
-                total_resource_cost += evaluation.resource_cost;
             }
             let count = improvements.len() as f64;
-            let mean_improvement = improvements.iter().sum::<f64>() / count;
+            let (mean_improvement, standard_error) = mean_and_standard_error(&improvements)?;
+            let mean_resource_cost = resource_cost_mean
+                .mean()
+                .ok_or(BenchmarkError::NumericalOverflow)?;
             let positive_count = improvements.iter().filter(|value| **value > 0.0).count();
             let negative_count = improvements.iter().filter(|value| **value < 0.0).count();
-            let variance = if improvements.len() > 1 {
-                improvements
-                    .iter()
-                    .map(|value| (value - mean_improvement).powi(2))
-                    .sum::<f64>()
-                    / (count - 1.0)
-            } else {
-                0.0
-            };
-            let standard_error = if improvements.len() > 1 {
-                Some((variance / count).sqrt())
-            } else {
-                None
-            };
             let cell = TransferMatrixCell {
                 source_environment_id,
                 target_environment_id,
@@ -1180,7 +1180,7 @@ impl TransferMatrix {
                 mean_improvement,
                 positive_transfer_rate: positive_count as f64 / count,
                 negative_transfer_rate: negative_count as f64 / count,
-                mean_resource_cost: total_resource_cost / count,
+                mean_resource_cost,
                 standard_error,
             };
             if !cell.mean_improvement.is_finite()
@@ -1624,6 +1624,51 @@ mod tests {
         assert!((summary.mean_improvement - 0.1).abs() < 1e-12);
         assert!((summary.positive_transfer_rate - 2.0 / 3.0).abs() < 1e-12);
         assert!(summary.standard_error.is_some());
+    }
+
+
+    #[test]
+    fn transfer_summary_uses_stable_large_magnitude_aggregates() {
+        let mut benchmark = TransferBenchmark::default();
+        let mut positive = evaluation(
+            "large-positive",
+            "source-a",
+            "target",
+            0.0,
+            1.0e308,
+            ScoreDirection::HigherIsBetter,
+        );
+        positive.resource_cost = 1.5e308;
+        let mut negative = evaluation(
+            "large-negative",
+            "source-b",
+            "target",
+            0.0,
+            -1.0e308,
+            ScoreDirection::HigherIsBetter,
+        );
+        negative.resource_cost = 1.5e308;
+        benchmark.record(positive).expect("positive case");
+        benchmark.record(negative).expect("negative case");
+
+        let summary = benchmark.summarize("prediction-error").expect("summary");
+        assert_eq!(summary.mean_improvement, 0.0);
+        assert!((summary.standard_error.expect("standard error") / 1.0e308 - 1.0).abs() < 1.0e-12);
+        assert_eq!(summary.mean_resource_cost, 1.5e308);
+        assert_eq!(summary.positive_transfer_rate, 0.5);
+    }
+
+    #[test]
+    fn transfer_evaluation_rejects_unrepresentable_improvement() {
+        let evaluation = evaluation(
+            "overflow",
+            "source",
+            "target",
+            -f64::MAX,
+            f64::MAX,
+            ScoreDirection::HigherIsBetter,
+        );
+        assert_eq!(evaluation.validate(), Err(BenchmarkError::NumericalOverflow));
     }
 
     #[test]
