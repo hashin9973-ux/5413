@@ -836,11 +836,9 @@ impl LearningEfficiencyBenchmark {
             return Err(BenchmarkError::DuplicateLearningCurve);
         }
         let key = learning_efficiency_group_key(&curve);
-        if self
-            .curves
-            .values()
-            .any(|existing| learning_efficiency_group_key(existing) == key && existing.seed == curve.seed)
-        {
+        if self.curves.values().any(|existing| {
+            learning_efficiency_group_key(existing) == key && existing.seed == curve.seed
+        }) {
             return Err(BenchmarkError::DuplicateLearningSeed);
         }
         self.curves.insert(curve.curve_id.clone(), curve);
@@ -878,7 +876,11 @@ impl LearningEfficiencyBenchmark {
         }
         let mut groups: BTreeMap<LearningEfficiencyGroupKey, Vec<&LearningEfficiencyCurve>> =
             BTreeMap::new();
-        for curve in self.curves.values().filter(|curve| curve.metric_id == metric_id) {
+        for curve in self
+            .curves
+            .values()
+            .filter(|curve| curve.metric_id == metric_id)
+        {
             groups
                 .entry(learning_efficiency_group_key(curve))
                 .or_default()
@@ -928,7 +930,10 @@ impl LearningEfficiencyBenchmark {
                 None
             } else {
                 Some(
-                    target_budgets.iter().map(|value| *value as f64).sum::<f64>()
+                    target_budgets
+                        .iter()
+                        .map(|value| *value as f64)
+                        .sum::<f64>()
                         / target_budgets.len() as f64,
                 )
             };
@@ -974,9 +979,7 @@ impl LearningEfficiencyBenchmark {
         let fields = value
             .as_object()
             .ok_or(BenchmarkError::InvalidLearningEfficiencyBenchmark)?;
-        if fields.len() != 2
-            || fields.get("artifact_version") != Some(&DataValue::Integer(1))
-        {
+        if fields.len() != 2 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(BenchmarkError::InvalidLearningEfficiencyBenchmark);
         }
         let encoded = match fields.get("curves") {
@@ -987,7 +990,8 @@ impl LearningEfficiencyBenchmark {
         for value in encoded {
             let curve = LearningEfficiencyCurve::from_artifact_value(value)
                 .map_err(|_| BenchmarkError::InvalidLearningEfficiencyBenchmark)?;
-            benchmark.record(curve)
+            benchmark
+                .record(curve)
                 .map_err(|_| BenchmarkError::InvalidLearningEfficiencyBenchmark)?;
         }
         Ok(benchmark)
@@ -1017,7 +1021,11 @@ fn learning_efficiency_group_key(curve: &LearningEfficiencyCurve) -> LearningEff
         metric_id: curve.metric_id.clone(),
         direction: direction_name(curve.direction).to_owned(),
         evaluation_sample_count: curve.evaluation_sample_count,
-        sample_budgets: curve.points.iter().map(|point| point.training_samples).collect(),
+        sample_budgets: curve
+            .points
+            .iter()
+            .map(|point| point.training_samples)
+            .collect(),
     }
 }
 
@@ -1771,7 +1779,11 @@ mod tests {
         );
     }
 
-    fn learning_curve(curve_id: &str, seed: u64, learner_scores: [f64; 3]) -> LearningEfficiencyCurve {
+    fn learning_curve(
+        curve_id: &str,
+        seed: u64,
+        learner_scores: [f64; 3],
+    ) -> LearningEfficiencyCurve {
         LearningEfficiencyCurve {
             curve_id: curve_id.to_owned(),
             environment_id: "grid".to_owned(),
@@ -1789,13 +1801,15 @@ mod tests {
             points: [0usize, 10, 20]
                 .into_iter()
                 .zip(learner_scores)
-                .map(|(training_samples, learner_score)| LearningEfficiencyPoint {
-                    training_samples,
-                    learner_score,
-                    reference_score: 0.2,
-                    learner_resource_cost: training_samples as f64,
-                    reference_resource_cost: training_samples as f64,
-                })
+                .map(
+                    |(training_samples, learner_score)| LearningEfficiencyPoint {
+                        training_samples,
+                        learner_score,
+                        reference_score: 0.2,
+                        learner_resource_cost: training_samples as f64,
+                        reference_resource_cost: training_samples as f64,
+                    },
+                )
                 .collect(),
         }
     }
@@ -1803,13 +1817,19 @@ mod tests {
     #[test]
     fn repeated_seed_benchmark_aggregates_only_comparable_curves() {
         let mut benchmark = LearningEfficiencyBenchmark::default();
-        benchmark.record(learning_curve("seed-1", 1, [0.2, 0.4, 0.6])).expect("seed 1");
-        benchmark.record(learning_curve("seed-2", 2, [0.2, 0.5, 0.7])).expect("seed 2");
+        benchmark
+            .record(learning_curve("seed-1", 1, [0.2, 0.4, 0.6]))
+            .expect("seed 1");
+        benchmark
+            .record(learning_curve("seed-2", 2, [0.2, 0.5, 0.7]))
+            .expect("seed 2");
         assert_eq!(
             benchmark.record(learning_curve("duplicate-seed", 1, [0.2, 0.5, 0.7])),
             Err(BenchmarkError::DuplicateLearningSeed)
         );
-        let summaries = benchmark.summarize("success-rate", 0.45).expect("summaries");
+        let summaries = benchmark
+            .summarize("success-rate", 0.45)
+            .expect("summaries");
         assert_eq!(summaries.len(), 1);
         let summary = &summaries[0];
         assert_eq!(summary.seed_count, 2);
@@ -1820,8 +1840,9 @@ mod tests {
         assert!(summary.standard_error_by_budget[1].is_some());
         assert!((summary.target_reach_rate - 0.5).abs() < 1e-12);
         assert_eq!(summary.mean_samples_to_target, Some(20.0));
-        let restored = LearningEfficiencyBenchmark::from_artifact_value(&benchmark.to_artifact_value())
-            .expect("restore");
+        let restored =
+            LearningEfficiencyBenchmark::from_artifact_value(&benchmark.to_artifact_value())
+                .expect("restore");
         assert_eq!(restored, benchmark);
     }
 
