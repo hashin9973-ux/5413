@@ -282,7 +282,7 @@ mod tests {
                 after: DataValue::object([("position".to_owned(), DataValue::Number(4.0))]),
             },
         ]).expect("fit");
-        EnsembleWorldModel::new(vec![Box::new(model)]).expect("ensemble")
+        EnsembleWorldModel::new(vec![Box::new(model) as Box<dyn PredictiveModel>]).expect("ensemble")
     }
 
     #[test]
