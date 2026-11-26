@@ -793,6 +793,8 @@ mod tests {
             1,
             StrategyEvaluation {
                 evaluation_dataset_id: "holdout-v1".to_owned(),
+                metric_id: "accuracy".to_owned(),
+                direction: crate::benchmark::ScoreDirection::HigherIsBetter,
                 sample_count: 20,
                 primary_score: 0.85,
                 resource_cost: 2.0,

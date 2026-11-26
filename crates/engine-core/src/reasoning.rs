@@ -528,6 +528,25 @@ mod tests {
     }
 
     #[test]
+    fn prevents_double_counting_different_evidence_refs_from_same_dataset() {
+        let mut registry = HypothesisRegistry::default();
+        registry.insert(spec(), policy()).expect("insert");
+        registry.add_evidence(
+            "friction-increases-deceleration",
+            evidence("trial-1", "validation-shared", 1.0),
+            policy(),
+        ).expect("first");
+        assert_eq!(
+            registry.add_evidence(
+                "friction-increases-deceleration",
+                evidence("trial-2", "validation-shared", 1.0),
+                policy(),
+            ),
+            Err(ReasoningError::DuplicateEvidenceDataset)
+        );
+    }
+
+    #[test]
     fn registry_artifact_round_trips_and_rejects_corrupt_posterior() {
         let mut registry = HypothesisRegistry::default();
         registry.insert(spec(), policy()).expect("insert");
