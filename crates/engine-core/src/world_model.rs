@@ -1212,7 +1212,6 @@ mod tests {
         }
     }
 
-
     struct FixedPredictionModel {
         identity: ModelIdentity,
         dataset_id: String,
@@ -1284,10 +1283,7 @@ mod tests {
 
     #[test]
     fn contextual_model_residual_spread_avoids_intermediate_square_overflow() {
-        let rows = vec![
-            (vec![1.0, 0.0], 1.0e200),
-            (vec![1.0, 0.0], -1.0e200),
-        ];
+        let rows = vec![(vec![1.0, 0.0], 1.0e200), (vec![1.0, 0.0], -1.0e200)];
         let fitted = fit_linear_field(&rows, 1.0).expect("fit with large residuals");
         assert!(fitted.residual_std_dev.is_finite());
         assert!((fitted.residual_std_dev / 1.0e200 - 1.0).abs() < 1.0e-12);
@@ -1295,10 +1291,8 @@ mod tests {
 
     #[test]
     fn ensemble_rejects_negative_uncertainty_components() {
-        let ensemble = EnsembleWorldModel::new(vec![
-            fixed_model("invalid", 0.0, -1.0, 0.0),
-        ])
-        .expect("ensemble");
+        let ensemble = EnsembleWorldModel::new(vec![fixed_model("invalid", 0.0, -1.0, 0.0)])
+            .expect("ensemble");
         assert_eq!(
             ensemble.predict("advance", &DataValue::object(std::iter::empty())),
             Err(WorldModelError::NonFinitePrediction)
