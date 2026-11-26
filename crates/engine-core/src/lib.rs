@@ -24,6 +24,7 @@ pub mod reasoning;
 pub mod representation;
 pub mod research_cycle;
 pub mod runtime;
+pub mod safe_exploration;
 pub mod schema;
 pub mod structure;
 pub mod value;
@@ -121,6 +122,11 @@ pub use research_cycle::{
 pub use runtime::{
     run_receding_horizon, run_receding_horizon_with_selector, PredictionErrorMetrics,
     RuntimeConfig, RuntimeError, RuntimeReport, RuntimeStepReport, RuntimeTermination,
+};
+pub use safe_exploration::{
+    run_safe_exploration, SafeExplorationEpisodeReport, SafeExplorationError,
+    SafeExplorationFailure, SafeExplorationReport, SafeExplorationRequest,
+    SafeExplorationTermination,
 };
 pub use schema::{
     FieldSpec, SchemaDefinition, SchemaDefinitionError, SchemaValidationError, ValueKind,

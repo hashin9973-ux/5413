@@ -71,7 +71,8 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
 - [x] Bounded one-step research-cycle orchestration linking experiment selection, authorized runtime execution, durable evidence, episode training, held-out evaluation, and model promotion
 - [x] Preserve completed runtime reports across subsequent evidence update/persistence failures; preflight both possible likelihood updates for numerical validity
-- [ ] Safe exploration policies with explicit reset and recovery contracts
+- [x] Reset-aware multi-episode exploration with reset capability preflight, unique episode/execution IDs, global action and resource budgets, and preserved completed reports
+- [ ] Durable reset lifecycle events, environment recovery policies after ambiguous failures, and automatic compensation where adapters support it
 
 ## Milestone 6 — Reasoning and evidence
 
