@@ -1,5 +1,5 @@
 use crate::value::DataValue;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DiscoveryLimits {
