@@ -48,9 +48,10 @@ impl OperatorCatalogue {
     pub fn register(&mut self, operator: OperatorSpec) -> Result<(), StrategyError> {
         operator.validate()?;
         let id = operator.id.clone();
-        if self.operators.insert(id, operator).is_some() {
+        if self.operators.contains_key(&id) {
             return Err(StrategyError::DuplicateOperator);
         }
+        self.operators.insert(id, operator);
         Ok(())
     }
 
@@ -648,9 +649,11 @@ fn strategy_from_value(
     let training_dataset_id = text_field(fields, "training_dataset_id")?;
     let external_inputs = match fields.get("external_inputs") {
         Some(DataValue::Object(values)) => values.iter().map(|(name, value)| {
-            let Some(DataValue::Text(kind)) = Some(value) else { return Err(StrategyError::InvalidSerializedState); };
+            let DataValue::Text(kind) = value else {
+                return Err(StrategyError::InvalidSerializedState);
+            };
             Ok((name.clone(), parse_value_kind(kind)?))
-        }).collect::<Result<BTreeMap<_,_>,_>>()?,
+        }).collect::<Result<BTreeMap<_, _>, _>>()?,
         _ => return Err(StrategyError::InvalidSerializedState),
     };
     let nodes = match fields.get("nodes") {

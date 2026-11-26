@@ -7,6 +7,8 @@ use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
 };
 use crate::representation::{RegistryError, RepresentationRegistry};
+use crate::reasoning::{HypothesisPolicy, HypothesisRegistry, ReasoningError};
+use crate::meta_learning::{OperatorCatalogue, StrategyError, StrategyRegistry};
 use crate::value::DataValue;
 use crate::world_model::{restore_predictive_model, PredictiveModel, WorldModelError};
 use std::collections::BTreeMap;
@@ -132,6 +134,43 @@ impl ModelArtifactStore {
             .get(artifact_ref)
             .ok_or(ModelArtifactError::NotFound)?;
         RepresentationRegistry::from_artifact_value(artifact).map_err(ModelArtifactError::Registry)
+    }
+
+    /// Persists an auditable hypothesis registry snapshot.
+    pub fn put_hypothesis_registry(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        registry: &HypothesisRegistry,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        self.put(artifact_ref, registry.to_artifact_value())
+    }
+
+    pub fn load_hypothesis_registry(
+        &self,
+        artifact_ref: &str,
+        policy: HypothesisPolicy,
+    ) -> Result<HypothesisRegistry, ModelArtifactError> {
+        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        HypothesisRegistry::from_artifact_value(artifact, policy).map_err(ModelArtifactError::Reasoning)
+    }
+
+    /// Persists a typed, declarative strategy-registry snapshot.
+    pub fn put_strategy_registry(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        registry: &StrategyRegistry,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        self.put(artifact_ref, registry.to_artifact_value())
+    }
+
+    /// Restores strategy metadata and validates every graph against a trusted catalogue.
+    pub fn load_strategy_registry(
+        &self,
+        artifact_ref: &str,
+        catalogue: &OperatorCatalogue,
+    ) -> Result<StrategyRegistry, ModelArtifactError> {
+        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        StrategyRegistry::from_artifact_value(artifact, catalogue).map_err(ModelArtifactError::Strategy)
     }
 
     pub fn get(&self, artifact_ref: &str) -> Option<&DataValue> {
@@ -288,6 +327,8 @@ pub enum ModelArtifactError {
     Encoding(String),
     Model(WorldModelError),
     Registry(RegistryError),
+    Reasoning(ReasoningError),
+    Strategy(StrategyError),
     InvalidReference,
     InvalidArtifact,
     NotFound,
@@ -310,6 +351,8 @@ impl std::fmt::Display for ModelArtifactError {
                 formatter,
                 "representation-registry artifact is invalid: {error}"
             ),
+            Self::Reasoning(error) => write!(formatter, "hypothesis registry artifact is invalid: {error}"),
+            Self::Strategy(error) => write!(formatter, "strategy registry artifact is invalid: {error}"),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
