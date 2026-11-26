@@ -133,11 +133,11 @@ where
 
         let selected_plan = plan(
             &descriptor,
-            config.authorizer.clone(),
+            config.authorizer,
             model,
             &current_observation.payload,
             candidate_actions,
-            config.planning.clone(),
+            config.planning,
             &utility,
         )
         .map_err(RuntimeError::Planning)?;

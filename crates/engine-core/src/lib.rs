@@ -78,8 +78,10 @@ pub use representation::{
     RepresentationRecord, RepresentationRegistry, RepresentationSpec, RepresentationStatus,
 };
 pub use research_cycle::{
-    run_autonomous_research_cycle, AutonomousResearchConfig, AutonomousResearchError,
-    AutonomousResearchReport,
+    run_autonomous_research_cycle, AutonomousResearchCallbacks, AutonomousResearchConfig,
+    AutonomousResearchContext, AutonomousResearchError, AutonomousResearchReport,
+    AutonomousResearchRequest, ExperimentActionMapping, ExperimentExecutionConfig,
+    LearningCycleConfig, LearningCycleError, LearningCycleReport,
 };
 pub use runtime::{
     run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,

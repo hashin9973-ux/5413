@@ -135,25 +135,37 @@ pub struct AutonomousResearchReport {
 /// The function preflights contracts and immutable references before executing
 /// an environment action. The hypothesis update is persisted immediately after
 /// the experiment. Model learning is a separate result in the returned report.
+pub struct AutonomousResearchContext<'a, A, T> {
+    pub adapter: &'a mut A,
+    pub active_model: &'a EnsembleWorldModel,
+    pub candidate_model: &'a mut T,
+    pub hypothesis_registry: &'a mut HypothesisRegistry,
+    pub journal: &'a mut ExperienceJournal,
+    pub artifact_store: &'a mut ModelArtifactStore,
+    pub model_registry: &'a mut ModelRegistry,
+}
+
+pub struct AutonomousResearchRequest<'a> {
+    pub hypothesis_id: &'a str,
+    pub experiments: &'a [ExperimentCandidate],
+    pub action_mappings: &'a [ExperimentActionMapping],
+    pub validation_samples: &'a [TransitionSample],
+    pub selection_policy: ExperimentSelectionPolicy,
+    pub hypothesis_policy: HypothesisPolicy,
+    pub promotion_policy: ModelPromotionPolicy,
+    pub config: AutonomousResearchConfig,
+}
+
+pub struct AutonomousResearchCallbacks<U, O, E> {
+    pub utility: U,
+    pub positive_outcome: O,
+    pub evaluate: E,
+}
+
 pub fn run_autonomous_research_cycle<A, T, U, O, E>(
-    adapter: &mut A,
-    active_model: &EnsembleWorldModel,
-    candidate_model: &mut T,
-    hypothesis_registry: &mut HypothesisRegistry,
-    hypothesis_id: &str,
-    experiments: &[ExperimentCandidate],
-    action_mappings: &[ExperimentActionMapping],
-    validation_samples: &[TransitionSample],
-    selection_policy: ExperimentSelectionPolicy,
-    hypothesis_policy: HypothesisPolicy,
-    promotion_policy: ModelPromotionPolicy,
-    config: AutonomousResearchConfig,
-    journal: &mut ExperienceJournal,
-    artifact_store: &mut ModelArtifactStore,
-    model_registry: &mut ModelRegistry,
-    utility: U,
-    positive_outcome: O,
-    evaluate: E,
+    context: AutonomousResearchContext<'_, A, T>,
+    request: AutonomousResearchRequest<'_>,
+    callbacks: AutonomousResearchCallbacks<U, O, E>,
 ) -> Result<AutonomousResearchReport, AutonomousResearchError>
 where
     A: EnvironmentAdapter,
@@ -162,6 +174,30 @@ where
     O: Fn(&DataValue) -> bool,
     E: FnOnce(&T, &[TransitionSample]) -> Result<ModelEvaluation, String>,
 {
+    let AutonomousResearchContext {
+        adapter,
+        active_model,
+        candidate_model,
+        hypothesis_registry,
+        journal,
+        artifact_store,
+        model_registry,
+    } = context;
+    let AutonomousResearchRequest {
+        hypothesis_id,
+        experiments,
+        action_mappings,
+        validation_samples,
+        selection_policy,
+        hypothesis_policy,
+        promotion_policy,
+        config,
+    } = request;
+    let AutonomousResearchCallbacks {
+        utility,
+        positive_outcome,
+        evaluate,
+    } = callbacks;
     config.validate()?;
     selection_policy
         .validate()
@@ -314,12 +350,14 @@ where
 
     let learning = run_learning_cycle(
         candidate_model,
-        journal.records(),
-        validation_samples,
-        &config.learning,
-        promotion_policy,
-        artifact_store,
-        model_registry,
+        LearningCycleResources {
+            records: journal.records(),
+            validation_samples,
+            config: &config.learning,
+            policy: promotion_policy,
+            artifact_store,
+            registry: model_registry,
+        },
         evaluate,
     );
 
@@ -333,20 +371,32 @@ where
     })
 }
 
+struct LearningCycleResources<'a> {
+    records: &'a [crate::experience::ExperienceRecord],
+    validation_samples: &'a [TransitionSample],
+    config: &'a LearningCycleConfig,
+    policy: ModelPromotionPolicy,
+    artifact_store: &'a mut ModelArtifactStore,
+    registry: &'a mut ModelRegistry,
+}
+
 fn run_learning_cycle<T, E>(
     model: &mut T,
-    records: &[crate::experience::ExperienceRecord],
-    validation_samples: &[TransitionSample],
-    config: &LearningCycleConfig,
-    policy: ModelPromotionPolicy,
-    artifact_store: &mut ModelArtifactStore,
-    registry: &mut ModelRegistry,
+    resources: LearningCycleResources<'_>,
     evaluate: E,
 ) -> Result<LearningCycleReport, LearningCycleError>
 where
     T: TrainablePredictiveModel,
     E: FnOnce(&T, &[TransitionSample]) -> Result<ModelEvaluation, String>,
 {
+    let LearningCycleResources {
+        records,
+        validation_samples,
+        config,
+        policy,
+        artifact_store,
+        registry,
+    } = resources;
     policy.validate().map_err(LearningCycleError::Registry)?;
     if config.training_dataset_id == config.validation_dataset_id {
         return Err(LearningCycleError::DatasetLeakage);
