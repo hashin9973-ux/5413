@@ -630,7 +630,6 @@ impl std::fmt::Display for AutonomousResearchError {
 }
 impl std::error::Error for AutonomousResearchError {}
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -725,7 +724,10 @@ mod tests {
             Ok(self.frame())
         }
 
-        fn execute(&mut self, _action: AuthorizedAction) -> Result<ActionOutcome, EnvironmentError> {
+        fn execute(
+            &mut self,
+            _action: AuthorizedAction,
+        ) -> Result<ActionOutcome, EnvironmentError> {
             self.position += 1.0;
             Ok(ActionOutcome {
                 action_id: "advance".to_owned(),
@@ -748,10 +750,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(0.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(1.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
                     },
                     TransitionSample {
                         action_id: "advance".to_owned(),
@@ -759,10 +758,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(5.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(6.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(6.0))]),
                     },
                 ],
             )
@@ -817,25 +813,13 @@ mod tests {
         let validation_samples = [
             TransitionSample {
                 action_id: "advance".to_owned(),
-                before: DataValue::object([(
-                    "position".to_owned(),
-                    DataValue::Number(10.0),
-                )]),
-                after: DataValue::object([(
-                    "position".to_owned(),
-                    DataValue::Number(11.0),
-                )]),
+                before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                after: DataValue::object([("position".to_owned(), DataValue::Number(11.0))]),
             },
             TransitionSample {
                 action_id: "advance".to_owned(),
-                before: DataValue::object([(
-                    "position".to_owned(),
-                    DataValue::Number(20.0),
-                )]),
-                after: DataValue::object([(
-                    "position".to_owned(),
-                    DataValue::Number(21.0),
-                )]),
+                before: DataValue::object([("position".to_owned(), DataValue::Number(20.0))]),
+                after: DataValue::object([("position".to_owned(), DataValue::Number(21.0))]),
             },
         ];
         let promotion_policy = ModelPromotionPolicy {
@@ -875,9 +859,9 @@ mod tests {
                             execution_id: "research-run-1".to_owned(),
                             episode_id: "research-episode".to_owned(),
                             maximum_steps: 1,
-                            authorizer: ActionAuthorizer::new(
-                                ActionAuthorizationPolicy::new(ActionRisk::Reversible),
-                            ),
+                            authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(
+                                ActionRisk::Reversible,
+                            )),
                             planning: PlanningConfig {
                                 horizon: 1,
                                 beam_width: 1,
@@ -903,14 +887,18 @@ mod tests {
                 },
             },
             AutonomousResearchCallbacks {
-                utility: |state| state
-                    .get("position")
-                    .and_then(DataValue::as_f64)
-                    .unwrap_or(0.0),
-                positive_outcome: |state| state
-                    .get("position")
-                    .and_then(DataValue::as_f64)
-                    .is_some_and(|position| position > 0.0),
+                utility: |state| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .unwrap_or(0.0)
+                },
+                positive_outcome: |state| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .is_some_and(|position| position > 0.0)
+                },
                 evaluate: |model, samples| {
                     let measured = evaluate_model(model, "model-holdout-v1", samples)
                         .map_err(|error| error.to_string())?;
