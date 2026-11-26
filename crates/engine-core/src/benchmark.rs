@@ -1632,7 +1632,7 @@ mod tests {
         let mut benchmark = TransferBenchmark::default();
         let mut positive = evaluation(
             "large-positive",
-            "source-a",
+            "source",
             "target",
             0.0,
             1.0e308,
@@ -1641,7 +1641,7 @@ mod tests {
         positive.resource_cost = 1.5e308;
         let mut negative = evaluation(
             "large-negative",
-            "source-b",
+            "source",
             "target",
             0.0,
             -1.0e308,
@@ -1656,6 +1656,13 @@ mod tests {
         assert!((summary.standard_error.expect("standard error") / 1.0e308 - 1.0).abs() < 1.0e-12);
         assert_eq!(summary.mean_resource_cost, 1.5e308);
         assert_eq!(summary.positive_transfer_rate, 0.5);
+
+        let matrix = TransferMatrix::from_benchmark(&benchmark, "prediction-error")
+            .expect("large-magnitude transfer matrix");
+        let cell = matrix.cell("source", "target").expect("source-target cell");
+        assert_eq!(cell.mean_improvement, 0.0);
+        assert!((cell.standard_error.expect("matrix standard error") / 1.0e308 - 1.0).abs() < 1.0e-12);
+        assert_eq!(cell.mean_resource_cost, 1.5e308);
     }
 
     #[test]
