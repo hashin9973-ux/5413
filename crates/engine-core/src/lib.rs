@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 pub mod action;
+pub mod checkpoint;
 pub mod discovery;
 pub mod environment;
 pub mod experience;
@@ -15,6 +16,10 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
+pub use checkpoint::{
+    restore_state, CheckpointAppendOutcome, CheckpointError, CheckpointSnapshot, CheckpointStore,
+    RestorationReport, RestoreError, RestoreTarget,
+};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
     AuthorizationError, AuthorizedAction,

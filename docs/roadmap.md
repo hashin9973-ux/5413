@@ -19,7 +19,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Durable append-only file journal with synchronized writes and incomplete-tail recovery
 - [x] Episode replay in original append order
 - [x] Versioned record encoding and corruption detection
-- [ ] Checkpoint and deterministic restore contract
+- [x] Versioned append-only checkpoints with partial-tail recovery, sequence high-water marks, and callback-driven deterministic replay
 - [x] Durable idempotency keys and duplicate retry suppression (single-writer contract)
 - [x] Fault-injected partial-write and sync-failure recovery tests
 - [ ] Journal format rewrite/migration tooling (v1 read compatibility is implemented)

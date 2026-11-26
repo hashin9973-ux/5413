@@ -36,6 +36,7 @@ The current implementation provides the first integrated learning loop, not gene
 - Recursive, extensible data values, dynamic object schemas, and environment/action descriptors.
 - Action-risk authorization bound to environment ID and version.
 - Append-only experience ledger and dependency-free file journal with v2 writes/v1 read compatibility, CRC-32 corruption detection, synchronized appends, bounded decoding, torn-tail recovery, ledger reconstruction, ordered episode replay, durable idempotency keys, and deterministic I/O fault-injection tests.
+- Separate append-only checkpoint log with versioned/checksummed frames, monotonic snapshot sequence validation, idempotent duplicate writes, partial-tail recovery, and callback-driven restoration from the last applied journal sequence.
 - Versioned candidate/active/rejected/retired representation lifecycle with held-out schema validation.
 - First-level schema inference and recursive structure profiles for nested objects and sequences. Recursive profiles describe observed structure; they are not yet recursively executable schema definitions or semantic concepts.
 - Explicit, schema-validated field mappings with identity, affine numeric, and constant transforms.
@@ -67,7 +68,7 @@ The planner uses bounded beam search over caller-provided action proposals. It e
 
 ## Deliberately not implemented yet
 
-- Checkpoint/restore semantics, indexed event retrieval, journal compaction, and model artifact persistence.
+- Indexed event retrieval, journal/checkpoint compaction, and model artifact persistence. Checkpoints currently retain external model-artifact references rather than artifact bytes.
 - Representation-registry persistence and recovery.
 - Async/streaming adapters and concurrent or multi-writer journal operation.
 - Tensor/image/audio payload storage and modality-specific encoders.
@@ -98,6 +99,10 @@ The initial schema inference routine handles top-level object samples. Recursive
 ## Action safety
 
 An authorized action is bound to environment ID and version. Adapters validate that binding, the declared action, its risk, and its argument schema before applying effects. Irreversible operations require a policy that explicitly permits them. The planner and experiment ranker check policies while generating proposals, but those checks are not substitutes for re-authorization at the moment of execution. External-action support must add capability, permission, resource, and environment-specific safety checks.
+
+## Checkpoint and restoration guarantees and limits
+
+`CheckpointStore` stores snapshots in a separate single-writer append-only file. Every frame has a magic marker, format version, payload length, and CRC-32 checksum. The store synchronizes each append, treats identical latest snapshots as idempotent, rejects sequence regression and same-sequence conflicts, truncates an incomplete final frame on reopen, and fails closed on complete-frame corruption. Snapshots bind environment ID/version, state-schema ID/version, last-applied experience sequence, logical state, and external model-artifact references. `restore_state` verifies contiguous journal sequence numbers, environment/schema identity, and that the checkpoint high-water mark exists in the journal, then applies only later records through a caller-provided callback. The callback must be deterministic and idempotent with respect to its inputs for reproducible replay. The restore function validates finite state after every applied event. It does not execute an environment or automatically interpret event variants. Checkpoint storage does not yet coordinate multiple writers, compact old snapshots, or store model artifact bytes.
 
 ## Experience journal guarantees and limits
 

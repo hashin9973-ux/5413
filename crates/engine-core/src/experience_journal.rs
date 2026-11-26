@@ -20,7 +20,7 @@ const FRAME_MAGIC: [u8; 4] = *b"5413";
 const LEGACY_FORMAT_VERSION: u16 = 1;
 const FORMAT_VERSION: u16 = 2;
 const HEADER_SIZE: usize = 14;
-const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VALUE_NESTING: usize = 128;
 const MAX_COLLECTION_ITEMS: usize = 100_000;
 
@@ -748,7 +748,39 @@ impl<'a> Decoder<'a> {
     }
 }
 
-fn crc32(bytes: &[u8]) -> u32 {
+pub(crate) fn encode_data_value(value: &DataValue) -> Result<Vec<u8>, JournalError> {
+    let mut encoder = Encoder::default();
+    encoder.put_value(value, 0)?;
+    if encoder.bytes.len() > MAX_FRAME_PAYLOAD_BYTES {
+        return Err(JournalError::FrameTooLarge {
+            size: encoder.bytes.len(),
+            maximum: MAX_FRAME_PAYLOAD_BYTES,
+        });
+    }
+    Ok(encoder.bytes)
+}
+
+pub(crate) fn decode_data_value(bytes: &[u8]) -> Result<DataValue, JournalError> {
+    if bytes.len() > MAX_FRAME_PAYLOAD_BYTES {
+        return Err(JournalError::FrameTooLarge {
+            size: bytes.len(),
+            maximum: MAX_FRAME_PAYLOAD_BYTES,
+        });
+    }
+    let mut decoder = Decoder::new(bytes);
+    let value = decoder
+        .read_value(0)
+        .map_err(|reason| JournalError::CorruptFrame { offset: 0, reason })?;
+    if decoder.remaining() != 0 {
+        return Err(JournalError::CorruptFrame {
+            offset: 0,
+            reason: "checkpoint payload contains trailing bytes".to_owned(),
+        });
+    }
+    Ok(value)
+}
+
+pub(crate) fn crc32(bytes: &[u8]) -> u32 {
     let mut crc = !0_u32;
     for byte in bytes {
         crc ^= u32::from(*byte);
