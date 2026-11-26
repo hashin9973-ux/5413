@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod regression_metrics;
+
 pub mod action;
 pub mod active_exploration;
 pub mod benchmark;
