@@ -338,10 +338,7 @@ pub fn discover_relationships(
     relation_fields: &[String],
     unresolved_policy: UnresolvedReferencePolicy,
 ) -> Result<RelationshipGraph, StructureDiscoveryError> {
-    if entities.is_empty()
-        || identity_field.trim().is_empty()
-        || relation_fields.is_empty()
-    {
+    if entities.is_empty() || identity_field.trim().is_empty() || relation_fields.is_empty() {
         return Err(StructureDiscoveryError::InvalidRelationConfiguration);
     }
     let mut relation_names = BTreeSet::new();
@@ -358,18 +355,18 @@ pub fn discover_relationships(
         let object = entity
             .as_object()
             .ok_or(StructureDiscoveryError::InvalidEntity { sample_index })?;
-        let identity_value = object
-            .get(identity_field)
-            .ok_or(StructureDiscoveryError::MissingIdentity {
+        let identity_value =
+            object
+                .get(identity_field)
+                .ok_or(StructureDiscoveryError::MissingIdentity {
+                    sample_index,
+                    field: identity_field.to_owned(),
+                })?;
+        let identity =
+            identifier_value(identity_value).ok_or(StructureDiscoveryError::InvalidIdentity {
                 sample_index,
                 field: identity_field.to_owned(),
             })?;
-        let identity = identifier_value(identity_value).ok_or(
-            StructureDiscoveryError::InvalidIdentity {
-                sample_index,
-                field: identity_field.to_owned(),
-            },
-        )?;
         if !identities.insert(identity.clone()) {
             return Err(StructureDiscoveryError::DuplicateIdentity(identity));
         }
@@ -673,24 +670,52 @@ pub fn profile_fields(
 pub enum StructureDiscoveryError {
     NoSamples,
     InvalidLimits,
-    MaximumDepthExceeded { maximum: usize },
-    MaximumNodesExceeded { maximum: usize },
-    NonFiniteSample { sample_index: usize },
+    MaximumDepthExceeded {
+        maximum: usize,
+    },
+    MaximumNodesExceeded {
+        maximum: usize,
+    },
+    NonFiniteSample {
+        sample_index: usize,
+    },
     CountOverflow,
     InsufficientTemporalSamples,
-    ExpectedObjectObservation { sample_index: usize },
+    ExpectedObjectObservation {
+        sample_index: usize,
+    },
     NoNumericTemporalFields,
     NumericalOverflow,
     InvalidRelationConfiguration,
-    InvalidEntity { sample_index: usize },
-    MissingIdentity { sample_index: usize, field: String },
-    InvalidIdentity { sample_index: usize, field: String },
+    InvalidEntity {
+        sample_index: usize,
+    },
+    MissingIdentity {
+        sample_index: usize,
+        field: String,
+    },
+    InvalidIdentity {
+        sample_index: usize,
+        field: String,
+    },
     DuplicateIdentity(String),
-    InvalidReference { source_id: String, field: String },
-    UnresolvedReference { source_id: String, field: String, target_id: String },
+    InvalidReference {
+        source_id: String,
+        field: String,
+    },
+    UnresolvedReference {
+        source_id: String,
+        field: String,
+        target_id: String,
+    },
     InvalidFieldProfilePolicy,
-    InsufficientSemanticSamples { minimum: usize, actual: usize },
-    ExpectedObjectSample { sample_index: usize },
+    InsufficientSemanticSamples {
+        minimum: usize,
+        actual: usize,
+    },
+    ExpectedObjectSample {
+        sample_index: usize,
+    },
 }
 
 impl std::fmt::Display for StructureDiscoveryError {
@@ -717,20 +742,63 @@ impl std::fmt::Display for StructureDiscoveryError {
                 )
             }
             Self::CountOverflow => write!(formatter, "structure discovery counter is exhausted"),
-            Self::InsufficientTemporalSamples => write!(formatter, "temporal profiling requires at least two ordered observations"),
-            Self::ExpectedObjectObservation { sample_index } => write!(formatter, "temporal observation {sample_index} must be an object"),
-            Self::NoNumericTemporalFields => write!(formatter, "no numeric fields are shared by consecutive observations"),
+            Self::InsufficientTemporalSamples => write!(
+                formatter,
+                "temporal profiling requires at least two ordered observations"
+            ),
+            Self::ExpectedObjectObservation { sample_index } => write!(
+                formatter,
+                "temporal observation {sample_index} must be an object"
+            ),
+            Self::NoNumericTemporalFields => write!(
+                formatter,
+                "no numeric fields are shared by consecutive observations"
+            ),
             Self::NumericalOverflow => write!(formatter, "discovery statistic overflowed"),
-            Self::InvalidRelationConfiguration => write!(formatter, "relationship discovery configuration is invalid"),
-            Self::InvalidEntity { sample_index } => write!(formatter, "entity {sample_index} must be an object"),
-            Self::MissingIdentity { sample_index, field } => write!(formatter, "entity {sample_index} is missing identity field {field}"),
-            Self::InvalidIdentity { sample_index, field } => write!(formatter, "entity {sample_index} has an invalid identity in field {field}"),
+            Self::InvalidRelationConfiguration => {
+                write!(formatter, "relationship discovery configuration is invalid")
+            }
+            Self::InvalidEntity { sample_index } => {
+                write!(formatter, "entity {sample_index} must be an object")
+            }
+            Self::MissingIdentity {
+                sample_index,
+                field,
+            } => write!(
+                formatter,
+                "entity {sample_index} is missing identity field {field}"
+            ),
+            Self::InvalidIdentity {
+                sample_index,
+                field,
+            } => write!(
+                formatter,
+                "entity {sample_index} has an invalid identity in field {field}"
+            ),
             Self::DuplicateIdentity(id) => write!(formatter, "entity identity {id} is duplicated"),
-            Self::InvalidReference { source_id, field } => write!(formatter, "entity {source_id} has an invalid reference in field {field}"),
-            Self::UnresolvedReference { source_id, field, target_id } => write!(formatter, "entity {source_id} field {field} references unknown entity {target_id}"),
-            Self::InvalidFieldProfilePolicy => write!(formatter, "field profiling policy is invalid"),
-            Self::InsufficientSemanticSamples { minimum, actual } => write!(formatter, "field profiling needs at least {minimum} samples; received {actual}"),
-            Self::ExpectedObjectSample { sample_index } => write!(formatter, "field profiling sample {sample_index} must be an object"),
+            Self::InvalidReference { source_id, field } => write!(
+                formatter,
+                "entity {source_id} has an invalid reference in field {field}"
+            ),
+            Self::UnresolvedReference {
+                source_id,
+                field,
+                target_id,
+            } => write!(
+                formatter,
+                "entity {source_id} field {field} references unknown entity {target_id}"
+            ),
+            Self::InvalidFieldProfilePolicy => {
+                write!(formatter, "field profiling policy is invalid")
+            }
+            Self::InsufficientSemanticSamples { minimum, actual } => write!(
+                formatter,
+                "field profiling needs at least {minimum} samples; received {actual}"
+            ),
+            Self::ExpectedObjectSample { sample_index } => write!(
+                formatter,
+                "field profiling sample {sample_index} must be an object"
+            ),
         }
     }
 }
@@ -825,13 +893,21 @@ mod tests {
             DataValue::object([("position".to_owned(), DataValue::Number(2.5))]),
         ];
         let profile = analyze_temporal_sequence(&observations).expect("temporal profile");
-        let position = profile.fields.iter().find(|field| field.field == "position").unwrap();
+        let position = profile
+            .fields
+            .iter()
+            .find(|field| field.field == "position")
+            .unwrap();
         assert_eq!(position.transition_count, 4);
         assert_eq!(position.missing_transition_count, 0);
         assert!((position.mean_delta - 0.625).abs() < 1e-12);
         assert!((position.direction_change_rate - (2.0 / 3.0)).abs() < 1e-12);
 
-        let temperature = profile.fields.iter().find(|field| field.field == "temperature").unwrap();
+        let temperature = profile
+            .fields
+            .iter()
+            .find(|field| field.field == "temperature")
+            .unwrap();
         assert_eq!(temperature.transition_count, 1);
         assert_eq!(temperature.missing_transition_count, 3);
     }
@@ -859,8 +935,12 @@ mod tests {
             "key",
             &["links".to_owned()],
             UnresolvedReferencePolicy::AllowExternal,
-        ).expect("relationship graph");
-        assert_eq!(graph.entity_ids, vec!["agent-a".to_owned(), "agent-b".to_owned()]);
+        )
+        .expect("relationship graph");
+        assert_eq!(
+            graph.entity_ids,
+            vec!["agent-a".to_owned(), "agent-b".to_owned()]
+        );
         assert_eq!(graph.edges.len(), 2);
         assert!(graph.edges.iter().any(|edge| edge.target_is_known));
         assert!(graph.edges.iter().any(|edge| !edge.target_is_known));
@@ -918,7 +998,11 @@ mod tests {
         assert_eq!(role("flag"), FieldRole::BooleanFlag);
         assert_eq!(role("entity-key"), FieldRole::IdentifierCandidate);
         assert_eq!(role("category"), FieldRole::Categorical);
-        let optional = profile.fields.iter().find(|field| field.name == "optional").unwrap();
+        let optional = profile
+            .fields
+            .iter()
+            .find(|field| field.name == "optional")
+            .unwrap();
         assert_eq!(optional.missing_count, 10);
         assert_eq!(optional.observed_count, 10);
     }
