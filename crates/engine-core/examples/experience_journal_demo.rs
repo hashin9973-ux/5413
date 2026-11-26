@@ -29,10 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         observed_at_millis: 1_000,
         schema_id: "world-state".to_owned(),
         schema_version: 1,
-        payload: DataValue::object([(
-            "status".to_owned(),
-            DataValue::Text("ready".to_owned()),
-        )]),
+        payload: DataValue::object([("status".to_owned(), DataValue::Text("ready".to_owned()))]),
     });
 
     {
@@ -42,21 +39,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             "episode-001",
             action_event.clone(),
         )?;
-        let retry = journal.append_idempotent(
-            "episode-001/action/inspect",
-            "episode-001",
-            action_event,
-        )?;
+        let retry =
+            journal.append_idempotent("episode-001/action/inspect", "episode-001", action_event)?;
         journal.append_idempotent(
             "episode-001/observation/0",
             "episode-001",
             observation_event,
         )?;
 
-        assert_eq!(
-            first,
-            IdempotentAppendOutcome::Appended { sequence: 0 }
-        );
+        assert_eq!(first, IdempotentAppendOutcome::Appended { sequence: 0 });
         assert_eq!(
             retry,
             IdempotentAppendOutcome::AlreadyPresent { sequence: 0 }
