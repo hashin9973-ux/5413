@@ -78,7 +78,7 @@ NumericDeltaModel estimates mean field deltas conditioned on action ID for numer
 The default authorization policy permits read-only actions. The simulator and finite-state examples opt into reversible actions. An authorized action is bound to the environment ID and version, and adapters validate that binding, the declared action, its risk, and its argument schema before applying effects. Irreversible operations require a policy that explicitly permits them; external-action support must add capability, permission, and environment-specific safety checks before execution.
 
 
-The regression suite includes a 10,000-record append/reopen/replay workload, byte-by-byte truncation of an incomplete final frame, and adversarial tests for single and aggregate collection-count limits. These are correctness stress tests, not a storage throughput benchmark. Fault-injected write and sync failures verify poison/reopen behavior and retry outcomes.
+The regression suite includes a 10,000-record append/reopen/replay workload, byte-by-byte truncation of an incomplete final frame, and adversarial tests for single and aggregate collection-count limits. These are correctness stress tests, not a storage throughput benchmark. Fault-injected partial writes and sync failures verify poison/reopen behavior and idempotent retry outcomes. The fault tests use a deterministic in-memory storage double; they validate state transitions, not physical hardware failure semantics.
 
 ## Experience journal guarantees and limits
 
