@@ -4,6 +4,7 @@
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
 use crate::causal::{CausalError, PairedRandomizedStudy};
+use crate::benchmark::{BenchmarkError, TransferBenchmark};
 use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
 };
@@ -192,6 +193,23 @@ impl ModelArtifactStore {
         PairedRandomizedStudy::from_artifact_value(artifact).map_err(ModelArtifactError::Causal)
     }
 
+    /// Persists a cross-environment transfer benchmark as an immutable artifact.
+    pub fn put_transfer_benchmark(
+        &mut self,
+        artifact_ref: impl Into<String>,
+        benchmark: &TransferBenchmark,
+    ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
+        self.put(artifact_ref, benchmark.to_artifact_value())
+    }
+
+    pub fn load_transfer_benchmark(
+        &self,
+        artifact_ref: &str,
+    ) -> Result<TransferBenchmark, ModelArtifactError> {
+        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        TransferBenchmark::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
+    }
+
     pub fn get(&self, artifact_ref: &str) -> Option<&DataValue> {
         self.artifacts.get(artifact_ref)
     }
@@ -349,6 +367,7 @@ pub enum ModelArtifactError {
     Reasoning(ReasoningError),
     Strategy(StrategyError),
     Causal(CausalError),
+    Benchmark(BenchmarkError),
     InvalidReference,
     InvalidArtifact,
     NotFound,
@@ -374,6 +393,7 @@ impl std::fmt::Display for ModelArtifactError {
             Self::Reasoning(error) => write!(formatter, "hypothesis registry artifact is invalid: {error}"),
             Self::Strategy(error) => write!(formatter, "strategy registry artifact is invalid: {error}"),
             Self::Causal(error) => write!(formatter, "causal study artifact is invalid: {error}"),
+            Self::Benchmark(error) => write!(formatter, "transfer benchmark artifact is invalid: {error}"),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
@@ -777,6 +797,38 @@ mod tests {
             let estimate = restored.estimate().expect("estimate");
             assert_eq!(estimate.pair_count, 2);
             assert!(estimate.mean_effect > 0.0);
+        }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
+    fn persists_and_restores_transfer_benchmark() {
+        use crate::benchmark::{ScoreDirection, TransferBenchmark, TransferEvaluation};
+        let path = test_path();
+        let mut benchmark = TransferBenchmark::default();
+        benchmark.record(TransferEvaluation {
+            case_id: "transfer-1".to_owned(),
+            source_environment_id: "physics".to_owned(),
+            target_environment_id: "grid".to_owned(),
+            source_training_dataset_id: "physics-train".to_owned(),
+            target_evaluation_dataset_id: "grid-holdout".to_owned(),
+            model_artifact_ref: "model-v1".to_owned(),
+            metric_id: "prediction-rmse".to_owned(),
+            direction: ScoreDirection::LowerIsBetter,
+            baseline_score: 0.5,
+            transferred_score: 0.3,
+            sample_count: 100,
+            resource_cost: 12.0,
+        }).expect("record transfer");
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open");
+            store.put_transfer_benchmark("transfer-benchmark-v1", &benchmark).expect("persist");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen");
+            let restored = store.load_transfer_benchmark("transfer-benchmark-v1").expect("restore");
+            assert_eq!(restored, benchmark);
+            assert!((restored.summarize("prediction-rmse").expect("summary").mean_improvement - 0.2).abs() < 1e-12);
         }
         std::fs::remove_file(path).expect("remove artifact file");
     }
