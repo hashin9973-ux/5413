@@ -65,7 +65,8 @@ pub use meta_learning::{
 };
 pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use model_registry::{
-    ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRecord, ModelRegistry,
+    ModelCandidateSpec, ModelEvaluation as RegistryModelEvaluation, ModelPromotionPolicy,
+    ModelRecord, ModelRegistry,
     ModelRegistryError, ModelStatus,
 };
 pub use planning::{plan, Plan, PlanStep, PlanningConfig, PlanningError};

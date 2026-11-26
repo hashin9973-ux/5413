@@ -4,7 +4,6 @@
 //! and metric evaluation remain supplied by the environment integration.
 
 use crate::action::ActionProposal;
-use crate::benchmark::ScoreDirection;
 use crate::environment::EnvironmentAdapter;
 use crate::experience_journal::ExperienceJournal;
 use crate::experiment_selection::{
