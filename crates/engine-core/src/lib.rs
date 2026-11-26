@@ -37,9 +37,8 @@ pub use active_exploration::{
 };
 pub use benchmark::{
     BenchmarkError, FewShotTransferCurve, LearningEfficiencyCurve, LearningEfficiencyPoint,
-    NegativeTransferDiagnosis, NegativeTransferPolicy,
-    ScoreDirection, TransferAdaptationPoint, TransferBenchmark, TransferEvaluation, TransferMatrix,
-    TransferMatrixCell, TransferSummary,
+    NegativeTransferDiagnosis, NegativeTransferPolicy, ScoreDirection, TransferAdaptationPoint,
+    TransferBenchmark, TransferEvaluation, TransferMatrix, TransferMatrixCell, TransferSummary,
 };
 pub use calibration::{
     CalibratedPrediction, ConformalCalibrationError, ConformalCalibrator, FieldCalibration,

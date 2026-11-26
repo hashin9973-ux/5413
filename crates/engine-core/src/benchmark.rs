@@ -604,7 +604,11 @@ impl LearningEfficiencyCurve {
             }
             previous_samples = Some(point.training_samples);
         }
-        if self.improvements_unchecked().iter().any(|value| !value.is_finite()) {
+        if self
+            .improvements_unchecked()
+            .iter()
+            .any(|value| !value.is_finite())
+        {
             return Err(BenchmarkError::NumericalOverflow);
         }
         Ok(())
@@ -661,30 +665,83 @@ impl LearningEfficiencyCurve {
     pub fn to_artifact_value(&self) -> DataValue {
         DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("curve_id".to_owned(), DataValue::Text(self.curve_id.clone())),
-            ("environment_id".to_owned(), DataValue::Text(self.environment_id.clone())),
-            ("environment_version".to_owned(), DataValue::Text(self.environment_version.clone())),
+            (
+                "curve_id".to_owned(),
+                DataValue::Text(self.curve_id.clone()),
+            ),
+            (
+                "environment_id".to_owned(),
+                DataValue::Text(self.environment_id.clone()),
+            ),
+            (
+                "environment_version".to_owned(),
+                DataValue::Text(self.environment_version.clone()),
+            ),
             ("task_id".to_owned(), DataValue::Text(self.task_id.clone())),
-            ("learner_strategy_id".to_owned(), DataValue::Text(self.learner_strategy_id.clone())),
-            ("reference_strategy_id".to_owned(), DataValue::Text(self.reference_strategy_id.clone())),
-            ("learner_artifact_ref".to_owned(), DataValue::Text(self.learner_artifact_ref.clone())),
-            ("training_dataset_id".to_owned(), DataValue::Text(self.training_dataset_id.clone())),
-            ("evaluation_dataset_id".to_owned(), DataValue::Text(self.evaluation_dataset_id.clone())),
-            ("metric_id".to_owned(), DataValue::Text(self.metric_id.clone())),
-            ("direction".to_owned(), DataValue::Text(direction_name(self.direction).to_owned())),
+            (
+                "learner_strategy_id".to_owned(),
+                DataValue::Text(self.learner_strategy_id.clone()),
+            ),
+            (
+                "reference_strategy_id".to_owned(),
+                DataValue::Text(self.reference_strategy_id.clone()),
+            ),
+            (
+                "learner_artifact_ref".to_owned(),
+                DataValue::Text(self.learner_artifact_ref.clone()),
+            ),
+            (
+                "training_dataset_id".to_owned(),
+                DataValue::Text(self.training_dataset_id.clone()),
+            ),
+            (
+                "evaluation_dataset_id".to_owned(),
+                DataValue::Text(self.evaluation_dataset_id.clone()),
+            ),
+            (
+                "metric_id".to_owned(),
+                DataValue::Text(self.metric_id.clone()),
+            ),
+            (
+                "direction".to_owned(),
+                DataValue::Text(direction_name(self.direction).to_owned()),
+            ),
             ("seed".to_owned(), DataValue::Text(self.seed.to_string())),
-            ("evaluation_sample_count".to_owned(), DataValue::Text(self.evaluation_sample_count.to_string())),
+            (
+                "evaluation_sample_count".to_owned(),
+                DataValue::Text(self.evaluation_sample_count.to_string()),
+            ),
             (
                 "points".to_owned(),
-                DataValue::Sequence(self.points.iter().map(|point| {
-                    DataValue::object([
-                        ("training_samples".to_owned(), DataValue::Text(point.training_samples.to_string())),
-                        ("learner_score".to_owned(), DataValue::Number(point.learner_score)),
-                        ("reference_score".to_owned(), DataValue::Number(point.reference_score)),
-                        ("learner_resource_cost".to_owned(), DataValue::Number(point.learner_resource_cost)),
-                        ("reference_resource_cost".to_owned(), DataValue::Number(point.reference_resource_cost)),
-                    ])
-                }).collect()),
+                DataValue::Sequence(
+                    self.points
+                        .iter()
+                        .map(|point| {
+                            DataValue::object([
+                                (
+                                    "training_samples".to_owned(),
+                                    DataValue::Text(point.training_samples.to_string()),
+                                ),
+                                (
+                                    "learner_score".to_owned(),
+                                    DataValue::Number(point.learner_score),
+                                ),
+                                (
+                                    "reference_score".to_owned(),
+                                    DataValue::Number(point.reference_score),
+                                ),
+                                (
+                                    "learner_resource_cost".to_owned(),
+                                    DataValue::Number(point.learner_resource_cost),
+                                ),
+                                (
+                                    "reference_resource_cost".to_owned(),
+                                    DataValue::Number(point.reference_resource_cost),
+                                ),
+                            ])
+                        })
+                        .collect(),
+                ),
             ),
         ])
     }
@@ -693,9 +750,7 @@ impl LearningEfficiencyCurve {
         let fields = value
             .as_object()
             .ok_or(BenchmarkError::InvalidLearningEfficiencyCurve)?;
-        if fields.len() != 15
-            || fields.get("artifact_version") != Some(&DataValue::Integer(1))
-        {
+        if fields.len() != 15 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(BenchmarkError::InvalidLearningEfficiencyCurve);
         }
         let text = |name: &str| match fields.get(name) {
@@ -1222,7 +1277,10 @@ impl std::fmt::Display for BenchmarkError {
                 write!(formatter, "learning-efficiency curve is invalid")
             }
             Self::InvalidLearningEfficiencyTarget => {
-                write!(formatter, "learning-efficiency target must be finite and non-negative")
+                write!(
+                    formatter,
+                    "learning-efficiency target must be finite and non-negative"
+                )
             }
         }
     }
@@ -1444,12 +1502,24 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(curve.improvements().expect("improvements"), vec![0.0, 0.2, 0.4]);
-        assert!((curve.area_under_improvement_curve().expect("area") - 3.0).abs() < 1e-12);
-        assert_eq!(curve.samples_to_target_improvement(0.25).expect("threshold"), Some(20));
-        assert_eq!(curve.samples_to_target_improvement(0.5).expect("threshold"), None);
         assert_eq!(
-            LearningEfficiencyCurve::from_artifact_value(&curve.to_artifact_value()).expect("restore"),
+            curve.improvements().expect("improvements"),
+            vec![0.0, 0.2, 0.4]
+        );
+        assert!((curve.area_under_improvement_curve().expect("area") - 3.0).abs() < 1e-12);
+        assert_eq!(
+            curve
+                .samples_to_target_improvement(0.25)
+                .expect("threshold"),
+            Some(20)
+        );
+        assert_eq!(
+            curve.samples_to_target_improvement(0.5).expect("threshold"),
+            None
+        );
+        assert_eq!(
+            LearningEfficiencyCurve::from_artifact_value(&curve.to_artifact_value())
+                .expect("restore"),
             curve
         );
     }
@@ -1471,14 +1541,32 @@ mod tests {
             seed: 0,
             evaluation_sample_count: 10,
             points: vec![
-                LearningEfficiencyPoint { training_samples: 5, learner_score: 0.9, reference_score: 1.0, learner_resource_cost: 1.0, reference_resource_cost: 1.0 },
-                LearningEfficiencyPoint { training_samples: 5, learner_score: 0.8, reference_score: 1.0, learner_resource_cost: 2.0, reference_resource_cost: 2.0 },
+                LearningEfficiencyPoint {
+                    training_samples: 5,
+                    learner_score: 0.9,
+                    reference_score: 1.0,
+                    learner_resource_cost: 1.0,
+                    reference_resource_cost: 1.0,
+                },
+                LearningEfficiencyPoint {
+                    training_samples: 5,
+                    learner_score: 0.8,
+                    reference_score: 1.0,
+                    learner_resource_cost: 2.0,
+                    reference_resource_cost: 2.0,
+                },
             ],
         };
-        assert_eq!(curve.validate(), Err(BenchmarkError::InvalidLearningEfficiencyCurve));
+        assert_eq!(
+            curve.validate(),
+            Err(BenchmarkError::InvalidLearningEfficiencyCurve)
+        );
         curve.training_dataset_id = "train".to_owned();
         curve.evaluation_dataset_id = "holdout".to_owned();
-        assert_eq!(curve.validate(), Err(BenchmarkError::InvalidLearningEfficiencyCurve));
+        assert_eq!(
+            curve.validate(),
+            Err(BenchmarkError::InvalidLearningEfficiencyCurve)
+        );
         curve.points[1].training_samples = 10;
         assert_eq!(curve.validate(), Ok(()));
     }

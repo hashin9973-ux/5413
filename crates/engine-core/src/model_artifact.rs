@@ -257,9 +257,7 @@ impl ModelArtifactStore {
         artifact_ref: impl Into<String>,
         curve: &LearningEfficiencyCurve,
     ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
-        curve
-            .validate()
-            .map_err(ModelArtifactError::Benchmark)?;
+        curve.validate().map_err(ModelArtifactError::Benchmark)?;
         self.put(artifact_ref, curve.to_artifact_value())
     }
 
