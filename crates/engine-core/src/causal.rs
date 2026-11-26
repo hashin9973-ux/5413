@@ -438,6 +438,35 @@ pub struct RandomizedMultiArmEstimate {
     pub effects: Vec<MultiArmEffectEstimate>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MultiArmRandomizationInferencePolicy {
+    pub maximum_assignments: u64,
+    /// Attests that all assignments respecting the fixed allocation were
+    /// equally likely under the declared randomization protocol.
+    pub attest_complete_random_assignment: bool,
+}
+
+impl Default for MultiArmRandomizationInferencePolicy {
+    fn default() -> Self {
+        Self {
+            maximum_assignments: 1_000_000,
+            attest_complete_random_assignment: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MultiArmRandomizationInference {
+    pub experiment_id: String,
+    pub dataset_id: String,
+    pub control_arm_id: String,
+    pub assignment_count: u64,
+    pub extreme_assignment_count: u64,
+    /// Exact omnibus p-value for the maximum absolute treatment-control mean contrast.
+    pub exact_two_sided_p_value: f64,
+    pub observed_maximum_absolute_effect: f64,
+}
+
 impl RandomizedMultiArmStudy {
     pub fn validate(&self) -> Result<(), CausalError> {
         if self.assignment_design != AssignmentDesign::Randomized {
@@ -571,6 +600,112 @@ impl RandomizedMultiArmStudy {
             randomization_protocol: self.randomization_protocol.clone(),
             unit_count: self.outcomes.len(),
             effects,
+        })
+    }
+
+    /// Enumerates every unique fixed-allocation arm assignment for an exact
+    /// omnibus randomization test under the sharp null.
+    ///
+    /// The statistic is the maximum absolute difference between any treatment
+    /// arm mean and the declared control mean. This incorporates the family of
+    /// treatment-vs-control contrasts into one randomization distribution. The
+    /// caller must attest that all assignments respecting the allocation plan
+    /// were equally likely. The cap is checked before more than the configured
+    /// number of allocations is evaluated.
+    pub fn exact_randomization_inference(
+        &self,
+        policy: MultiArmRandomizationInferencePolicy,
+    ) -> Result<MultiArmRandomizationInference, CausalError> {
+        self.validate()?;
+        if !policy.attest_complete_random_assignment {
+            return Err(CausalError::RandomizationMechanismNotAttested);
+        }
+        if policy.maximum_assignments == 0 {
+            return Err(CausalError::InvalidInferencePolicy);
+        }
+
+        let arm_ids: Vec<String> = self.allocation_plan.keys().cloned().collect();
+        let control_index = arm_ids
+            .iter()
+            .position(|arm_id| arm_id == &self.control_arm_id)
+            .ok_or(CausalError::InvalidMultiArmStudy)?;
+        let arm_counts: Vec<usize> = arm_ids
+            .iter()
+            .map(|arm_id| self.allocation_plan[arm_id])
+            .collect();
+        let arm_indices: BTreeMap<&str, usize> = arm_ids
+            .iter()
+            .enumerate()
+            .map(|(index, arm_id)| (arm_id.as_str(), index))
+            .collect();
+        let outcome_values: Vec<f64> = self.outcomes.iter().map(|item| item.outcome).collect();
+        let observed_assignment: Vec<usize> = self
+            .outcomes
+            .iter()
+            .map(|item| {
+                arm_indices
+                    .get(item.arm_id.as_str())
+                    .copied()
+                    .ok_or(CausalError::UnknownArm)
+            })
+            .collect::<Result<_, _>>()?;
+        let observed_maximum_absolute_effect = multi_arm_maximum_absolute_effect(
+            &outcome_values,
+            &observed_assignment,
+            &arm_counts,
+            control_index,
+        )?;
+        let tolerance =
+            8.0 * f64::EPSILON * observed_maximum_absolute_effect.max(1.0);
+
+        // Lexicographically sorted multiset assignment is the first unique
+        // allocation. The next-permutation routine visits each allocation once.
+        let mut assignment = Vec::with_capacity(self.outcomes.len());
+        for (arm_index, count) in arm_counts.iter().enumerate() {
+            assignment.extend(std::iter::repeat(arm_index).take(*count));
+        }
+        let mut assignment_count = 0_u64;
+        let mut extreme_assignment_count = 0_u64;
+        loop {
+            if assignment_count == policy.maximum_assignments {
+                if next_multiset_permutation(&mut assignment) {
+                    return Err(CausalError::AssignmentBudgetExceededAtLeast {
+                        required_at_least: assignment_count.saturating_add(1),
+                        maximum: policy.maximum_assignments,
+                    });
+                }
+                break;
+            }
+            assignment_count = assignment_count
+                .checked_add(1)
+                .ok_or(CausalError::NumericalOverflow)?;
+            let statistic = multi_arm_maximum_absolute_effect(
+                &outcome_values,
+                &assignment,
+                &arm_counts,
+                control_index,
+            )?;
+            if statistic + tolerance >= observed_maximum_absolute_effect {
+                extreme_assignment_count = extreme_assignment_count
+                    .checked_add(1)
+                    .ok_or(CausalError::NumericalOverflow)?;
+            }
+            if !next_multiset_permutation(&mut assignment) {
+                break;
+            }
+        }
+        if assignment_count == 0 {
+            return Err(CausalError::InvalidMultiArmAllocation);
+        }
+        Ok(MultiArmRandomizationInference {
+            experiment_id: self.experiment_id.clone(),
+            dataset_id: self.dataset_id.clone(),
+            control_arm_id: self.control_arm_id.clone(),
+            assignment_count,
+            extreme_assignment_count,
+            exact_two_sided_p_value: extreme_assignment_count as f64
+                / assignment_count as f64,
+            observed_maximum_absolute_effect,
         })
     }
 
@@ -718,6 +853,68 @@ impl RandomizedMultiArmStudy {
     }
 }
 
+fn multi_arm_maximum_absolute_effect(
+    outcomes: &[f64],
+    assignment: &[usize],
+    arm_counts: &[usize],
+    control_index: usize,
+) -> Result<f64, CausalError> {
+    if outcomes.len() != assignment.len()
+        || arm_counts.is_empty()
+        || control_index >= arm_counts.len()
+    {
+        return Err(CausalError::InvalidMultiArmStudy);
+    }
+    let mut sums = vec![0.0_f64; arm_counts.len()];
+    for (outcome, arm_index) in outcomes.iter().zip(assignment.iter()) {
+        if *arm_index >= sums.len() {
+            return Err(CausalError::UnknownArm);
+        }
+        sums[*arm_index] += outcome;
+    }
+    let control_mean = sums[control_index] / arm_counts[control_index] as f64;
+    if !control_mean.is_finite() {
+        return Err(CausalError::NumericalOverflow);
+    }
+    let mut maximum = 0.0_f64;
+    for arm_index in 0..arm_counts.len() {
+        if arm_index == control_index {
+            continue;
+        }
+        let treatment_mean = sums[arm_index] / arm_counts[arm_index] as f64;
+        let effect = (treatment_mean - control_mean).abs();
+        if !treatment_mean.is_finite() || !effect.is_finite() {
+            return Err(CausalError::NumericalOverflow);
+        }
+        maximum = maximum.max(effect);
+    }
+    Ok(maximum)
+}
+
+/// Advances a sorted multiset permutation without generating duplicates.
+fn next_multiset_permutation(values: &mut [usize]) -> bool {
+    if values.len() < 2 {
+        return false;
+    }
+    let mut pivot = values.len() - 2;
+    loop {
+        if values[pivot] < values[pivot + 1] {
+            break;
+        }
+        if pivot == 0 {
+            return false;
+        }
+        pivot -= 1;
+    }
+    let mut successor = values.len() - 1;
+    while values[successor] <= values[pivot] {
+        successor -= 1;
+    }
+    values.swap(pivot, successor);
+    values[pivot + 1..].reverse();
+    true
+}
+
 fn mean_and_sample_variance(values: &[f64]) -> Result<(f64, f64), CausalError> {
     if values.len() < 2 {
         return Err(CausalError::InvalidMultiArmAllocation);
@@ -794,6 +991,7 @@ pub enum CausalError {
     InvalidInferencePolicy,
     AssignmentCountOverflow,
     AssignmentBudgetExceeded { required: u64, maximum: u64 },
+    AssignmentBudgetExceededAtLeast { required_at_least: u64, maximum: u64 },
 }
 
 impl std::fmt::Display for CausalError {
@@ -848,6 +1046,13 @@ impl std::fmt::Display for CausalError {
             Self::AssignmentBudgetExceeded { required, maximum } => write!(
                 formatter,
                 "exact paired inference requires {required} assignments, exceeding the configured cap {maximum}"
+            ),
+            Self::AssignmentBudgetExceededAtLeast {
+                required_at_least,
+                maximum,
+            } => write!(
+                formatter,
+                "exact multi-arm inference requires at least {required_at_least} assignments, exceeding the configured cap {maximum}"
             ),
         }
     }
@@ -1059,6 +1264,68 @@ mod tests {
         );
         assert!(treatment_a.normal_approximation_95_percent_interval.0 < treatment_a.mean_effect);
         assert!(treatment_a.normal_approximation_95_percent_interval.1 > treatment_a.mean_effect);
+    }
+
+    #[test]
+    fn exact_multi_arm_randomization_inference_enumerates_unique_fixed_allocations() {
+        let study = RandomizedMultiArmStudy {
+            experiment_id: "exact-multi-arm-v1".to_owned(),
+            dataset_id: "exact-multi-arm-data-v1".to_owned(),
+            control_arm_id: "control".to_owned(),
+            outcome_label: "score".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            assignment_seed: 7,
+            randomization_protocol: "complete-randomization-v1".to_owned(),
+            allocation_plan: BTreeMap::from([
+                ("control".to_owned(), 2),
+                ("treatment-a".to_owned(), 2),
+                ("treatment-b".to_owned(), 2),
+            ]),
+            outcomes: vec![
+                RandomizedArmOutcome { unit_id: "u1".to_owned(), arm_id: "control".to_owned(), outcome: 1.0 },
+                RandomizedArmOutcome { unit_id: "u2".to_owned(), arm_id: "control".to_owned(), outcome: 2.0 },
+                RandomizedArmOutcome { unit_id: "u3".to_owned(), arm_id: "treatment-a".to_owned(), outcome: 2.0 },
+                RandomizedArmOutcome { unit_id: "u4".to_owned(), arm_id: "treatment-a".to_owned(), outcome: 3.0 },
+                RandomizedArmOutcome { unit_id: "u5".to_owned(), arm_id: "treatment-b".to_owned(), outcome: 0.0 },
+                RandomizedArmOutcome { unit_id: "u6".to_owned(), arm_id: "treatment-b".to_owned(), outcome: 1.0 },
+            ],
+        };
+        let inference = study
+            .exact_randomization_inference(MultiArmRandomizationInferencePolicy {
+                maximum_assignments: 90,
+                attest_complete_random_assignment: true,
+            })
+            .expect("exact multi-arm inference");
+        assert_eq!(inference.assignment_count, 90);
+        assert!(inference.extreme_assignment_count >= 1);
+        assert!(inference.extreme_assignment_count <= inference.assignment_count);
+        assert_eq!(
+            inference.exact_two_sided_p_value,
+            inference.extreme_assignment_count as f64 / 90.0
+        );
+        assert!(inference.observed_maximum_absolute_effect.is_finite());
+    }
+
+    #[test]
+    fn exact_multi_arm_inference_requires_attestation_and_enforces_assignment_cap() {
+        let mut study = multi_arm_study();
+        assert_eq!(
+            study.exact_randomization_inference(MultiArmRandomizationInferencePolicy {
+                maximum_assignments: 90,
+                attest_complete_random_assignment: false,
+            }),
+            Err(CausalError::RandomizationMechanismNotAttested)
+        );
+        assert_eq!(
+            study.exact_randomization_inference(MultiArmRandomizationInferencePolicy {
+                maximum_assignments: 89,
+                attest_complete_random_assignment: true,
+            }),
+            Err(CausalError::AssignmentBudgetExceededAtLeast {
+                required_at_least: 90,
+                maximum: 89,
+            })
+        );
     }
 
     #[test]

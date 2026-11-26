@@ -175,3 +175,8 @@ RandomizedMultiArmStudy records independent experimental units, a declared contr
 ## Exact paired randomization inference
 
 The paired-study exact test exhaustively enumerates all 2^n sign assignments of the observed within-pair differences and calculates an exact two-sided randomization p-value under the sharp null. It requires an explicit caller attestation that treatment was independently assigned to either member of each pair with probability one half. The enumeration cap is checked before execution. This method is exact for that stated assignment mechanism; it is not a generic permutation test for arbitrary randomized designs.
+
+
+## Exact fixed-allocation multi-arm randomization inference
+
+Multi-arm exact inference enumerates each unique assignment of the observed outcomes to arms while preserving the declared count for every arm. Its omnibus statistic is the maximum absolute treatment-vs-control mean difference, so the resulting randomization distribution accounts for the family of control contrasts in one test. A caller must attest that complete random assignment over all fixed-allocation assignments was used. The engine enumerates unique multiset permutations and refuses to exceed the configured assignment cap. This test is exact for the stated complete-randomization mechanism and sharp null; it does not apply to blocked, clustered, adaptive, or unequal-probability assignment unless a corresponding design-specific enumerator is implemented.

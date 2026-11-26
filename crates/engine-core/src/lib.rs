@@ -54,7 +54,8 @@ pub use calibration::{
     PredictionInterval,
 };
 pub use causal::{
-    AssignmentDesign, CausalEffectEstimate, CausalError, MultiArmEffectEstimate, PairedOutcome,
+    AssignmentDesign, CausalEffectEstimate, CausalError, MultiArmEffectEstimate,
+    MultiArmRandomizationInference, MultiArmRandomizationInferencePolicy, PairedOutcome,
     PairedRandomizationInference, PairedRandomizedStudy, RandomizationInferencePolicy,
     RandomizedArmOutcome, RandomizedMultiArmEstimate, RandomizedMultiArmStudy,
 };
