@@ -10,9 +10,7 @@ use engine_core::active_exploration::{
 use engine_core::environment::{
     ActionOutcome, EnvironmentAdapter, EnvironmentDescriptor, EnvironmentError, ObservationFrame,
 };
-use engine_core::experiment_selection::{
-    ModelExplorationCandidate, ModelExplorationPolicy,
-};
+use engine_core::experiment_selection::{ModelExplorationCandidate, ModelExplorationPolicy};
 use engine_core::experience_journal::ExperienceJournal;
 use engine_core::learning::TransitionSample;
 use engine_core::planning::PlanningConfig;
@@ -72,10 +70,7 @@ impl CounterEnvironment {
             observed_at_millis: self.sequence,
             schema_id: "counter-state".to_owned(),
             schema_version: 1,
-            payload: DataValue::object([(
-                "position".to_owned(),
-                DataValue::Number(self.position),
-            )]),
+            payload: DataValue::object([("position".to_owned(), DataValue::Number(self.position))]),
         };
         self.sequence += 1;
         frame
@@ -91,10 +86,7 @@ impl EnvironmentAdapter for CounterEnvironment {
         Ok(self.frame())
     }
 
-    fn execute(
-        &mut self,
-        action: AuthorizedAction,
-    ) -> Result<ActionOutcome, EnvironmentError> {
+    fn execute(&mut self, action: AuthorizedAction) -> Result<ActionOutcome, EnvironmentError> {
         match action.action_id() {
             "advance" => self.position += 1.0,
             "wait" => {}

@@ -103,8 +103,7 @@ pub use research_cycle::{
 };
 pub use runtime::{
     run_receding_horizon, run_receding_horizon_with_selector, PredictionErrorMetrics,
-    RuntimeConfig, RuntimeError, RuntimeReport,
-    RuntimeStepReport, RuntimeTermination,
+    RuntimeConfig, RuntimeError, RuntimeReport, RuntimeStepReport, RuntimeTermination,
 };
 pub use schema::{
     FieldSpec, SchemaDefinition, SchemaDefinitionError, SchemaValidationError, ValueKind,
