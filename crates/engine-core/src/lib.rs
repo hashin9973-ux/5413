@@ -6,6 +6,7 @@ pub mod benchmark;
 pub mod checkpoint;
 pub mod discovery;
 pub mod environment;
+pub mod experiment_selection;
 pub mod experience;
 pub mod experience_journal;
 pub mod experimentation;

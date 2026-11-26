@@ -22,6 +22,7 @@ The current implementation includes:
 - an auditable hypothesis registry with typed claims, unique evidence references, log-likelihood-ratio updates, posterior confidence, decision thresholds, and validated snapshot export/import;
 - a predictive-model lifecycle registry with held-out evaluation, calibration gates, same-environment/metric/dataset comparisons, resource-aware promotion, and version retirement;
 - a paired randomized-trial effect estimator with duplicate-block checks, treatment-minus-control estimates, standard errors, and explicitly normal-approximation intervals;
+- expected-information-gain experiment ranking for binary observations, with declared likelihoods, risk/resource budgets, and irreversible-action filtering;
 - cross-environment transfer benchmarks that require distinct source/target environments and disjoint dataset IDs, reporting gain, win rate, standard error, and resource cost;
 - typed declarative strategy graphs with port validation, cycle/reachability checks, cost estimates, held-out same-dataset comparisons, and guarded candidate promotion/rollback lifecycle;
 - examples for physics simulation, finite-state workflows, representation discovery, persistent journaling, and the world-model/experiment/planning loop.
