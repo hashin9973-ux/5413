@@ -6,7 +6,7 @@
 //! runs and preserves completed results when later work fails.
 
 use crate::active_exploration::{
-    run_model_disagreement_exploration, ActiveExplorationError, ActiveExplorationReport,
+    run_model_disagreement_exploration, ActiveExplorationReport,
     ActiveExplorationRequest,
 };
 use crate::environment::{EnvironmentAdapter, LifecycleOutcome};
