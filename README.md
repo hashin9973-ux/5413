@@ -1,25 +1,77 @@
 # 5413
 
-5413 is an environment-independent adaptive learning runtime.
+5413 is an environment-independent adaptive learning runtime. Its long-term direction is an autonomous experimentalist: a system that learns predictive models of unfamiliar environments, selects informative experiments, plans actions under explicit safety constraints, and improves through measured evidence.
 
-Its first environment is a simulator, but the core architecture is designed to work with different observation/action protocols. The initial implementation focuses on:
+The current implementation includes:
 
-- typed, domain-neutral environment contracts;
-- schema-validated dynamic observations;
-- explicit action authorization;
-- append-only in-memory experience capture;
-- versioned, dynamically registered representations;
-- a small online transition learner;
-- a simulator example that uses only the generic environment API.
+- typed, domain-neutral environment contracts and schema-validated observations;
+- explicit action authorization, with read-only default policy;
+- append-only experience capture with a versioned, checksummed file journal, bounded decoding, torn-tail recovery, episode replay, and durable idempotency keys;
+- a separately versioned append-only checkpoint log with torn-tail recovery, monotonic/idempotent snapshot writes, environment/schema binding, and deterministic callback-driven replay after a checkpoint;
+- immutable, checksummed model-artifact persistence with versioned parameter serialization and restoration for built-in statistical and contextual models;
+- durable representation-registry snapshots preserving schemas, versions, evaluation evidence, and candidate/active/rejected/retired lifecycle state;
+- versioned, held-out-evaluated representations and explicit mappings;
+- recursive structural profiling for nested objects and sequences;
+- temporal numeric-delta profiles, caller-declared entity relationship graphs, and distribution-based field-role candidates;
+- a pluggable predictive-model contract, an action-conditioned statistical model, and contextual ridge regression;
+- empirical model ensembles that report within-model spread and between-model disagreement separately;
+- held-out prediction evaluation with a dataset-ID leakage guard;
+- disagreement-based candidate-action ranking with declared action-risk, utility, and cost constraints;
+- Bayesian expected-information-gain ranking for binary-outcome experiments under caller-supplied likelihoods, with resource/risk budgets and irreversible-action filtering;
+- bounded beam-search planning that scores predicted states and checks candidate actions against the environment's action policy;
+- a receding-horizon runtime that replans from fresh observations, durably journals action intents before adapter effects, reauthorizes before execution, and records prediction error against observed outcomes;
+- episode-scoped transition extraction that reconstructs completed `(state, action, next_state)` samples from journal events and excludes incomplete or mismatched actions;
+- an auditable hypothesis registry with typed claims, unique evidence references, log-likelihood-ratio updates, posterior confidence, decision thresholds, and validated snapshot export/import;
+- a predictive-model lifecycle registry with held-out evaluation, calibration gates, same-environment/metric/dataset comparisons, resource-aware promotion, and version retirement;
+- paired randomized-trial effects with duplicate-block checks and exact bounded sign-flip randomization inference, and independent-unit randomized multi-arm contrasts with allocation validation, Welch-style standard errors, normal-approximation intervals, Holm-adjusted p-values, and a bounded exact fixed-allocation omnibus randomization test;
+- expected-information-gain experiment ranking for binary observations, with declared likelihoods, risk/resource budgets, and irreversible-action filtering;
+- cross-environment transfer benchmarks that require distinct source/target environments and disjoint dataset IDs, reporting gain, win rate, standard error, and resource cost, plus few-shot adaptation curves with area-under-improvement measurements and sparse source→target matrices with configurable negative-transfer diagnosis;
+- typed declarative strategy graphs with a deterministic interpreter that invokes only trusted operators, runtime port/type checks, declared cost budgets, bounded type-compatible strategy-chain synthesis, held-out same-dataset comparisons, and guarded candidate promotion/retirement lifecycle;
+- an integrated research-cycle orchestrator that executes one selected intervention, updates durable hypothesis evidence, trains from the resulting episode, evaluates on a separate holdout, and promotes a versioned predictive model through explicit gates;
+- examples for physics simulation, finite-state workflows, representation discovery, persistent journaling, world-model planning, and the end-to-end autonomous research cycle.
 
-The first implementation is intentionally dependency-free. Persistence, advanced neural models, planner synthesis, and executable self-modification are future stages—not assumed capabilities of this foundation.
+The implementation remains dependency-free and forbids unsafe Rust in the core crate.
+
+## Current boundaries
+
+This is a meaningful first intelligence loop, not a claim of general intelligence. Predictive models currently emit numeric next-state estimates. The contextual model is a batch ridge-regression baseline, and the ensemble is empirical rather than Bayesian. The disagreement-based candidate-action ranker uses a model-disagreement proxy. Separately, the binary hypothesis experiment selector computes exact expected entropy reduction under caller-supplied likelihoods; neither mechanism can validate its caller's assumptions about the environment. Planning is bounded beam search over caller-supplied action proposals; the runtime executes one action at a time and replans from fresh observations. It does not synthesize arguments or guarantee goal satisfaction. Durable intent keys block automatic retries after ambiguous adapter failures; this is a conservative at-most-once policy, not exactly-once external execution.
+
+Temporal and relational predictive models, symbolic rule induction, robust multi-outcome causal estimators, autonomous construction of action mappings, adaptive multi-episode supervision, executable strategy-operator composition, and meta-learning from repeated benchmark evidence remain future work. The current research cycle is bounded to one selected intervention per invocation and requires caller-provided action mappings, likelihood models, validation data, outcome classifier, and evaluation function. Model artifact references are caller-supplied stable identifiers, not cryptographic content hashes; artifact compaction is not implemented. Active ensembles can be reconstructed from a persisted registry snapshot with `load_active_ensemble_from_registry`, which verifies model identity, version, environment contract, and training-dataset provenance before activation.
 
 ## Development
 
-```sh
+~~~sh
 cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo run -p engine-core --example simulator_demo
-```
+cargo run -p engine-core --example finite_state_demo
+cargo run -p engine-core --example representation_discovery_demo
+cargo run -p engine-core --example experience_journal_demo
+cargo run -p engine-core --example world_model_demo
+cargo run -p engine-core --example autonomous_research_demo
+cargo run -p engine-core --example active_exploration_demo
+~~~
 
-See [docs/architecture.md](docs/architecture.md) for the initial engineering boundaries and [docs/roadmap.md](docs/roadmap.md) for staged development.
+See [docs/architecture.md](docs/architecture.md) for contracts, safety boundaries, and implementation limits, and [docs/roadmap.md](docs/roadmap.md) for staged milestones.
+
+
+The research-cycle report preserves the completed runtime result after an environment action. Hypothesis update and durable snapshot failures are represented separately as `EvidenceCommitOutcome`, rather than discarding the experiment report. Both possible binary-outcome log-likelihood updates are checked for numerical validity before the intervention.
+
+
+### Model-disagreement exploration
+
+`rank_model_disagreement_actions` ranks caller-supplied action proposals by predicted task utility plus ensemble epistemic disagreement, minus declared resource and risk penalties. It requires multiple predictive models and applies the environment descriptor, action authorization, action-risk ceiling, and resource ceiling before ranking. The disagreement term is scale-dependent and remains an exploration heuristic, not a calibrated information-gain estimate.
+
+
+### Dynamic active exploration
+
+`run_model_disagreement_exploration` performs bounded exploration over a sequence of fresh observations. At every step it ranks the candidate actions using predicted task utility and ensemble disagreement, executes only the top eligible proposal through the existing authorized runtime, journals the intent and outcome, measures prediction error, and repeats up to `RuntimeConfig.maximum_steps`. The selector therefore sees updated state rather than reusing a stale initial snapshot. It requires at least two predictive models and caller-supplied utility, action proposals, risk policy, and cost estimates.
+
+
+Active exploration supports a configurable `maximum_actions_per_plan`: the disagreement/risk/cost ranker shortlists the top-K proposals, and the existing beam planner evaluates short sequences over that shortlist. Only the first action is executed before a new observation and a fresh ranking. This combines an exploration heuristic with model-based lookahead without treating the ensemble spread as exact information gain.
+
+
+### Sample-efficiency measurement
+
+`LearningEfficiencyCurve` records paired learner/reference performance at increasing training-sample budgets for a fixed environment, task, metric, evaluation split, and random seed. It reports direction-aware improvement, trapezoidal area under the improvement curve, and the first sample budget that meets a caller-defined improvement threshold. Record multiple seeds as separate curves; `LearningEfficiencyBenchmark` aggregates only runs with exactly matching environment/task/strategy/metric/evaluation-size/sample-budget signatures, and reports per-budget standard errors, AUC uncertainty, target reach rate, and mean samples-to-target.

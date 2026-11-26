@@ -1,0 +1,56 @@
+name: Rust CI
+
+on:
+  push:
+    branches:
+      - main
+      - "foundation/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Format, lint, test, and examples
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      - name: Run simulator example
+        run: cargo run -p engine-core --example simulator_demo
+
+      - name: Run finite-state environment example
+        run: cargo run -p engine-core --example finite_state_demo
+
+      - name: Run representation discovery example
+        run: cargo run -p engine-core --example representation_discovery_demo
+
+      - name: Run persistent experience journal example
+        run: cargo run -p engine-core --example experience_journal_demo
+
+      - name: Run world-model planning example
+        run: cargo run -p engine-core --example world_model_demo
+
+      - name: Run autonomous research example
+        run: cargo run -p engine-core --example autonomous_research_demo
+
+      - name: Run active exploration example
+        run: cargo run -p engine-core --example active_exploration_demo
+
