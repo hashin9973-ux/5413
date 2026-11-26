@@ -1450,6 +1450,26 @@ mod tests {
 
         drop(artifact_store);
         drop(journal);
+
+        let restored_journal = ExperienceJournal::open(&journal_path).expect("restore journal");
+        assert!(restored_journal.records().iter().any(|record| {
+            matches!(
+                &record.event,
+                crate::experience::ExperienceEvent::ActionCompleted(outcome)
+                    if outcome.action_id == "advance" && !outcome.completed
+            )
+        }));
+        assert!(restored_journal.records().iter().any(|record| {
+            matches!(
+                &record.event,
+                crate::experience::ExperienceEvent::Observation(observation)
+                    if observation.episode_id == "research-episode"
+                        && observation.payload.get("position").and_then(DataValue::as_f64)
+                            == Some(3.0)
+            )
+        }));
+        drop(restored_journal);
+
         std::fs::remove_file(journal_path).expect("remove journal");
         std::fs::remove_file(artifact_path).expect("remove artifacts");
     }
