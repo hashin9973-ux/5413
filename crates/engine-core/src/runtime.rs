@@ -31,7 +31,16 @@ impl RuntimeConfig {
         {
             return Err(RuntimeError::InvalidConfiguration);
         }
-        self.planning.validate().map_err(RuntimeError::Planning)
+        if self.planning.horizon == 0
+            || self.planning.beam_width == 0
+            || !self.planning.uncertainty_penalty.is_finite()
+            || self.planning.uncertainty_penalty < 0.0
+            || !self.planning.uncalibrated_prediction_penalty.is_finite()
+            || self.planning.uncalibrated_prediction_penalty < 0.0
+        {
+            return Err(RuntimeError::InvalidConfiguration);
+        }
+        Ok(())
     }
 
     fn key(&self, suffix: &str) -> String {
@@ -128,7 +137,7 @@ where
             model,
             &current_observation.payload,
             candidate_actions,
-            config.planning,
+            config.planning.clone(),
             &utility,
         )
         .map_err(RuntimeError::Planning)?;
@@ -457,7 +466,7 @@ mod tests {
                 ],
             )
             .expect("fit");
-        EnsembleWorldModel::new(vec![Box::new(learner) as Box<dyn PredictiveModel>)
+        EnsembleWorldModel::new(vec![Box::new(learner) as Box<dyn PredictiveModel>])
             .expect("ensemble")
     }
 
