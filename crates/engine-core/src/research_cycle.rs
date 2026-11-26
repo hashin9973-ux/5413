@@ -365,7 +365,7 @@ where
         .last()
         .ok_or(AutonomousResearchError::NoExecutedAction)?;
     if !last_step.outcome.completed {
-        return Err(AutonomousResearchError::ExperimentIncomplete);
+        return Err(AutonomousResearchError::ExperimentIncomplete { runtime });
     }
 
     let positive = positive_outcome(&runtime.final_observation.payload);
@@ -650,13 +650,25 @@ pub enum AutonomousResearchError {
     InvalidActionMapping,
     MissingActionMapping,
     NoExecutedAction,
-    ExperimentIncomplete,
+    ExperimentIncomplete { runtime: RuntimeReport },
     NumericalOverflow,
     Selection(ExperimentSelectionError),
     Reasoning(ReasoningError),
     Runtime(RuntimeError),
     ModelRegistry(ModelRegistryError),
     Artifact(ModelArtifactError),
+}
+
+impl AutonomousResearchError {
+    /// Returns the durable execution report when an environment action did not
+    /// complete. The report is available for reconciliation and recovery; it
+    /// must not be interpreted as completed experimental evidence.
+    pub fn runtime_report(&self) -> Option<&RuntimeReport> {
+        match self {
+            Self::ExperimentIncomplete { runtime } => Some(runtime),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for AutonomousResearchError {
@@ -677,7 +689,7 @@ impl std::fmt::Display for AutonomousResearchError {
             Self::InvalidActionMapping => write!(formatter, "experiment action mapping is empty or duplicated"),
             Self::MissingActionMapping => write!(formatter, "selected experiment has no caller-supplied action mapping"),
             Self::NoExecutedAction => write!(formatter, "runtime returned no executed action"),
-            Self::ExperimentIncomplete => write!(formatter, "environment did not complete the selected experiment action"),
+            Self::ExperimentIncomplete { .. } => write!(formatter, "environment did not complete the selected experiment action"),
             Self::NumericalOverflow => write!(formatter, "experiment likelihood ratio overflowed"),
             Self::Selection(error) => write!(formatter, "experiment selection failed: {error}"),
             Self::Reasoning(error) => write!(formatter, "hypothesis update failed: {error}"),
@@ -721,6 +733,7 @@ mod tests {
         descriptor: EnvironmentDescriptor,
         position: f64,
         sequence: u64,
+        complete_actions: bool,
     }
 
     impl CounterEnvironment {
@@ -753,6 +766,7 @@ mod tests {
                 },
                 position: 0.0,
                 sequence: 0,
+                complete_actions: true,
             }
         }
 
@@ -791,7 +805,7 @@ mod tests {
             self.position += 1.0;
             Ok(ActionOutcome {
                 action_id: "advance".to_owned(),
-                completed: true,
+                completed: self.complete_actions,
                 observations: Vec::new(),
                 feedback: DataValue::Null,
             })
@@ -1307,6 +1321,128 @@ mod tests {
         assert_eq!(model_registry.len(), 1);
         assert!(artifact_store
             .get("research-candidate-artifact-v2")
+            .is_none());
+
+        // An adapter may report an incomplete action after a real effect has
+        // occurred. Preserve its journaled runtime report, but do not classify
+        // the observation as evidence or train/promote a candidate from it.
+        adapter.complete_actions = false;
+        hypothesis_registry
+            .insert(
+                HypothesisSpec {
+                    id: "advance-increases-position-v3".to_owned(),
+                    claim: DataValue::Text("advance increases the position observation".to_owned()),
+                    description: "hypothesis for an incomplete execution".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: Some("independent-discovery-v3".to_owned()),
+                },
+                hypothesis_policy,
+            )
+            .expect("third hypothesis");
+        let mut third_candidate_model =
+            ActionDeltaModel::new("research-candidate", 3).expect("third candidate model");
+        let incomplete = run_autonomous_research_cycle(
+            AutonomousResearchContext {
+                adapter: &mut adapter,
+                active_model: &active_model(),
+                candidate_model: &mut third_candidate_model,
+                hypothesis_registry: &mut hypothesis_registry,
+                journal: &mut journal,
+                artifact_store: &mut artifact_store,
+                model_registry: &mut model_registry,
+            },
+            AutonomousResearchRequest {
+                hypothesis_id: "advance-increases-position-v3",
+                experiments: &experiments,
+                action_mappings: &action_mappings,
+                validation_samples: &validation_samples,
+                selection_policy: ExperimentSelectionPolicy {
+                    maximum_resource_cost: 10.0,
+                    maximum_risk: 0.1,
+                    resource_cost_weight: 0.0,
+                    risk_weight: 0.0,
+                    allow_irreversible: false,
+                },
+                hypothesis_policy,
+                promotion_policy,
+                config: AutonomousResearchConfig {
+                    experiment: ExperimentExecutionConfig {
+                        runtime: RuntimeConfig {
+                            execution_id: "research-run-3".to_owned(),
+                            episode_id: "research-episode".to_owned(),
+                            maximum_steps: 1,
+                            authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(
+                                ActionRisk::Reversible,
+                            )),
+                            planning: PlanningConfig {
+                                horizon: 1,
+                                beam_width: 1,
+                                uncertainty_penalty: 0.0,
+                                uncalibrated_prediction_penalty: 0.0,
+                            },
+                        },
+                        evidence_dataset_id: "experiment-evidence-v3".to_owned(),
+                        evidence_rationale: "incomplete intervention must not become evidence".to_owned(),
+                        hypothesis_registry_artifact_ref: "hypotheses-after-run-3".to_owned(),
+                    },
+                    learning: LearningCycleConfig {
+                        episode_id: "research-episode".to_owned(),
+                        training_dataset_id: "episode-training-v3".to_owned(),
+                        validation_dataset_id: "model-holdout-v3".to_owned(),
+                        model_id: "research-candidate".to_owned(),
+                        model_version: 3,
+                        model_artifact_ref: "research-candidate-artifact-v3".to_owned(),
+                        model_registry_artifact_ref: "model-registry-after-run-3".to_owned(),
+                        environment_id: "research-counter".to_owned(),
+                        environment_version: "v1".to_owned(),
+                    },
+                },
+            },
+            AutonomousResearchCallbacks {
+                utility: |state: &DataValue| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .unwrap_or(0.0)
+                },
+                positive_outcome: |state: &DataValue| {
+                    state
+                        .get("position")
+                        .and_then(DataValue::as_f64)
+                        .is_some_and(|position| position > 0.0)
+                },
+                evaluate: |_model: &ActionDeltaModel, _samples: &[TransitionSample]| {
+                    panic!("incomplete experiments must not reach candidate evaluation")
+                },
+            },
+        )
+        .expect_err("incomplete environment outcome must reject the experiment");
+        let runtime = incomplete
+            .runtime_report()
+            .expect("incomplete action retains its runtime report");
+        assert_eq!(runtime.steps.len(), 1);
+        assert_eq!(
+            runtime.termination,
+            crate::runtime::RuntimeTermination::EnvironmentReportedIncomplete
+        );
+        assert!(!runtime.steps[0].outcome.completed);
+        assert_eq!(runtime.steps[0].action_id, "advance");
+        assert_eq!(
+            runtime
+                .final_observation
+                .payload
+                .get("position")
+                .and_then(DataValue::as_f64),
+            Some(3.0)
+        );
+        assert!(hypothesis_registry
+            .get("advance-increases-position-v3")
+            .expect("third hypothesis remains")
+            .evidence
+            .is_empty());
+        assert_eq!(model_registry.len(), 1);
+        assert!(artifact_store
+            .get("research-candidate-artifact-v3")
             .is_none());
 
         drop(artifact_store);
