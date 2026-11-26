@@ -1,3 +1,4 @@
+use crate::benchmark::ScoreDirection;
 //! Typed, declarative learning-strategy graphs and guarded promotion.
 //!
 //! This module describes operator composition; it does not execute arbitrary
@@ -289,8 +290,10 @@ impl StrategyPolicy {
 #[derive(Clone, Debug, PartialEq)]
 pub struct StrategyEvaluation {
     pub evaluation_dataset_id: String,
+    pub metric_id: String,
+    pub direction: ScoreDirection,
     pub sample_count: usize,
-    /// Higher is better; this should be a predeclared held-out metric.
+    /// The value of the declared held-out metric.
     pub primary_score: f64,
     /// Measured or consistently estimated resource units consumed.
     pub resource_cost: f64,
@@ -299,6 +302,7 @@ pub struct StrategyEvaluation {
 impl StrategyEvaluation {
     fn validate(&self) -> Result<(), StrategyError> {
         if self.evaluation_dataset_id.trim().is_empty()
+            || self.metric_id.trim().is_empty()
             || self.sample_count == 0
             || !self.primary_score.is_finite()
             || !self.resource_cost.is_finite()
@@ -310,7 +314,11 @@ impl StrategyEvaluation {
     }
 
     pub fn utility(&self, policy: StrategyPolicy) -> f64 {
-        self.primary_score - policy.resource_cost_weight * self.resource_cost
+        let directional_score = match self.direction {
+            ScoreDirection::HigherIsBetter => self.primary_score,
+            ScoreDirection::LowerIsBetter => -self.primary_score,
+        };
+        directional_score - policy.resource_cost_weight * self.resource_cost
     }
 }
 
@@ -424,7 +432,10 @@ impl StrategyRegistry {
                 .evaluation
                 .as_ref()
                 .ok_or(StrategyError::NotEvaluated)?;
-            if incumbent_evaluation.evaluation_dataset_id != evaluation.evaluation_dataset_id {
+            if incumbent_evaluation.evaluation_dataset_id != evaluation.evaluation_dataset_id
+                || incumbent_evaluation.metric_id != evaluation.metric_id
+                || incumbent_evaluation.direction != evaluation.direction
+            {
                 return Err(StrategyError::IncomparableEvaluations);
             }
             if candidate_utility
@@ -529,6 +540,11 @@ fn strategy_to_value(record: &StrategyRecord) -> DataValue {
     let outputs = bindings_to_value(&record.spec.graph.outputs);
     let evaluation = record.evaluation.as_ref().map(|item| DataValue::object([
         ("evaluation_dataset_id".to_owned(), DataValue::Text(item.evaluation_dataset_id.clone())),
+        ("metric_id".to_owned(), DataValue::Text(item.metric_id.clone())),
+        ("direction".to_owned(), DataValue::Text(match item.direction {
+            ScoreDirection::HigherIsBetter => "higher",
+            ScoreDirection::LowerIsBetter => "lower",
+        }.to_owned())),
         ("sample_count".to_owned(), DataValue::Text(item.sample_count.to_string())),
         ("primary_score".to_owned(), DataValue::Number(item.primary_score)),
         ("resource_cost".to_owned(), DataValue::Number(item.resource_cost)),
@@ -678,8 +694,14 @@ fn strategy_from_value(
     };
     let evaluation = match fields.get("evaluation") {
         Some(DataValue::Null) => None,
-        Some(DataValue::Object(values)) if values.len() == 4 => Some(StrategyEvaluation {
+        Some(DataValue::Object(values)) if values.len() == 6 => Some(StrategyEvaluation {
             evaluation_dataset_id: text_field(values, "evaluation_dataset_id")?,
+            metric_id: text_field(values, "metric_id")?,
+            direction: match text_field(values, "direction")?.as_str() {
+                "higher" => ScoreDirection::HigherIsBetter,
+                "lower" => ScoreDirection::LowerIsBetter,
+                _ => return Err(StrategyError::InvalidSerializedState),
+            },
             sample_count: text_field(values, "sample_count")?.parse().map_err(|_| StrategyError::InvalidSerializedState)?,
             primary_score: number_field(values, "primary_score")?,
             resource_cost: number_field(values, "resource_cost")?,
@@ -887,6 +909,8 @@ mod tests {
         registry.register_candidate(spec(1), &catalogue).expect("candidate v1");
         registry.evaluate_candidate("default-learning-pipeline", 1, StrategyEvaluation {
             evaluation_dataset_id: "holdout-v1".to_owned(),
+            metric_id: "score".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
             sample_count: 20,
             primary_score: 0.8,
             resource_cost: 2.0,
@@ -896,6 +920,8 @@ mod tests {
         registry.register_candidate(spec(2), &catalogue).expect("candidate v2");
         registry.evaluate_candidate("default-learning-pipeline", 2, StrategyEvaluation {
             evaluation_dataset_id: "holdout-v1".to_owned(),
+            metric_id: "score".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
             sample_count: 20,
             primary_score: 0.9,
             resource_cost: 2.0,
@@ -916,6 +942,8 @@ mod tests {
         registry.register_candidate(spec(1), &catalogue).expect("v1");
         registry.evaluate_candidate("default-learning-pipeline", 1, StrategyEvaluation {
             evaluation_dataset_id: "holdout".to_owned(),
+            metric_id: "score".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
             sample_count: 20,
             primary_score: 0.7,
             resource_cost: 1.0,
@@ -925,6 +953,8 @@ mod tests {
         registry.register_candidate(spec(2), &catalogue).expect("v2");
         registry.evaluate_candidate("default-learning-pipeline", 2, StrategyEvaluation {
             evaluation_dataset_id: "another-holdout".to_owned(),
+            metric_id: "score".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
             sample_count: 20,
             primary_score: 0.99,
             resource_cost: 0.0,

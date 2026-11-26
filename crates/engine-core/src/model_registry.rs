@@ -196,6 +196,11 @@ impl ModelRegistry {
                 ModelStatus::Rejected;
             return Err(ModelRegistryError::UncalibratedUncertainty);
         }
+        if candidate_evaluation.sample_count < policy.minimum_evaluation_samples {
+            self.records.get_mut(&candidate_key).ok_or(ModelRegistryError::ModelNotFound)?.status =
+                ModelStatus::Rejected;
+            return Err(ModelRegistryError::InsufficientEvaluationSamples);
+        }
         let candidate_utility = candidate_evaluation.utility(policy)?;
         let incumbent_key = self.records.values()
             .find(|record| record.spec.id == id && record.status == ModelStatus::Active)

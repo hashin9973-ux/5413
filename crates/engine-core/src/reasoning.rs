@@ -153,6 +153,9 @@ impl HypothesisRegistry {
         {
             return Err(ReasoningError::DuplicateEvidence);
         }
+        if record.evidence.iter().any(|existing| existing.dataset_id == evidence.dataset_id) {
+            return Err(ReasoningError::DuplicateEvidenceDataset);
+        }
         if record.spec.source_dataset_id.as_deref() == Some(evidence.dataset_id.as_str()) {
             return Err(ReasoningError::EvidenceReusesSourceDataset);
         }
@@ -363,6 +366,7 @@ fn record_from_value(
     };
     let mut evidence = Vec::with_capacity(evidence_values.len());
     let mut seen_refs = BTreeSet::new();
+    let mut seen_datasets = BTreeSet::new();
     let mut log_likelihood_sum = 0.0;
     for value in evidence_values {
         let item = value
@@ -379,6 +383,7 @@ fn record_from_value(
         };
         record.validate()?;
         if !seen_refs.insert(record.evidence_ref.clone())
+            || !seen_datasets.insert(record.dataset_id.clone())
             || spec.source_dataset_id.as_deref() == Some(record.dataset_id.as_str())
         {
             return Err(ReasoningError::InvalidSerializedState);
@@ -416,6 +421,7 @@ pub enum ReasoningError {
     InvalidEvidence,
     DuplicateHypothesis,
     DuplicateEvidence,
+    DuplicateEvidenceDataset,
     EvidenceReusesSourceDataset,
     HypothesisNotFound,
     NumericalOverflow,
@@ -430,6 +436,7 @@ impl std::fmt::Display for ReasoningError {
             Self::InvalidEvidence => write!(formatter, "evidence record is invalid"),
             Self::DuplicateHypothesis => write!(formatter, "hypothesis ID already exists"),
             Self::DuplicateEvidence => write!(formatter, "evidence reference was already applied"),
+            Self::DuplicateEvidenceDataset => write!(formatter, "evidence dataset was already used for this hypothesis"),
             Self::EvidenceReusesSourceDataset => write!(formatter, "evidence reuses the hypothesis source dataset"),
             Self::HypothesisNotFound => write!(formatter, "hypothesis was not found"),
             Self::NumericalOverflow => write!(formatter, "evidence accumulation overflowed"),
