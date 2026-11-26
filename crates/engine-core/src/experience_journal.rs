@@ -111,6 +111,9 @@ impl ExperienceJournal {
         episode_id: impl Into<String>,
         event: ExperienceEvent,
     ) -> Result<IdempotentAppendOutcome, JournalError> {
+        if self.poisoned {
+            return Err(JournalError::Poisoned);
+        }
         let idempotency_key = idempotency_key.into();
         let episode_id = episode_id.into();
         if idempotency_key.trim().is_empty() {
@@ -1512,9 +1515,12 @@ mod tests {
         let storage = FaultInjectingStorage::default();
         let mut journal = ExperienceJournal::from_storage(Box::new(storage.clone()))
             .expect("in-memory journal should open");
-        journal
-            .append("episode-a", prediction_event(1))
-            .expect("baseline append should succeed");
+        assert_eq!(
+            journal
+                .append_idempotent("baseline-key", "episode-a", prediction_event(1))
+                .expect("baseline keyed append should succeed"),
+            IdempotentAppendOutcome::Appended { sequence: 0 }
+        );
 
         storage.fail_write_after(HEADER_SIZE + 5);
         assert!(matches!(
@@ -1525,11 +1531,21 @@ mod tests {
             journal.append("episode-a", prediction_event(3)),
             Err(JournalError::Poisoned)
         ));
+        assert!(matches!(
+            journal.append_idempotent("baseline-key", "episode-a", prediction_event(1)),
+            Err(JournalError::Poisoned)
+        ));
         drop(journal);
 
         let mut recovered = ExperienceJournal::from_storage(Box::new(storage.clone()))
             .expect("partial final frame should be truncated on reopen");
         assert_eq!(recovered.len(), 1);
+        assert_eq!(
+            recovered
+                .append_idempotent("baseline-key", "episode-a", prediction_event(1))
+                .expect("committed baseline key should survive reopen"),
+            IdempotentAppendOutcome::AlreadyPresent { sequence: 0 }
+        );
         assert_eq!(
             recovered
                 .append_idempotent("retry-key", "episode-a", prediction_event(2))
