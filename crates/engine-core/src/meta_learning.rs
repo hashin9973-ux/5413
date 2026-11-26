@@ -1031,20 +1031,14 @@ fn graph_from_unary_chain(
         nodes.push(StrategyNode {
             id: format!("step-{index}"),
             operator_id: operator.id.clone(),
-            inputs: BTreeMap::from([(
-                operator.inputs[0].name.clone(),
-                input_binding,
-            )]),
+            inputs: BTreeMap::from([(operator.inputs[0].name.clone(), input_binding)]),
         });
     }
 
     let last_index = chain.len() - 1;
     let last_operator = chain.last().ok_or(StrategySynthesisError::EmptyChain)?;
     Ok(StrategyGraph {
-        external_inputs: BTreeMap::from([(
-            policy.input_name.clone(),
-            policy.input_kind,
-        )]),
+        external_inputs: BTreeMap::from([(policy.input_name.clone(), policy.input_kind)]),
         nodes,
         outputs: BTreeMap::from([(
             policy.output_name.clone(),
@@ -1069,8 +1063,13 @@ impl std::fmt::Display for StrategySynthesisError {
         match self {
             Self::InvalidPolicy => write!(formatter, "strategy synthesis policy is invalid"),
             Self::CostOverflow => write!(formatter, "strategy synthesis cost overflowed"),
-            Self::EmptyChain => write!(formatter, "cannot synthesize a graph from an empty operator chain"),
-            Self::Graph(error) => write!(formatter, "synthesized strategy graph is invalid: {error}"),
+            Self::EmptyChain => write!(
+                formatter,
+                "cannot synthesize a graph from an empty operator chain"
+            ),
+            Self::Graph(error) => {
+                write!(formatter, "synthesized strategy graph is invalid: {error}")
+            }
         }
     }
 }
