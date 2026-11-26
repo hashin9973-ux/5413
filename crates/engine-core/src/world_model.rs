@@ -423,11 +423,8 @@ impl EnsembleWorldModel {
                 .sum::<f64>()
                 / count;
             let aleatoric_std_dev = aleatoric_variance.sqrt();
-            let epistemic_std_dev =
-                (between_model_variance + within_epistemic_variance).sqrt();
-            if !mean.is_finite()
-                || !aleatoric_std_dev.is_finite()
-                || !epistemic_std_dev.is_finite()
+            let epistemic_std_dev = (between_model_variance + within_epistemic_variance).sqrt();
+            if !mean.is_finite() || !aleatoric_std_dev.is_finite() || !epistemic_std_dev.is_finite()
             {
                 return Err(WorldModelError::NonFinitePrediction);
             }
@@ -443,7 +440,9 @@ impl EnsembleWorldModel {
                         .min()
                         .unwrap_or(0),
                     uncertainty_calibrated: estimates.len() == self.models.len()
-                        && estimates.iter().all(|estimate| estimate.uncertainty_calibrated),
+                        && estimates
+                            .iter()
+                            .all(|estimate| estimate.uncertainty_calibrated),
                 },
             );
         }
@@ -647,10 +646,13 @@ fn fit_linear_field(
         return Err(WorldModelError::NoTrainableFields);
     }
     let dimensions = rows[0].0.len();
-    if dimensions == 0 || rows.iter().any(|(features, target)| {
-        features.len() != dimensions || !target.is_finite()
-            || features.iter().any(|value| !value.is_finite())
-    }) {
+    if dimensions == 0
+        || rows.iter().any(|(features, target)| {
+            features.len() != dimensions
+                || !target.is_finite()
+                || features.iter().any(|value| !value.is_finite())
+        })
+    {
         return Err(WorldModelError::InvalidTrainingMatrix);
     }
 
@@ -777,24 +779,64 @@ pub enum WorldModelError {
 impl std::fmt::Display for WorldModelError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidModelIdentity => write!(formatter, "model identity must have a non-empty id and positive version"),
-            Self::InvalidTrainingDatasetId => write!(formatter, "training dataset id must not be empty"),
-            Self::InvalidEvaluationDatasetId => write!(formatter, "evaluation dataset id must not be empty"),
-            Self::InvalidRegularization => write!(formatter, "ridge regularization must be finite and non-negative"),
-            Self::NoTrainingSamples => write!(formatter, "at least one training transition is required"),
-            Self::NoEvaluationSamples => write!(formatter, "at least one held-out transition is required"),
-            Self::NoTrainableFields => write!(formatter, "training data contains no numeric transition targets"),
-            Self::NoEvaluationPredictions => write!(formatter, "model produced no evaluable numeric predictions"),
+            Self::InvalidModelIdentity => write!(
+                formatter,
+                "model identity must have a non-empty id and positive version"
+            ),
+            Self::InvalidTrainingDatasetId => {
+                write!(formatter, "training dataset id must not be empty")
+            }
+            Self::InvalidEvaluationDatasetId => {
+                write!(formatter, "evaluation dataset id must not be empty")
+            }
+            Self::InvalidRegularization => write!(
+                formatter,
+                "ridge regularization must be finite and non-negative"
+            ),
+            Self::NoTrainingSamples => {
+                write!(formatter, "at least one training transition is required")
+            }
+            Self::NoEvaluationSamples => {
+                write!(formatter, "at least one held-out transition is required")
+            }
+            Self::NoTrainableFields => write!(
+                formatter,
+                "training data contains no numeric transition targets"
+            ),
+            Self::NoEvaluationPredictions => {
+                write!(formatter, "model produced no evaluable numeric predictions")
+            }
             Self::NotFitted => write!(formatter, "model has not been fitted"),
             Self::ExpectedObjectState => write!(formatter, "world-model states must be objects"),
-            Self::NonFiniteTrainingData => write!(formatter, "training data contains a non-finite numeric value"),
-            Self::NonFinitePrediction => write!(formatter, "model produced a non-finite prediction"),
-            Self::InvalidTrainingMatrix => write!(formatter, "training matrix dimensions or values are invalid"),
-            Self::SingularTrainingMatrix => write!(formatter, "training matrix is singular; use positive regularization or more varied data"),
-            Self::SampleCountOverflow => write!(formatter, "sample count exceeds the supported range"),
-            Self::EvaluationDatasetLeakage => write!(formatter, "evaluation dataset id must differ from the model's training dataset id"),
-            Self::EmptyEnsemble => write!(formatter, "an ensemble must contain at least one fitted model"),
-            Self::DuplicateModelIdentity(id) => write!(formatter, "ensemble contains duplicate model identity {id}"),
+            Self::NonFiniteTrainingData => write!(
+                formatter,
+                "training data contains a non-finite numeric value"
+            ),
+            Self::NonFinitePrediction => {
+                write!(formatter, "model produced a non-finite prediction")
+            }
+            Self::InvalidTrainingMatrix => write!(
+                formatter,
+                "training matrix dimensions or values are invalid"
+            ),
+            Self::SingularTrainingMatrix => write!(
+                formatter,
+                "training matrix is singular; use positive regularization or more varied data"
+            ),
+            Self::SampleCountOverflow => {
+                write!(formatter, "sample count exceeds the supported range")
+            }
+            Self::EvaluationDatasetLeakage => write!(
+                formatter,
+                "evaluation dataset id must differ from the model's training dataset id"
+            ),
+            Self::EmptyEnsemble => write!(
+                formatter,
+                "an ensemble must contain at least one fitted model"
+            ),
+            Self::DuplicateModelIdentity(id) => {
+                write!(formatter, "ensemble contains duplicate model identity {id}")
+            }
             Self::Learning(message) => write!(formatter, "baseline learner failed: {message}"),
         }
     }
@@ -818,7 +860,10 @@ mod tests {
     fn statistical_model_predicts_mean_delta_and_uncertainty() {
         let mut model = ActionDeltaModel::new("delta", 1).expect("identity");
         model
-            .fit("training-a", &[sample("advance", 0.0, 2.0), sample("advance", 4.0, 6.0)])
+            .fit(
+                "training-a",
+                &[sample("advance", 0.0, 2.0), sample("advance", 4.0, 6.0)],
+            )
             .expect("fit");
         let prediction = model
             .predict(
@@ -834,8 +879,7 @@ mod tests {
 
     #[test]
     fn contextual_model_learns_from_state_features() {
-        let mut model =
-            ContextualLinearModel::new("contextual", 1, 1e-6).expect("model");
+        let mut model = ContextualLinearModel::new("contextual", 1, 1e-6).expect("model");
         let samples = vec![
             TransitionSample {
                 action_id: "move".to_owned(),
@@ -900,15 +944,21 @@ mod tests {
     fn ensemble_disagreement_is_reported_as_epistemic_uncertainty() {
         let mut first = ActionDeltaModel::new("first", 1).expect("model");
         first
-            .fit("training-a", &[sample("advance", 0.0, 1.0), sample("advance", 1.0, 2.0)])
+            .fit(
+                "training-a",
+                &[sample("advance", 0.0, 1.0), sample("advance", 1.0, 2.0)],
+            )
             .expect("fit");
         let mut second = ActionDeltaModel::new("second", 1).expect("model");
         second
-            .fit("training-b", &[sample("advance", 0.0, 3.0), sample("advance", 1.0, 4.0)])
+            .fit(
+                "training-b",
+                &[sample("advance", 0.0, 3.0), sample("advance", 1.0, 4.0)],
+            )
             .expect("fit");
 
-        let ensemble = EnsembleWorldModel::new(vec![Box::new(first), Box::new(second)])
-            .expect("ensemble");
+        let ensemble =
+            EnsembleWorldModel::new(vec![Box::new(first), Box::new(second)]).expect("ensemble");
         let prediction = ensemble
             .predict(
                 "advance",
@@ -924,7 +974,10 @@ mod tests {
     fn held_out_evaluation_rejects_training_dataset_reuse() {
         let mut model = ActionDeltaModel::new("delta", 1).expect("model");
         model
-            .fit("training", &[sample("advance", 0.0, 1.0), sample("advance", 1.0, 2.0)])
+            .fit(
+                "training",
+                &[sample("advance", 0.0, 1.0), sample("advance", 1.0, 2.0)],
+            )
             .expect("fit");
         assert_eq!(
             evaluate_model(&model, "training", &[sample("advance", 2.0, 3.0)]),

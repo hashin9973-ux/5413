@@ -82,13 +82,7 @@ pub fn infer_recursive_structure(
         sample
             .validate_finite()
             .map_err(|_| StructureDiscoveryError::NonFiniteSample { sample_index })?;
-        observe(
-            &mut root,
-            sample,
-            0,
-            limits,
-            &mut visited_nodes,
-        )?;
+        observe(&mut root, sample, 0, limits, &mut visited_nodes)?;
     }
 
     Ok(StructureProfile {
@@ -208,13 +202,22 @@ impl std::fmt::Display for StructureDiscoveryError {
             Self::NoSamples => write!(formatter, "at least one observation is required"),
             Self::InvalidLimits => write!(formatter, "discovery limits must be greater than zero"),
             Self::MaximumDepthExceeded { maximum } => {
-                write!(formatter, "observation nesting exceeds maximum depth {maximum}")
+                write!(
+                    formatter,
+                    "observation nesting exceeds maximum depth {maximum}"
+                )
             }
             Self::MaximumNodesExceeded { maximum } => {
-                write!(formatter, "observation structure exceeds maximum node count {maximum}")
+                write!(
+                    formatter,
+                    "observation structure exceeds maximum node count {maximum}"
+                )
             }
             Self::NonFiniteSample { sample_index } => {
-                write!(formatter, "sample {sample_index} contains a non-finite number")
+                write!(
+                    formatter,
+                    "sample {sample_index} contains a non-finite number"
+                )
             }
             Self::CountOverflow => write!(formatter, "structure discovery counter is exhausted"),
         }
@@ -248,7 +251,10 @@ mod tests {
                     "agent".to_owned(),
                     DataValue::object([("position".to_owned(), DataValue::Number(4.5))]),
                 ),
-                ("sensors".to_owned(), DataValue::Sequence(vec![DataValue::Number(3.0)])),
+                (
+                    "sensors".to_owned(),
+                    DataValue::Sequence(vec![DataValue::Number(3.0)]),
+                ),
             ]),
         ];
 
@@ -259,11 +265,16 @@ mod tests {
         let label = agent.fields.get("label").expect("label");
         assert_eq!(position.kind, Some(DiscoveredKind::Number));
         assert_eq!(label.kind, Some(DiscoveredKind::Text));
-        assert!(agent.field_is_required("position").expect("position required"));
+        assert!(agent
+            .field_is_required("position")
+            .expect("position required"));
         assert!(!agent.field_is_required("label").expect("label optional"));
         let sensors = profile.root.fields.get("sensors").expect("sensors");
         assert_eq!(
-            sensors.sequence_element.as_deref().and_then(|node| node.kind),
+            sensors
+                .sequence_element
+                .as_deref()
+                .and_then(|node| node.kind),
             Some(DiscoveredKind::Number)
         );
     }

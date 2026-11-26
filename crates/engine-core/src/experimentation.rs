@@ -192,8 +192,13 @@ pub enum ExperimentError {
 impl std::fmt::Display for ExperimentError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidPolicy => write!(formatter, "experiment policy weights must be finite and non-negative"),
-            Self::InvalidEnvironment(message) => write!(formatter, "invalid environment: {message}"),
+            Self::InvalidPolicy => write!(
+                formatter,
+                "experiment policy weights must be finite and non-negative"
+            ),
+            Self::InvalidEnvironment(message) => {
+                write!(formatter, "invalid environment: {message}")
+            }
             Self::InvalidState => write!(formatter, "experiment state must contain finite values"),
             Self::NonFiniteScore => write!(formatter, "experiment score is non-finite"),
             Self::CounterOverflow => write!(formatter, "experiment rejection counter is exhausted"),
@@ -291,8 +296,8 @@ mod tests {
                 ],
             )
             .expect("fit");
-        let ensemble = EnsembleWorldModel::new(vec![Box::new(first), Box::new(second)])
-            .expect("ensemble");
+        let ensemble =
+            EnsembleWorldModel::new(vec![Box::new(first), Box::new(second)]).expect("ensemble");
 
         let ranking = rank_experiments(
             &descriptor(),

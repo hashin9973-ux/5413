@@ -233,11 +233,19 @@ impl std::fmt::Display for PlanningError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidConfiguration => write!(formatter, "planning configuration is invalid"),
-            Self::InvalidEnvironment(message) => write!(formatter, "invalid environment: {message}"),
+            Self::InvalidEnvironment(message) => {
+                write!(formatter, "invalid environment: {message}")
+            }
             Self::InvalidState => write!(formatter, "planning state must be a finite object"),
-            Self::InvalidPrediction => write!(formatter, "world model returned an invalid prediction"),
-            Self::NonFiniteUtility => write!(formatter, "utility function returned a non-finite score"),
-            Self::NoCandidateActions => write!(formatter, "at least one candidate action is required"),
+            Self::InvalidPrediction => {
+                write!(formatter, "world model returned an invalid prediction")
+            }
+            Self::NonFiniteUtility => {
+                write!(formatter, "utility function returned a non-finite score")
+            }
+            Self::NoCandidateActions => {
+                write!(formatter, "at least one candidate action is required")
+            }
             Self::NoFeasiblePlan => write!(formatter, "no feasible model-supported plan was found"),
             Self::CounterOverflow => write!(formatter, "planning counter is exhausted"),
             Self::WorldModel(error) => write!(formatter, "world-model prediction failed: {error}"),
@@ -295,12 +303,18 @@ mod tests {
                 &[
                     TransitionSample {
                         action_id: "advance".to_owned(),
-                        before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
                         after: DataValue::object([("position".to_owned(), DataValue::Number(2.0))]),
                     },
                     TransitionSample {
                         action_id: "advance".to_owned(),
-                        before: DataValue::object([("position".to_owned(), DataValue::Number(2.0))]),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(2.0),
+                        )]),
                         after: DataValue::object([("position".to_owned(), DataValue::Number(4.0))]),
                     },
                 ],
@@ -329,14 +343,25 @@ mod tests {
                 uncertainty_penalty: 0.0,
                 uncalibrated_prediction_penalty: 0.0,
             },
-            |state| state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0),
+            |state| {
+                state
+                    .get("position")
+                    .and_then(DataValue::as_f64)
+                    .unwrap_or(0.0)
+            },
         )
         .expect("plan");
 
         assert_eq!(plan.steps.len(), 2);
         assert_eq!(plan.steps[0].action.action_id, "advance");
         assert_eq!(plan.steps[1].action.action_id, "advance");
-        assert_eq!(plan.steps[1].predicted_state.get("position").and_then(DataValue::as_f64), Some(4.0));
+        assert_eq!(
+            plan.steps[1]
+                .predicted_state
+                .get("position")
+                .and_then(DataValue::as_f64),
+            Some(4.0)
+        );
         assert!(plan.rejected_actions > 0);
     }
 

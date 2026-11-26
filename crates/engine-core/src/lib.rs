@@ -51,7 +51,7 @@ pub use structure::{
 };
 pub use value::{DataValue, DataValueError};
 pub use world_model::{
-    evaluate_ensemble, evaluate_model, ActionDeltaModel, ContextualLinearModel,
-    EnsembleWorldModel, FieldEstimate, ModelEvaluation, ModelFitReport, ModelIdentity,
-    ModelPrediction, PredictiveModel, WorldModelError,
+    evaluate_ensemble, evaluate_model, ActionDeltaModel, ContextualLinearModel, EnsembleWorldModel,
+    FieldEstimate, ModelEvaluation, ModelFitReport, ModelIdentity, ModelPrediction,
+    PredictiveModel, WorldModelError,
 };
