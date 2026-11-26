@@ -12,7 +12,9 @@ use crate::active_exploration::{
 use crate::environment::{EnvironmentAdapter, LifecycleOutcome};
 use crate::experience::ExperienceEvent;
 use crate::experience_journal::ExperienceJournal;
-use crate::experiment_selection::{ModelExplorationCandidate, ModelExplorationPolicy};
+use crate::experiment_selection::{
+    ExperimentSelectionError, ModelExplorationCandidate, ModelExplorationPolicy,
+};
 use crate::runtime::{RuntimeConfig, RuntimeStepReport};
 use crate::value::DataValue;
 use crate::world_model::EnsembleWorldModel;
@@ -47,9 +49,21 @@ impl SafeExplorationRequest {
             || self.maximum_total_steps == 0
             || !self.maximum_total_resource_cost.is_finite()
             || self.maximum_total_resource_cost < 0.0
+            || self.runtime.maximum_steps != 1
             || model.len() < 2
         {
             return Err(SafeExplorationError::InvalidRequest);
+        }
+        let mut candidate_ids = BTreeSet::new();
+        for candidate in &self.candidate_actions {
+            candidate
+                .validate()
+                .map_err(SafeExplorationError::Selection)?;
+            if !candidate_ids.insert(candidate.id.as_str()) {
+                return Err(SafeExplorationError::Selection(
+                    ExperimentSelectionError::DuplicateCandidate,
+                ));
+            }
         }
         if self.maximum_episodes > 1 && !adapter.descriptor().supports_reset {
             return Err(SafeExplorationError::ResetUnsupported);
@@ -74,6 +88,7 @@ pub enum SafeExplorationFailure {
     DescriptorChangedAfterReset,
     ExplorationFailed(String),
     RuntimeReportShapeMismatch,
+    ActionReportedIncomplete,
     MissingActionIntent,
     SelectedActionMissingFromRanking,
     NumericalOverflow,
@@ -152,9 +167,7 @@ where
                         break;
                     }
                     let descriptor = adapter.descriptor();
-                    if descriptor.id != initial_descriptor.id
-                        || descriptor.version != initial_descriptor.version
-                    {
+                    if descriptor != &initial_descriptor {
                         failure = Some(SafeExplorationFailure::DescriptorChangedAfterReset);
                         termination = SafeExplorationTermination::StoppedAfterFailure;
                         break;
@@ -186,7 +199,7 @@ where
             }
             let remaining_cost =
                 request.maximum_total_resource_cost - total_resource_cost;
-            if remaining_cost <= 0.0 {
+            if remaining_cost < 0.0 {
                 termination = SafeExplorationTermination::ResourceBudgetReached;
                 break;
             }
@@ -265,14 +278,18 @@ where
                 termination = SafeExplorationTermination::StoppedAfterFailure;
                 break;
             };
+            // The planner chooses an ActionProposal, not the candidate ID. If
+            // two candidate IDs map to the same proposal, charge the largest
+            // declared cost because the selection provenance is ambiguous.
             let selected_cost = ranking
                 .ranked_actions
                 .iter()
-                .find(|candidate| {
+                .filter(|candidate| {
                     candidate.action.action_id == *action_id
                         && candidate.action.arguments == *arguments
                 })
-                .map(|candidate| candidate.resource_cost);
+                .map(|candidate| candidate.resource_cost)
+                .reduce(f64::max);
             let Some(selected_cost) = selected_cost else {
                 failure = Some(SafeExplorationFailure::SelectedActionMissingFromRanking);
                 termination = SafeExplorationTermination::StoppedAfterFailure;
@@ -296,6 +313,7 @@ where
             episode.steps.push(step);
 
             if episode.steps.last().is_some_and(|step| !step.outcome.completed) {
+                failure = Some(SafeExplorationFailure::ActionReportedIncomplete);
                 termination = SafeExplorationTermination::StoppedAfterFailure;
                 break;
             }
@@ -310,8 +328,7 @@ where
             termination = SafeExplorationTermination::StepBudgetReached;
             break;
         }
-        if total_resource_cost >= request.maximum_total_resource_cost {
-            termination = SafeExplorationTermination::ResourceBudgetReached;
+        if termination == SafeExplorationTermination::ResourceBudgetReached {
             break;
         }
         if !episode_has_steps && episode_index + 1 < request.maximum_episodes {
