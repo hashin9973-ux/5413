@@ -31,8 +31,14 @@ impl OperatorSpec {
         }
         let mut inputs = BTreeSet::new();
         let mut outputs = BTreeSet::new();
-        if self.inputs.iter().any(|port| port.name.trim().is_empty() || !inputs.insert(&port.name))
-            || self.outputs.iter().any(|port| port.name.trim().is_empty() || !outputs.insert(&port.name))
+        if self
+            .inputs
+            .iter()
+            .any(|port| port.name.trim().is_empty() || !inputs.insert(&port.name))
+            || self
+                .outputs
+                .iter()
+                .any(|port| port.name.trim().is_empty() || !outputs.insert(&port.name))
         {
             return Err(StrategyError::InvalidOperator);
         }
@@ -91,7 +97,10 @@ impl StrategyGraph {
         if self.nodes.is_empty() || self.outputs.is_empty() {
             return Err(StrategyError::EmptyGraph);
         }
-        if self.external_inputs.keys().any(|name| name.trim().is_empty())
+        if self
+            .external_inputs
+            .keys()
+            .any(|name| name.trim().is_empty())
             || self.outputs.keys().any(|name| name.trim().is_empty())
         {
             return Err(StrategyError::InvalidGraph);
@@ -104,8 +113,7 @@ impl StrategyGraph {
             }
         }
 
-        let mut indegree: BTreeMap<&str, usize> =
-            nodes.keys().map(|id| (*id, 0usize)).collect();
+        let mut indegree: BTreeMap<&str, usize> = nodes.keys().map(|id| (*id, 0usize)).collect();
         let mut outgoing: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
         let mut reverse: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
 
@@ -119,7 +127,10 @@ impl StrategyGraph {
                 .map(|port| (port.name.as_str(), port.kind))
                 .collect();
             if node.inputs.len() != expected.len()
-                || node.inputs.keys().any(|name| !expected.contains_key(name.as_str()))
+                || node
+                    .inputs
+                    .keys()
+                    .any(|name| !expected.contains_key(name.as_str()))
             {
                 return Err(StrategyError::InputPortMismatch);
             }
@@ -180,11 +191,17 @@ impl StrategyGraph {
                     }
                 }
                 InputBinding::NodeOutput { node_id, port } => {
-                    let source = nodes.get(node_id.as_str()).ok_or(StrategyError::UnknownNode)?;
+                    let source = nodes
+                        .get(node_id.as_str())
+                        .ok_or(StrategyError::UnknownNode)?;
                     let operator = catalogue
                         .get(&source.operator_id)
                         .ok_or(StrategyError::UnknownOperator)?;
-                    if !operator.outputs.iter().any(|candidate| candidate.name == *port) {
+                    if !operator
+                        .outputs
+                        .iter()
+                        .any(|candidate| candidate.name == *port)
+                    {
                         return Err(StrategyError::UnknownOutputPort);
                     }
                 }
@@ -427,7 +444,10 @@ impl StrategyRegistry {
             .map(|record| (record.spec.id.clone(), record.spec.version));
 
         if let Some(key) = incumbent_key.as_ref() {
-            let incumbent = self.records.get(key).ok_or(StrategyError::StrategyNotFound)?;
+            let incumbent = self
+                .records
+                .get(key)
+                .ok_or(StrategyError::StrategyNotFound)?;
             let incumbent_evaluation = incumbent
                 .evaluation
                 .as_ref()
@@ -438,18 +458,21 @@ impl StrategyRegistry {
             {
                 return Err(StrategyError::IncomparableEvaluations);
             }
-            if candidate_utility
-                < incumbent_evaluation.utility(policy) + policy.minimum_improvement
+            if candidate_utility < incumbent_evaluation.utility(policy) + policy.minimum_improvement
             {
-                self.records.get_mut(&candidate_key).ok_or(StrategyError::StrategyNotFound)?.status =
-                    StrategyStatus::Rejected;
+                self.records
+                    .get_mut(&candidate_key)
+                    .ok_or(StrategyError::StrategyNotFound)?
+                    .status = StrategyStatus::Rejected;
                 return Err(StrategyError::InsufficientImprovement);
             }
         }
 
         if let Some(key) = incumbent_key {
-            self.records.get_mut(&key).ok_or(StrategyError::StrategyNotFound)?.status =
-                StrategyStatus::Retired;
+            self.records
+                .get_mut(&key)
+                .ok_or(StrategyError::StrategyNotFound)?
+                .status = StrategyStatus::Retired;
         }
         self.records
             .get_mut(&candidate_key)
@@ -512,7 +535,8 @@ impl StrategyRegistry {
         let mut active_ids = BTreeSet::new();
         for value in values {
             let record = strategy_from_value(value, catalogue)?;
-            if record.status == StrategyStatus::Active && !active_ids.insert(record.spec.id.clone()) {
+            if record.status == StrategyStatus::Active && !active_ids.insert(record.spec.id.clone())
+            {
                 return Err(StrategyError::InvalidSerializedState);
             }
             let key = (record.spec.id.clone(), record.spec.version);
@@ -526,63 +550,128 @@ impl StrategyRegistry {
 
 fn strategy_to_value(record: &StrategyRecord) -> DataValue {
     let inputs = DataValue::Object(
-        record.spec.graph.external_inputs.iter()
-            .map(|(name, kind)| (name.clone(), DataValue::Text(value_kind_name(*kind).to_owned())))
+        record
+            .spec
+            .graph
+            .external_inputs
+            .iter()
+            .map(|(name, kind)| {
+                (
+                    name.clone(),
+                    DataValue::Text(value_kind_name(*kind).to_owned()),
+                )
+            })
             .collect(),
     );
-    let nodes = DataValue::Sequence(record.spec.graph.nodes.iter().map(|node| {
-        DataValue::object([
-            ("id".to_owned(), DataValue::Text(node.id.clone())),
-            ("operator_id".to_owned(), DataValue::Text(node.operator_id.clone())),
-            ("inputs".to_owned(), bindings_to_value(&node.inputs)),
-        ])
-    }).collect());
+    let nodes = DataValue::Sequence(
+        record
+            .spec
+            .graph
+            .nodes
+            .iter()
+            .map(|node| {
+                DataValue::object([
+                    ("id".to_owned(), DataValue::Text(node.id.clone())),
+                    (
+                        "operator_id".to_owned(),
+                        DataValue::Text(node.operator_id.clone()),
+                    ),
+                    ("inputs".to_owned(), bindings_to_value(&node.inputs)),
+                ])
+            })
+            .collect(),
+    );
     let outputs = bindings_to_value(&record.spec.graph.outputs);
-    let evaluation = record.evaluation.as_ref().map(|item| DataValue::object([
-        ("evaluation_dataset_id".to_owned(), DataValue::Text(item.evaluation_dataset_id.clone())),
-        ("metric_id".to_owned(), DataValue::Text(item.metric_id.clone())),
-        ("direction".to_owned(), DataValue::Text(match item.direction {
-            ScoreDirection::HigherIsBetter => "higher",
-            ScoreDirection::LowerIsBetter => "lower",
-        }.to_owned())),
-        ("sample_count".to_owned(), DataValue::Text(item.sample_count.to_string())),
-        ("primary_score".to_owned(), DataValue::Number(item.primary_score)),
-        ("resource_cost".to_owned(), DataValue::Number(item.resource_cost)),
-    ])).unwrap_or(DataValue::Null);
+    let evaluation = record
+        .evaluation
+        .as_ref()
+        .map(|item| {
+            DataValue::object([
+                (
+                    "evaluation_dataset_id".to_owned(),
+                    DataValue::Text(item.evaluation_dataset_id.clone()),
+                ),
+                (
+                    "metric_id".to_owned(),
+                    DataValue::Text(item.metric_id.clone()),
+                ),
+                (
+                    "direction".to_owned(),
+                    DataValue::Text(
+                        match item.direction {
+                            ScoreDirection::HigherIsBetter => "higher",
+                            ScoreDirection::LowerIsBetter => "lower",
+                        }
+                        .to_owned(),
+                    ),
+                ),
+                (
+                    "sample_count".to_owned(),
+                    DataValue::Text(item.sample_count.to_string()),
+                ),
+                (
+                    "primary_score".to_owned(),
+                    DataValue::Number(item.primary_score),
+                ),
+                (
+                    "resource_cost".to_owned(),
+                    DataValue::Number(item.resource_cost),
+                ),
+            ])
+        })
+        .unwrap_or(DataValue::Null);
     DataValue::object([
         ("id".to_owned(), DataValue::Text(record.spec.id.clone())),
-        ("version".to_owned(), DataValue::Text(record.spec.version.to_string())),
-        ("training_dataset_id".to_owned(), DataValue::Text(record.spec.training_dataset_id.clone())),
+        (
+            "version".to_owned(),
+            DataValue::Text(record.spec.version.to_string()),
+        ),
+        (
+            "training_dataset_id".to_owned(),
+            DataValue::Text(record.spec.training_dataset_id.clone()),
+        ),
         ("external_inputs".to_owned(), inputs),
         ("nodes".to_owned(), nodes),
         ("outputs".to_owned(), outputs),
-        ("status".to_owned(), DataValue::Text(status_name(record.status).to_owned())),
+        (
+            "status".to_owned(),
+            DataValue::Text(status_name(record.status).to_owned()),
+        ),
         ("evaluation".to_owned(), evaluation),
     ])
 }
 
 fn bindings_to_value(bindings: &BTreeMap<String, InputBinding>) -> DataValue {
-    DataValue::Object(bindings.iter().map(|(name, binding)| {
-        let value = match binding {
-            InputBinding::External(source) => DataValue::object([
-                ("kind".to_owned(), DataValue::Text("external".to_owned())),
-                ("name".to_owned(), DataValue::Text(source.clone())),
-            ]),
-            InputBinding::NodeOutput { node_id, port } => DataValue::object([
-                ("kind".to_owned(), DataValue::Text("node".to_owned())),
-                ("node_id".to_owned(), DataValue::Text(node_id.clone())),
-                ("port".to_owned(), DataValue::Text(port.clone())),
-            ]),
-        };
-        (name.clone(), value)
-    }).collect())
+    DataValue::Object(
+        bindings
+            .iter()
+            .map(|(name, binding)| {
+                let value = match binding {
+                    InputBinding::External(source) => DataValue::object([
+                        ("kind".to_owned(), DataValue::Text("external".to_owned())),
+                        ("name".to_owned(), DataValue::Text(source.clone())),
+                    ]),
+                    InputBinding::NodeOutput { node_id, port } => DataValue::object([
+                        ("kind".to_owned(), DataValue::Text("node".to_owned())),
+                        ("node_id".to_owned(), DataValue::Text(node_id.clone())),
+                        ("port".to_owned(), DataValue::Text(port.clone())),
+                    ]),
+                };
+                (name.clone(), value)
+            })
+            .collect(),
+    )
 }
 
 fn value_to_bindings(value: &DataValue) -> Result<BTreeMap<String, InputBinding>, StrategyError> {
-    let values = value.as_object().ok_or(StrategyError::InvalidSerializedState)?;
+    let values = value
+        .as_object()
+        .ok_or(StrategyError::InvalidSerializedState)?;
     let mut result = BTreeMap::new();
     for (name, value) in values {
-        let fields = value.as_object().ok_or(StrategyError::InvalidSerializedState)?;
+        let fields = value
+            .as_object()
+            .ok_or(StrategyError::InvalidSerializedState)?;
         let binding = match fields.get("kind") {
             Some(DataValue::Text(kind)) if kind == "external" && fields.len() == 2 => {
                 match fields.get("name") {
@@ -647,7 +736,9 @@ fn text_field(fields: &BTreeMap<String, DataValue>, name: &str) -> Result<String
 }
 
 fn number_field(fields: &BTreeMap<String, DataValue>, name: &str) -> Result<f64, StrategyError> {
-    fields.get(name).and_then(DataValue::as_f64)
+    fields
+        .get(name)
+        .and_then(DataValue::as_f64)
         .filter(|value| value.is_finite())
         .ok_or(StrategyError::InvalidSerializedState)
 }
@@ -656,35 +747,56 @@ fn strategy_from_value(
     value: &DataValue,
     catalogue: &OperatorCatalogue,
 ) -> Result<StrategyRecord, StrategyError> {
-    let fields = value.as_object().ok_or(StrategyError::InvalidSerializedState)?;
+    let fields = value
+        .as_object()
+        .ok_or(StrategyError::InvalidSerializedState)?;
     if fields.len() != 8 {
         return Err(StrategyError::InvalidSerializedState);
     }
     let id = text_field(fields, "id")?;
-    let version = text_field(fields, "version")?.parse().map_err(|_| StrategyError::InvalidSerializedState)?;
+    let version = text_field(fields, "version")?
+        .parse()
+        .map_err(|_| StrategyError::InvalidSerializedState)?;
     let training_dataset_id = text_field(fields, "training_dataset_id")?;
     let external_inputs = match fields.get("external_inputs") {
-        Some(DataValue::Object(values)) => values.iter().map(|(name, value)| {
-            let DataValue::Text(kind) = value else {
-                return Err(StrategyError::InvalidSerializedState);
-            };
-            Ok((name.clone(), parse_value_kind(kind)?))
-        }).collect::<Result<BTreeMap<_, _>, _>>()?,
+        Some(DataValue::Object(values)) => values
+            .iter()
+            .map(|(name, value)| {
+                let DataValue::Text(kind) = value else {
+                    return Err(StrategyError::InvalidSerializedState);
+                };
+                Ok((name.clone(), parse_value_kind(kind)?))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?,
         _ => return Err(StrategyError::InvalidSerializedState),
     };
     let nodes = match fields.get("nodes") {
-        Some(DataValue::Sequence(nodes)) => nodes.iter().map(|value| {
-            let node = value.as_object().ok_or(StrategyError::InvalidSerializedState)?;
-            if node.len() != 3 { return Err(StrategyError::InvalidSerializedState); }
-            Ok(StrategyNode {
-                id: text_field(node, "id")?,
-                operator_id: text_field(node, "operator_id")?,
-                inputs: value_to_bindings(node.get("inputs").ok_or(StrategyError::InvalidSerializedState)?)?,
+        Some(DataValue::Sequence(nodes)) => nodes
+            .iter()
+            .map(|value| {
+                let node = value
+                    .as_object()
+                    .ok_or(StrategyError::InvalidSerializedState)?;
+                if node.len() != 3 {
+                    return Err(StrategyError::InvalidSerializedState);
+                }
+                Ok(StrategyNode {
+                    id: text_field(node, "id")?,
+                    operator_id: text_field(node, "operator_id")?,
+                    inputs: value_to_bindings(
+                        node.get("inputs")
+                            .ok_or(StrategyError::InvalidSerializedState)?,
+                    )?,
+                })
             })
-        }).collect::<Result<Vec<_>,_>>()?,
+            .collect::<Result<Vec<_>, _>>()?,
         _ => return Err(StrategyError::InvalidSerializedState),
     };
-    let outputs = value_to_bindings(fields.get("outputs").ok_or(StrategyError::InvalidSerializedState)?)?;
+    let outputs = value_to_bindings(
+        fields
+            .get("outputs")
+            .ok_or(StrategyError::InvalidSerializedState)?,
+    )?;
     let status = match text_field(fields, "status")?.as_str() {
         "candidate" => StrategyStatus::Candidate,
         "active" => StrategyStatus::Active,
@@ -702,7 +814,9 @@ fn strategy_from_value(
                 "lower" => ScoreDirection::LowerIsBetter,
                 _ => return Err(StrategyError::InvalidSerializedState),
             },
-            sample_count: text_field(values, "sample_count")?.parse().map_err(|_| StrategyError::InvalidSerializedState)?,
+            sample_count: text_field(values, "sample_count")?
+                .parse()
+                .map_err(|_| StrategyError::InvalidSerializedState)?,
             primary_score: number_field(values, "primary_score")?,
             resource_cost: number_field(values, "resource_cost")?,
         }),
@@ -717,8 +831,10 @@ fn strategy_from_value(
             return Err(StrategyError::InvalidSerializedState);
         }
     }
-    if matches!(status, StrategyStatus::Active | StrategyStatus::Retired | StrategyStatus::Rejected)
-        && evaluation.is_none()
+    if matches!(
+        status,
+        StrategyStatus::Active | StrategyStatus::Retired | StrategyStatus::Rejected
+    ) && evaluation.is_none()
     {
         return Err(StrategyError::InvalidSerializedState);
     }
@@ -726,10 +842,18 @@ fn strategy_from_value(
         id,
         version,
         training_dataset_id,
-        graph: StrategyGraph { external_inputs, nodes, outputs },
+        graph: StrategyGraph {
+            external_inputs,
+            nodes,
+            outputs,
+        },
     };
     spec.graph.validate(catalogue)?;
-    Ok(StrategyRecord { spec, status, evaluation })
+    Ok(StrategyRecord {
+        spec,
+        status,
+        evaluation,
+    })
 }
 
 fn status_name(status: StrategyStatus) -> &'static str {
@@ -780,13 +904,25 @@ impl std::fmt::Display for StrategyError {
             Self::InvalidGraph => write!(formatter, "strategy graph is invalid"),
             Self::DuplicateNode => write!(formatter, "strategy node ID is duplicated"),
             Self::UnknownOperator => write!(formatter, "strategy references an unknown operator"),
-            Self::InputPortMismatch => write!(formatter, "operator input bindings do not match its declared ports"),
-            Self::UnknownExternalInput => write!(formatter, "strategy references an unknown external input"),
-            Self::PortTypeMismatch => write!(formatter, "strategy graph connects incompatible port types"),
+            Self::InputPortMismatch => write!(
+                formatter,
+                "operator input bindings do not match its declared ports"
+            ),
+            Self::UnknownExternalInput => {
+                write!(formatter, "strategy references an unknown external input")
+            }
+            Self::PortTypeMismatch => {
+                write!(formatter, "strategy graph connects incompatible port types")
+            }
             Self::UnknownNode => write!(formatter, "strategy references an unknown node"),
-            Self::UnknownOutputPort => write!(formatter, "strategy references an unknown output port"),
+            Self::UnknownOutputPort => {
+                write!(formatter, "strategy references an unknown output port")
+            }
             Self::CycleDetected => write!(formatter, "strategy graph contains a cycle"),
-            Self::UnreachableNode => write!(formatter, "strategy contains nodes that do not contribute to outputs"),
+            Self::UnreachableNode => write!(
+                formatter,
+                "strategy contains nodes that do not contribute to outputs"
+            ),
             Self::CostOverflow => write!(formatter, "strategy aggregate cost overflowed"),
             Self::InvalidPolicy => write!(formatter, "strategy evaluation policy is invalid"),
             Self::InvalidEvaluation => write!(formatter, "strategy evaluation metrics are invalid"),
@@ -794,12 +930,25 @@ impl std::fmt::Display for StrategyError {
             Self::DuplicateStrategy => write!(formatter, "strategy version already exists"),
             Self::StrategyNotFound => write!(formatter, "strategy was not found"),
             Self::InvalidLifecycle => write!(formatter, "strategy lifecycle transition is invalid"),
-            Self::EvaluationReusesTrainingData => write!(formatter, "evaluation dataset must differ from strategy training data"),
-            Self::InsufficientEvaluationSamples => write!(formatter, "strategy evaluation has too few samples"),
+            Self::EvaluationReusesTrainingData => write!(
+                formatter,
+                "evaluation dataset must differ from strategy training data"
+            ),
+            Self::InsufficientEvaluationSamples => {
+                write!(formatter, "strategy evaluation has too few samples")
+            }
             Self::NotEvaluated => write!(formatter, "strategy candidate has not been evaluated"),
-            Self::IncomparableEvaluations => write!(formatter, "candidate and incumbent must share the same evaluation dataset"),
-            Self::InsufficientImprovement => write!(formatter, "candidate did not exceed the configured improvement margin"),
-            Self::InvalidSerializedState => write!(formatter, "serialized strategy registry is invalid"),
+            Self::IncomparableEvaluations => write!(
+                formatter,
+                "candidate and incumbent must share the same evaluation dataset"
+            ),
+            Self::InsufficientImprovement => write!(
+                formatter,
+                "candidate did not exceed the configured improvement margin"
+            ),
+            Self::InvalidSerializedState => {
+                write!(formatter, "serialized strategy registry is invalid")
+            }
         }
     }
 }
@@ -812,20 +961,36 @@ mod tests {
 
     fn catalogue() -> OperatorCatalogue {
         let mut catalogue = OperatorCatalogue::default();
-        catalogue.register(OperatorSpec {
-            id: "normalize".to_owned(),
-            inputs: vec![PortSpec { name: "raw".to_owned(), kind: ValueKind::Number }],
-            outputs: vec![PortSpec { name: "normalized".to_owned(), kind: ValueKind::Number }],
-            cost_units: 2,
-            deterministic: true,
-        }).expect("register normalize");
-        catalogue.register(OperatorSpec {
-            id: "predict".to_owned(),
-            inputs: vec![PortSpec { name: "features".to_owned(), kind: ValueKind::Number }],
-            outputs: vec![PortSpec { name: "score".to_owned(), kind: ValueKind::Number }],
-            cost_units: 5,
-            deterministic: true,
-        }).expect("register predict");
+        catalogue
+            .register(OperatorSpec {
+                id: "normalize".to_owned(),
+                inputs: vec![PortSpec {
+                    name: "raw".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                outputs: vec![PortSpec {
+                    name: "normalized".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                cost_units: 2,
+                deterministic: true,
+            })
+            .expect("register normalize");
+        catalogue
+            .register(OperatorSpec {
+                id: "predict".to_owned(),
+                inputs: vec![PortSpec {
+                    name: "features".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                outputs: vec![PortSpec {
+                    name: "score".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                cost_units: 5,
+                deterministic: true,
+            })
+            .expect("register predict");
         catalogue
     }
 
@@ -836,21 +1001,30 @@ mod tests {
                 StrategyNode {
                     id: "transform".to_owned(),
                     operator_id: "normalize".to_owned(),
-                    inputs: BTreeMap::from([("raw".to_owned(), InputBinding::External("observation".to_owned()))]),
+                    inputs: BTreeMap::from([(
+                        "raw".to_owned(),
+                        InputBinding::External("observation".to_owned()),
+                    )]),
                 },
                 StrategyNode {
                     id: "model".to_owned(),
                     operator_id: "predict".to_owned(),
-                    inputs: BTreeMap::from([("features".to_owned(), InputBinding::NodeOutput {
-                        node_id: "transform".to_owned(),
-                        port: "normalized".to_owned(),
-                    })]),
+                    inputs: BTreeMap::from([(
+                        "features".to_owned(),
+                        InputBinding::NodeOutput {
+                            node_id: "transform".to_owned(),
+                            port: "normalized".to_owned(),
+                        },
+                    )]),
                 },
             ],
-            outputs: BTreeMap::from([("prediction".to_owned(), InputBinding::NodeOutput {
-                node_id: "model".to_owned(),
-                port: "score".to_owned(),
-            })]),
+            outputs: BTreeMap::from([(
+                "prediction".to_owned(),
+                InputBinding::NodeOutput {
+                    node_id: "model".to_owned(),
+                    port: "score".to_owned(),
+                },
+            )]),
         }
     }
 
@@ -883,55 +1057,105 @@ mod tests {
     fn rejects_type_mismatch_cycle_and_disconnected_operator() {
         let catalogue = catalogue();
         let mut wrong_type = graph();
-        wrong_type.external_inputs.insert("observation".to_owned(), ValueKind::Text);
-        assert_eq!(wrong_type.validate(&catalogue), Err(StrategyError::PortTypeMismatch));
+        wrong_type
+            .external_inputs
+            .insert("observation".to_owned(), ValueKind::Text);
+        assert_eq!(
+            wrong_type.validate(&catalogue),
+            Err(StrategyError::PortTypeMismatch)
+        );
 
         let mut cycle = graph();
-        cycle.nodes[0].inputs.insert("raw".to_owned(), InputBinding::NodeOutput {
-            node_id: "model".to_owned(),
-            port: "score".to_owned(),
-        });
-        assert_eq!(cycle.validate(&catalogue), Err(StrategyError::CycleDetected));
+        cycle.nodes[0].inputs.insert(
+            "raw".to_owned(),
+            InputBinding::NodeOutput {
+                node_id: "model".to_owned(),
+                port: "score".to_owned(),
+            },
+        );
+        assert_eq!(
+            cycle.validate(&catalogue),
+            Err(StrategyError::CycleDetected)
+        );
 
         let mut disconnected = graph();
         disconnected.nodes.push(StrategyNode {
             id: "unused".to_owned(),
             operator_id: "normalize".to_owned(),
-            inputs: BTreeMap::from([("raw".to_owned(), InputBinding::External("observation".to_owned()))]),
+            inputs: BTreeMap::from([(
+                "raw".to_owned(),
+                InputBinding::External("observation".to_owned()),
+            )]),
         });
-        assert_eq!(disconnected.validate(&catalogue), Err(StrategyError::UnreachableNode));
+        assert_eq!(
+            disconnected.validate(&catalogue),
+            Err(StrategyError::UnreachableNode)
+        );
     }
 
     #[test]
     fn promotion_requires_comparable_held_out_improvement_and_round_trips() {
         let catalogue = catalogue();
         let mut registry = StrategyRegistry::default();
-        registry.register_candidate(spec(1), &catalogue).expect("candidate v1");
-        registry.evaluate_candidate("default-learning-pipeline", 1, StrategyEvaluation {
-            evaluation_dataset_id: "holdout-v1".to_owned(),
-            metric_id: "score".to_owned(),
-            direction: ScoreDirection::HigherIsBetter,
-            sample_count: 20,
-            primary_score: 0.8,
-            resource_cost: 2.0,
-        }, policy()).expect("evaluate v1");
-        registry.promote("default-learning-pipeline", 1, policy()).expect("promote v1");
+        registry
+            .register_candidate(spec(1), &catalogue)
+            .expect("candidate v1");
+        registry
+            .evaluate_candidate(
+                "default-learning-pipeline",
+                1,
+                StrategyEvaluation {
+                    evaluation_dataset_id: "holdout-v1".to_owned(),
+                    metric_id: "score".to_owned(),
+                    direction: ScoreDirection::HigherIsBetter,
+                    sample_count: 20,
+                    primary_score: 0.8,
+                    resource_cost: 2.0,
+                },
+                policy(),
+            )
+            .expect("evaluate v1");
+        registry
+            .promote("default-learning-pipeline", 1, policy())
+            .expect("promote v1");
 
-        registry.register_candidate(spec(2), &catalogue).expect("candidate v2");
-        registry.evaluate_candidate("default-learning-pipeline", 2, StrategyEvaluation {
-            evaluation_dataset_id: "holdout-v1".to_owned(),
-            metric_id: "score".to_owned(),
-            direction: ScoreDirection::HigherIsBetter,
-            sample_count: 20,
-            primary_score: 0.9,
-            resource_cost: 2.0,
-        }, policy()).expect("evaluate v2");
-        registry.promote("default-learning-pipeline", 2, policy()).expect("promote v2");
-        assert_eq!(registry.active("default-learning-pipeline").map(|r| r.spec.version), Some(2));
-        assert_eq!(registry.get("default-learning-pipeline", 1).map(|r| r.status), Some(StrategyStatus::Retired));
+        registry
+            .register_candidate(spec(2), &catalogue)
+            .expect("candidate v2");
+        registry
+            .evaluate_candidate(
+                "default-learning-pipeline",
+                2,
+                StrategyEvaluation {
+                    evaluation_dataset_id: "holdout-v1".to_owned(),
+                    metric_id: "score".to_owned(),
+                    direction: ScoreDirection::HigherIsBetter,
+                    sample_count: 20,
+                    primary_score: 0.9,
+                    resource_cost: 2.0,
+                },
+                policy(),
+            )
+            .expect("evaluate v2");
+        registry
+            .promote("default-learning-pipeline", 2, policy())
+            .expect("promote v2");
+        assert_eq!(
+            registry
+                .active("default-learning-pipeline")
+                .map(|r| r.spec.version),
+            Some(2)
+        );
+        assert_eq!(
+            registry
+                .get("default-learning-pipeline", 1)
+                .map(|r| r.status),
+            Some(StrategyStatus::Retired)
+        );
 
         let artifact = registry.to_artifact_value();
-        let restored = StrategyRegistry::from_artifact_value(&artifact, &catalogue).expect("restore");
+        let restored =
+            StrategyRegistry::from_artifact_value(&artifact, &catalogue).expect("restore");
         assert_eq!(restored, registry);
     }
 
@@ -939,30 +1163,55 @@ mod tests {
     fn candidate_cannot_promote_on_different_or_tiny_validation_set() {
         let catalogue = catalogue();
         let mut registry = StrategyRegistry::default();
-        registry.register_candidate(spec(1), &catalogue).expect("v1");
-        registry.evaluate_candidate("default-learning-pipeline", 1, StrategyEvaluation {
-            evaluation_dataset_id: "holdout".to_owned(),
-            metric_id: "score".to_owned(),
-            direction: ScoreDirection::HigherIsBetter,
-            sample_count: 20,
-            primary_score: 0.7,
-            resource_cost: 1.0,
-        }, policy()).expect("eval");
-        registry.promote("default-learning-pipeline", 1, policy()).expect("promote");
+        registry
+            .register_candidate(spec(1), &catalogue)
+            .expect("v1");
+        registry
+            .evaluate_candidate(
+                "default-learning-pipeline",
+                1,
+                StrategyEvaluation {
+                    evaluation_dataset_id: "holdout".to_owned(),
+                    metric_id: "score".to_owned(),
+                    direction: ScoreDirection::HigherIsBetter,
+                    sample_count: 20,
+                    primary_score: 0.7,
+                    resource_cost: 1.0,
+                },
+                policy(),
+            )
+            .expect("eval");
+        registry
+            .promote("default-learning-pipeline", 1, policy())
+            .expect("promote");
 
-        registry.register_candidate(spec(2), &catalogue).expect("v2");
-        registry.evaluate_candidate("default-learning-pipeline", 2, StrategyEvaluation {
-            evaluation_dataset_id: "another-holdout".to_owned(),
-            metric_id: "score".to_owned(),
-            direction: ScoreDirection::HigherIsBetter,
-            sample_count: 20,
-            primary_score: 0.99,
-            resource_cost: 0.0,
-        }, policy()).expect("eval v2");
+        registry
+            .register_candidate(spec(2), &catalogue)
+            .expect("v2");
+        registry
+            .evaluate_candidate(
+                "default-learning-pipeline",
+                2,
+                StrategyEvaluation {
+                    evaluation_dataset_id: "another-holdout".to_owned(),
+                    metric_id: "score".to_owned(),
+                    direction: ScoreDirection::HigherIsBetter,
+                    sample_count: 20,
+                    primary_score: 0.99,
+                    resource_cost: 0.0,
+                },
+                policy(),
+            )
+            .expect("eval v2");
         assert_eq!(
             registry.promote("default-learning-pipeline", 2, policy()),
             Err(StrategyError::IncomparableEvaluations)
         );
-        assert_eq!(registry.active("default-learning-pipeline").map(|r| r.spec.version), Some(1));
+        assert_eq!(
+            registry
+                .active("default-learning-pipeline")
+                .map(|r| r.spec.version),
+            Some(1)
+        );
     }
 }

@@ -110,10 +110,7 @@ pub fn rank_experiments(
 ) -> Result<Vec<RankedExperiment>, ExperimentSelectionError> {
     policy.validate()?;
     let prior = hypothesis.posterior_probability;
-    if hypothesis.spec.id.trim().is_empty()
-        || !prior.is_finite()
-        || !(0.0..=1.0).contains(&prior)
-    {
+    if hypothesis.spec.id.trim().is_empty() || !prior.is_finite() || !(0.0..=1.0).contains(&prior) {
         return Err(ExperimentSelectionError::InvalidHypothesis);
     }
 
@@ -167,8 +164,7 @@ fn binary_expected_information_gain(
     probability_if_false: f64,
 ) -> f64 {
     let prior_entropy = binary_entropy(prior);
-    let probability_positive =
-        prior * probability_if_true + (1.0 - prior) * probability_if_false;
+    let probability_positive = prior * probability_if_true + (1.0 - prior) * probability_if_false;
     let posterior_positive = if probability_positive == 0.0 {
         prior
     } else {
@@ -189,8 +185,7 @@ fn binary_entropy(probability: f64) -> f64 {
     if probability <= 0.0 || probability >= 1.0 {
         0.0
     } else {
-        -probability * probability.ln()
-            - (1.0 - probability) * (1.0 - probability).ln()
+        -probability * probability.ln() - (1.0 - probability) * (1.0 - probability).ln()
     }
 }
 
@@ -210,7 +205,10 @@ impl std::fmt::Display for ExperimentSelectionError {
             Self::InvalidPolicy => write!(formatter, "experiment selection policy is invalid"),
             Self::InvalidHypothesis => write!(formatter, "hypothesis posterior is invalid"),
             Self::DuplicateCandidate => write!(formatter, "experiment candidate ID is duplicated"),
-            Self::NumericalOverflow => write!(formatter, "experiment information-gain calculation overflowed"),
+            Self::NumericalOverflow => write!(
+                formatter,
+                "experiment information-gain calculation overflowed"
+            ),
         }
     }
 }
@@ -256,7 +254,10 @@ mod tests {
     fn prefers_experiments_with_high_expected_information_gain() {
         let ranked = rank_experiments(
             &hypothesis(0.5),
-            &[candidate("uninformative", 0.5, 0.5), candidate("discriminating", 0.95, 0.05)],
+            &[
+                candidate("uninformative", 0.5, 0.5),
+                candidate("discriminating", 0.95, 0.05),
+            ],
             ExperimentSelectionPolicy {
                 maximum_resource_cost: 10.0,
                 maximum_risk: 0.5,
@@ -264,7 +265,8 @@ mod tests {
                 risk_weight: 0.0,
                 allow_irreversible: false,
             },
-        ).expect("rank");
+        )
+        .expect("rank");
         assert_eq!(ranked[0].experiment_id, "discriminating");
         assert!(ranked[0].expected_information_gain > ranked[1].expected_information_gain);
         assert!(ranked[0].is_worthwhile());
@@ -280,7 +282,8 @@ mod tests {
             &hypothesis(0.5),
             &[unsafe_action, expensive, candidate("safe", 0.8, 0.2)],
             ExperimentSelectionPolicy::default(),
-        ).expect("rank");
+        )
+        .expect("rank");
         assert_eq!(ranked.len(), 1);
         assert_eq!(ranked[0].experiment_id, "safe");
     }
@@ -290,7 +293,10 @@ mod tests {
         assert_eq!(
             rank_experiments(
                 &hypothesis(0.5),
-                &[candidate("duplicate", 0.9, 0.1), candidate("duplicate", 0.8, 0.2)],
+                &[
+                    candidate("duplicate", 0.9, 0.1),
+                    candidate("duplicate", 0.8, 0.2)
+                ],
                 ExperimentSelectionPolicy::default(),
             ),
             Err(ExperimentSelectionError::DuplicateCandidate)
@@ -298,7 +304,11 @@ mod tests {
         let mut invalid = candidate("bad", 0.9, 0.1);
         invalid.observation_probability_if_true = 2.0;
         assert_eq!(
-            rank_experiments(&hypothesis(0.5), &[invalid], ExperimentSelectionPolicy::default()),
+            rank_experiments(
+                &hypothesis(0.5),
+                &[invalid],
+                ExperimentSelectionPolicy::default()
+            ),
             Err(ExperimentSelectionError::InvalidCandidate)
         );
     }

@@ -33,7 +33,10 @@ pub fn extract_transition_samples(
     let mut pending: Option<PendingTransition> = None;
     let mut samples = Vec::new();
 
-    for record in records.iter().filter(|record| record.episode_id == episode_id) {
+    for record in records
+        .iter()
+        .filter(|record| record.episode_id == episode_id)
+    {
         match &record.event {
             ExperienceEvent::Observation(observation) => {
                 if observation.payload.validate_finite().is_err() {
@@ -63,8 +66,7 @@ pub fn extract_transition_samples(
             }
             ExperienceEvent::ActionCompleted(outcome) => {
                 if let Some(active) = pending.as_mut() {
-                    active.completed =
-                        outcome.completed && outcome.action_id == active.action_id;
+                    active.completed = outcome.completed && outcome.action_id == active.action_id;
                     active.observed_after = None;
                 }
             }
@@ -78,10 +80,7 @@ pub fn extract_transition_samples(
     samples
 }
 
-fn append_completed_transition(
-    pending: PendingTransition,
-    samples: &mut Vec<TransitionSample>,
-) {
+fn append_completed_transition(pending: PendingTransition, samples: &mut Vec<TransitionSample>) {
     if !pending.completed {
         return;
     }
@@ -94,7 +93,6 @@ fn append_completed_transition(
         after,
     });
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FieldPrediction {
@@ -453,7 +451,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod transition_extraction_tests {
     use super::*;
@@ -470,10 +467,7 @@ mod transition_extraction_tests {
             observed_at_millis: sequence,
             schema_id: "state".to_owned(),
             schema_version: 1,
-            payload: DataValue::object([(
-                "position".to_owned(),
-                DataValue::Number(position),
-            )]),
+            payload: DataValue::object([("position".to_owned(), DataValue::Number(position))]),
         })
     }
 
@@ -518,7 +512,10 @@ mod transition_extraction_tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].action_id, "advance");
         assert_eq!(
-            samples[0].before.get("position").and_then(DataValue::as_f64),
+            samples[0]
+                .before
+                .get("position")
+                .and_then(DataValue::as_f64),
             Some(0.0)
         );
         assert_eq!(

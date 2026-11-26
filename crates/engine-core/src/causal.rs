@@ -130,33 +130,64 @@ impl PairedRandomizedStudy {
     pub fn to_artifact_value(&self) -> DataValue {
         DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("experiment_id".to_owned(), DataValue::Text(self.experiment_id.clone())),
-            ("dataset_id".to_owned(), DataValue::Text(self.dataset_id.clone())),
-            ("treatment_label".to_owned(), DataValue::Text(self.treatment_label.clone())),
-            ("control_label".to_owned(), DataValue::Text(self.control_label.clone())),
-            ("outcome_label".to_owned(), DataValue::Text(self.outcome_label.clone())),
+            (
+                "experiment_id".to_owned(),
+                DataValue::Text(self.experiment_id.clone()),
+            ),
+            (
+                "dataset_id".to_owned(),
+                DataValue::Text(self.dataset_id.clone()),
+            ),
+            (
+                "treatment_label".to_owned(),
+                DataValue::Text(self.treatment_label.clone()),
+            ),
+            (
+                "control_label".to_owned(),
+                DataValue::Text(self.control_label.clone()),
+            ),
+            (
+                "outcome_label".to_owned(),
+                DataValue::Text(self.outcome_label.clone()),
+            ),
             (
                 "assignment_design".to_owned(),
-                DataValue::Text(match self.assignment_design {
-                    AssignmentDesign::Randomized => "randomized",
-                    AssignmentDesign::Observational => "observational",
-                }.to_owned()),
+                DataValue::Text(
+                    match self.assignment_design {
+                        AssignmentDesign::Randomized => "randomized",
+                        AssignmentDesign::Observational => "observational",
+                    }
+                    .to_owned(),
+                ),
             ),
             (
                 "pairs".to_owned(),
-                DataValue::Sequence(self.pairs.iter().map(|pair| {
-                    DataValue::object([
-                        ("pair_id".to_owned(), DataValue::Text(pair.pair_id.clone())),
-                        ("control_outcome".to_owned(), DataValue::Number(pair.control_outcome)),
-                        ("treatment_outcome".to_owned(), DataValue::Number(pair.treatment_outcome)),
-                    ])
-                }).collect()),
+                DataValue::Sequence(
+                    self.pairs
+                        .iter()
+                        .map(|pair| {
+                            DataValue::object([
+                                ("pair_id".to_owned(), DataValue::Text(pair.pair_id.clone())),
+                                (
+                                    "control_outcome".to_owned(),
+                                    DataValue::Number(pair.control_outcome),
+                                ),
+                                (
+                                    "treatment_outcome".to_owned(),
+                                    DataValue::Number(pair.treatment_outcome),
+                                ),
+                            ])
+                        })
+                        .collect(),
+                ),
             ),
         ])
     }
 
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, CausalError> {
-        let fields = value.as_object().ok_or(CausalError::InvalidSerializedStudy)?;
+        let fields = value
+            .as_object()
+            .ok_or(CausalError::InvalidSerializedStudy)?;
         if fields.len() != 8 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(CausalError::InvalidSerializedStudy);
         }
@@ -170,21 +201,36 @@ impl PairedRandomizedStudy {
             _ => return Err(CausalError::InvalidSerializedStudy),
         };
         let pairs = match fields.get("pairs") {
-            Some(DataValue::Sequence(values)) => values.iter().map(|value| {
-                let fields = value.as_object().ok_or(CausalError::InvalidSerializedStudy)?;
-                if fields.len() != 3 {
-                    return Err(CausalError::InvalidSerializedStudy);
-                }
-                let pair_id = match fields.get("pair_id") {
-                    Some(DataValue::Text(value)) => value.clone(),
-                    _ => return Err(CausalError::InvalidSerializedStudy),
-                };
-                let control_outcome = fields.get("control_outcome").and_then(DataValue::as_f64)
-                    .filter(|value| value.is_finite()).ok_or(CausalError::InvalidSerializedStudy)?;
-                let treatment_outcome = fields.get("treatment_outcome").and_then(DataValue::as_f64)
-                    .filter(|value| value.is_finite()).ok_or(CausalError::InvalidSerializedStudy)?;
-                Ok(PairedOutcome { pair_id, control_outcome, treatment_outcome })
-            }).collect::<Result<Vec<_>, _>>()?,
+            Some(DataValue::Sequence(values)) => values
+                .iter()
+                .map(|value| {
+                    let fields = value
+                        .as_object()
+                        .ok_or(CausalError::InvalidSerializedStudy)?;
+                    if fields.len() != 3 {
+                        return Err(CausalError::InvalidSerializedStudy);
+                    }
+                    let pair_id = match fields.get("pair_id") {
+                        Some(DataValue::Text(value)) => value.clone(),
+                        _ => return Err(CausalError::InvalidSerializedStudy),
+                    };
+                    let control_outcome = fields
+                        .get("control_outcome")
+                        .and_then(DataValue::as_f64)
+                        .filter(|value| value.is_finite())
+                        .ok_or(CausalError::InvalidSerializedStudy)?;
+                    let treatment_outcome = fields
+                        .get("treatment_outcome")
+                        .and_then(DataValue::as_f64)
+                        .filter(|value| value.is_finite())
+                        .ok_or(CausalError::InvalidSerializedStudy)?;
+                    Ok(PairedOutcome {
+                        pair_id,
+                        control_outcome,
+                        treatment_outcome,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
             _ => return Err(CausalError::InvalidSerializedStudy),
         };
         let study = Self {
@@ -196,7 +242,9 @@ impl PairedRandomizedStudy {
             assignment_design,
             pairs,
         };
-        study.validate().map_err(|_| CausalError::InvalidSerializedStudy)?;
+        study
+            .validate()
+            .map_err(|_| CausalError::InvalidSerializedStudy)?;
         Ok(study)
     }
 }
@@ -230,9 +278,17 @@ pub enum CausalError {
 impl std::fmt::Display for CausalError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::RandomizationRequired => write!(formatter, "causal estimate requires caller-attested randomized assignment"),
-            Self::InvalidStudy => write!(formatter, "paired randomized study is invalid or too small"),
-            Self::InvalidPair => write!(formatter, "paired outcome must have a non-empty ID and finite outcomes"),
+            Self::RandomizationRequired => write!(
+                formatter,
+                "causal estimate requires caller-attested randomized assignment"
+            ),
+            Self::InvalidStudy => {
+                write!(formatter, "paired randomized study is invalid or too small")
+            }
+            Self::InvalidPair => write!(
+                formatter,
+                "paired outcome must have a non-empty ID and finite outcomes"
+            ),
             Self::DuplicatePair => write!(formatter, "paired outcome ID is duplicated"),
             Self::NumericalOverflow => write!(formatter, "causal estimate overflowed"),
             Self::InvalidSerializedStudy => write!(formatter, "serialized causal study is invalid"),
@@ -255,9 +311,21 @@ mod tests {
             outcome_label: "deceleration".to_owned(),
             assignment_design: AssignmentDesign::Randomized,
             pairs: vec![
-                PairedOutcome { pair_id: "block-1".to_owned(), control_outcome: 1.0, treatment_outcome: 2.0 },
-                PairedOutcome { pair_id: "block-2".to_owned(), control_outcome: 1.5, treatment_outcome: 2.5 },
-                PairedOutcome { pair_id: "block-3".to_owned(), control_outcome: 2.0, treatment_outcome: 3.0 },
+                PairedOutcome {
+                    pair_id: "block-1".to_owned(),
+                    control_outcome: 1.0,
+                    treatment_outcome: 2.0,
+                },
+                PairedOutcome {
+                    pair_id: "block-2".to_owned(),
+                    control_outcome: 1.5,
+                    treatment_outcome: 2.5,
+                },
+                PairedOutcome {
+                    pair_id: "block-3".to_owned(),
+                    control_outcome: 2.0,
+                    treatment_outcome: 3.0,
+                },
             ],
         }
     }
@@ -268,14 +336,20 @@ mod tests {
         assert_eq!(estimate.pair_count, 3);
         assert!((estimate.mean_effect - 1.0).abs() < 1e-12);
         assert_eq!(estimate.standard_error, 0.0);
-        assert_eq!(estimate.normal_approximation_95_percent_interval, (1.0, 1.0));
+        assert_eq!(
+            estimate.normal_approximation_95_percent_interval,
+            (1.0, 1.0)
+        );
     }
 
     #[test]
     fn rejects_observational_or_malformed_pairs() {
         let mut observational = study();
         observational.assignment_design = AssignmentDesign::Observational;
-        assert_eq!(observational.estimate(), Err(CausalError::RandomizationRequired));
+        assert_eq!(
+            observational.estimate(),
+            Err(CausalError::RandomizationRequired)
+        );
 
         let mut duplicate = study();
         duplicate.pairs[1].pair_id = duplicate.pairs[0].pair_id.clone();

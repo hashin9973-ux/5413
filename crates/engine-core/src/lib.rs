@@ -1,14 +1,14 @@
 #![forbid(unsafe_code)]
 
 pub mod action;
-pub mod causal;
 pub mod benchmark;
+pub mod causal;
 pub mod checkpoint;
 pub mod discovery;
 pub mod environment;
-pub mod experiment_selection;
 pub mod experience;
 pub mod experience_journal;
+pub mod experiment_selection;
 pub mod experimentation;
 pub mod learning;
 pub mod mapping;
@@ -16,8 +16,8 @@ pub mod meta_learning;
 pub mod model_artifact;
 pub mod model_registry;
 pub mod planning;
-pub mod representation;
 pub mod reasoning;
+pub mod representation;
 pub mod research_cycle;
 pub mod runtime;
 pub mod schema;
@@ -25,11 +25,16 @@ pub mod structure;
 pub mod value;
 pub mod world_model;
 
-pub use benchmark::{BenchmarkError, FewShotTransferCurve, ScoreDirection, TransferAdaptationPoint, TransferBenchmark, TransferEvaluation, TransferSummary};
-pub use causal::{AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy};
 pub use action::{
     ActionAuthorizationPolicy, ActionAuthorizer, ActionDescriptor, ActionProposal, ActionRisk,
     AuthorizationError, AuthorizedAction,
+};
+pub use benchmark::{
+    BenchmarkError, FewShotTransferCurve, ScoreDirection, TransferAdaptationPoint,
+    TransferBenchmark, TransferEvaluation, TransferSummary,
+};
+pub use causal::{
+    AssignmentDesign, CausalEffectEstimate, CausalError, PairedOutcome, PairedRandomizedStudy,
 };
 pub use checkpoint::{
     restore_state, CheckpointAppendOutcome, CheckpointError, CheckpointSnapshot, CheckpointStore,
@@ -53,22 +58,28 @@ pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
     RepresentationMapping, RepresentationRef,
 };
-pub use model_registry::{ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRecord, ModelRegistry, ModelRegistryError, ModelStatus};
-pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
-pub use planning::{plan, Plan, PlanStep, PlanningConfig, PlanningError};
-pub use representation::{
-    EvaluationPolicy, RegistryError, RepresentationEvaluation, RepresentationKind,
-    RepresentationRecord, RepresentationRegistry, RepresentationSpec, RepresentationStatus,
-};
-pub use research_cycle::{run_autonomous_research_cycle, AutonomousResearchConfig, AutonomousResearchError, AutonomousResearchReport};
-pub use reasoning::{
-    EvidenceRecord, HypothesisPolicy, HypothesisRecord, HypothesisRegistry, HypothesisSpec,
-    HypothesisStatus, ReasoningError,
-};
 pub use meta_learning::{
     InputBinding, OperatorCatalogue, OperatorSpec, PortSpec, StrategyError, StrategyEvaluation,
     StrategyGraph, StrategyNode, StrategyPolicy, StrategyRecord, StrategyRegistry, StrategySpec,
     StrategyStatus,
+};
+pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
+pub use model_registry::{
+    ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRecord, ModelRegistry,
+    ModelRegistryError, ModelStatus,
+};
+pub use planning::{plan, Plan, PlanStep, PlanningConfig, PlanningError};
+pub use reasoning::{
+    EvidenceRecord, HypothesisPolicy, HypothesisRecord, HypothesisRegistry, HypothesisSpec,
+    HypothesisStatus, ReasoningError,
+};
+pub use representation::{
+    EvaluationPolicy, RegistryError, RepresentationEvaluation, RepresentationKind,
+    RepresentationRecord, RepresentationRegistry, RepresentationSpec, RepresentationStatus,
+};
+pub use research_cycle::{
+    run_autonomous_research_cycle, AutonomousResearchConfig, AutonomousResearchError,
+    AutonomousResearchReport,
 };
 pub use runtime::{
     run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,
@@ -85,6 +96,5 @@ pub use value::{DataValue, DataValueError};
 pub use world_model::{
     evaluate_ensemble, evaluate_model, restore_predictive_model, ActionDeltaModel,
     ContextualLinearModel, EnsembleWorldModel, FieldEstimate, ModelEvaluation, ModelFitReport,
-    TrainablePredictiveModel,
-    ModelIdentity, ModelPrediction, PredictiveModel, WorldModelError,
+    ModelIdentity, ModelPrediction, PredictiveModel, TrainablePredictiveModel, WorldModelError,
 };

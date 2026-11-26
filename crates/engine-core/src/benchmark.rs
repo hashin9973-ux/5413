@@ -77,7 +77,8 @@ impl TransferBenchmark {
         if self.evaluations.contains_key(&evaluation.case_id) {
             return Err(BenchmarkError::DuplicateCase);
         }
-        self.evaluations.insert(evaluation.case_id.clone(), evaluation);
+        self.evaluations
+            .insert(evaluation.case_id.clone(), evaluation);
         Ok(())
     }
 
@@ -111,13 +112,22 @@ impl TransferBenchmark {
             return Err(BenchmarkError::NoMatchingCases);
         }
         let direction = selected[0].direction;
-        if selected.iter().any(|evaluation| evaluation.direction != direction) {
+        if selected
+            .iter()
+            .any(|evaluation| evaluation.direction != direction)
+        {
             return Err(BenchmarkError::InconsistentMetricDirection);
         }
-        let improvements: Vec<f64> = selected.iter().map(|evaluation| evaluation.improvement()).collect();
+        let improvements: Vec<f64> = selected
+            .iter()
+            .map(|evaluation| evaluation.improvement())
+            .collect();
         let count = improvements.len() as f64;
         let mean_improvement = improvements.iter().sum::<f64>() / count;
-        let wins = improvements.iter().filter(|improvement| **improvement > 0.0).count();
+        let wins = improvements
+            .iter()
+            .filter(|improvement| **improvement > 0.0)
+            .count();
         let sample_variance = if improvements.len() > 1 {
             improvements
                 .iter()
@@ -132,9 +142,14 @@ impl TransferBenchmark {
         } else {
             None
         };
-        let mean_resource_cost = selected.iter().map(|evaluation| evaluation.resource_cost).sum::<f64>() / count;
+        let mean_resource_cost = selected
+            .iter()
+            .map(|evaluation| evaluation.resource_cost)
+            .sum::<f64>()
+            / count;
         let total_samples = selected.iter().try_fold(0usize, |sum, evaluation| {
-            sum.checked_add(evaluation.sample_count).ok_or(BenchmarkError::NumericalOverflow)
+            sum.checked_add(evaluation.sample_count)
+                .ok_or(BenchmarkError::NumericalOverflow)
         })?;
         if !mean_improvement.is_finite()
             || !mean_resource_cost.is_finite()
@@ -165,7 +180,9 @@ impl TransferBenchmark {
     }
 
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, BenchmarkError> {
-        let fields = value.as_object().ok_or(BenchmarkError::InvalidSerializedState)?;
+        let fields = value
+            .as_object()
+            .ok_or(BenchmarkError::InvalidSerializedState)?;
         if fields.len() != 2 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(BenchmarkError::InvalidSerializedState);
         }
@@ -176,7 +193,11 @@ impl TransferBenchmark {
         let mut benchmark = Self::default();
         for value in values {
             let evaluation = evaluation_from_value(value)?;
-            if benchmark.evaluations.insert(evaluation.case_id.clone(), evaluation).is_some() {
+            if benchmark
+                .evaluations
+                .insert(evaluation.case_id.clone(), evaluation)
+                .is_some()
+            {
                 return Err(BenchmarkError::InvalidSerializedState);
             }
         }
@@ -215,22 +236,57 @@ fn parse_direction(value: &str) -> Result<ScoreDirection, BenchmarkError> {
 fn evaluation_to_value(value: &TransferEvaluation) -> DataValue {
     DataValue::object([
         ("case_id".to_owned(), DataValue::Text(value.case_id.clone())),
-        ("source_environment_id".to_owned(), DataValue::Text(value.source_environment_id.clone())),
-        ("target_environment_id".to_owned(), DataValue::Text(value.target_environment_id.clone())),
-        ("source_training_dataset_id".to_owned(), DataValue::Text(value.source_training_dataset_id.clone())),
-        ("target_evaluation_dataset_id".to_owned(), DataValue::Text(value.target_evaluation_dataset_id.clone())),
-        ("model_artifact_ref".to_owned(), DataValue::Text(value.model_artifact_ref.clone())),
-        ("metric_id".to_owned(), DataValue::Text(value.metric_id.clone())),
-        ("direction".to_owned(), DataValue::Text(direction_name(value.direction).to_owned())),
-        ("baseline_score".to_owned(), DataValue::Number(value.baseline_score)),
-        ("transferred_score".to_owned(), DataValue::Number(value.transferred_score)),
-        ("sample_count".to_owned(), DataValue::Text(value.sample_count.to_string())),
-        ("resource_cost".to_owned(), DataValue::Number(value.resource_cost)),
+        (
+            "source_environment_id".to_owned(),
+            DataValue::Text(value.source_environment_id.clone()),
+        ),
+        (
+            "target_environment_id".to_owned(),
+            DataValue::Text(value.target_environment_id.clone()),
+        ),
+        (
+            "source_training_dataset_id".to_owned(),
+            DataValue::Text(value.source_training_dataset_id.clone()),
+        ),
+        (
+            "target_evaluation_dataset_id".to_owned(),
+            DataValue::Text(value.target_evaluation_dataset_id.clone()),
+        ),
+        (
+            "model_artifact_ref".to_owned(),
+            DataValue::Text(value.model_artifact_ref.clone()),
+        ),
+        (
+            "metric_id".to_owned(),
+            DataValue::Text(value.metric_id.clone()),
+        ),
+        (
+            "direction".to_owned(),
+            DataValue::Text(direction_name(value.direction).to_owned()),
+        ),
+        (
+            "baseline_score".to_owned(),
+            DataValue::Number(value.baseline_score),
+        ),
+        (
+            "transferred_score".to_owned(),
+            DataValue::Number(value.transferred_score),
+        ),
+        (
+            "sample_count".to_owned(),
+            DataValue::Text(value.sample_count.to_string()),
+        ),
+        (
+            "resource_cost".to_owned(),
+            DataValue::Number(value.resource_cost),
+        ),
     ])
 }
 
 fn evaluation_from_value(value: &DataValue) -> Result<TransferEvaluation, BenchmarkError> {
-    let fields = value.as_object().ok_or(BenchmarkError::InvalidSerializedState)?;
+    let fields = value
+        .as_object()
+        .ok_or(BenchmarkError::InvalidSerializedState)?;
     if fields.len() != 12 {
         return Err(BenchmarkError::InvalidSerializedState);
     }
@@ -238,10 +294,13 @@ fn evaluation_from_value(value: &DataValue) -> Result<TransferEvaluation, Benchm
         Some(DataValue::Text(value)) => Ok(value.clone()),
         _ => Err(BenchmarkError::InvalidSerializedState),
     };
-    let number = |name: &str| fields.get(name)
-        .and_then(DataValue::as_f64)
-        .filter(|value| value.is_finite())
-        .ok_or(BenchmarkError::InvalidSerializedState);
+    let number = |name: &str| {
+        fields
+            .get(name)
+            .and_then(DataValue::as_f64)
+            .filter(|value| value.is_finite())
+            .ok_or(BenchmarkError::InvalidSerializedState)
+    };
     let sample_count = text("sample_count")?
         .parse()
         .map_err(|_| BenchmarkError::InvalidSerializedState)?;
@@ -259,7 +318,9 @@ fn evaluation_from_value(value: &DataValue) -> Result<TransferEvaluation, Benchm
         sample_count,
         resource_cost: number("resource_cost")?,
     };
-    evaluation.validate().map_err(|_| BenchmarkError::InvalidSerializedState)?;
+    evaluation
+        .validate()
+        .map_err(|_| BenchmarkError::InvalidSerializedState)?;
     Ok(evaluation)
 }
 
@@ -317,10 +378,14 @@ impl FewShotTransferCurve {
 
     pub fn improvements(&self) -> Result<Vec<f64>, BenchmarkError> {
         self.validate()?;
-        let values: Vec<f64> = self.points.iter().map(|point| match self.direction {
-            ScoreDirection::HigherIsBetter => point.transferred_score - point.baseline_score,
-            ScoreDirection::LowerIsBetter => point.baseline_score - point.transferred_score,
-        }).collect();
+        let values: Vec<f64> = self
+            .points
+            .iter()
+            .map(|point| match self.direction {
+                ScoreDirection::HigherIsBetter => point.transferred_score - point.baseline_score,
+                ScoreDirection::LowerIsBetter => point.baseline_score - point.transferred_score,
+            })
+            .collect();
         if values.iter().any(|value| !value.is_finite()) {
             return Err(BenchmarkError::NumericalOverflow);
         }
@@ -344,27 +409,73 @@ impl FewShotTransferCurve {
     pub fn to_artifact_value(&self) -> DataValue {
         DataValue::object([
             ("artifact_version".to_owned(), DataValue::Integer(1)),
-            ("source_environment_id".to_owned(), DataValue::Text(self.source_environment_id.clone())),
-            ("target_environment_id".to_owned(), DataValue::Text(self.target_environment_id.clone())),
-            ("source_training_dataset_id".to_owned(), DataValue::Text(self.source_training_dataset_id.clone())),
-            ("target_evaluation_dataset_id".to_owned(), DataValue::Text(self.target_evaluation_dataset_id.clone())),
-            ("model_artifact_ref".to_owned(), DataValue::Text(self.model_artifact_ref.clone())),
-            ("metric_id".to_owned(), DataValue::Text(self.metric_id.clone())),
-            ("direction".to_owned(), DataValue::Text(direction_name(self.direction).to_owned())),
-            ("evaluation_sample_count".to_owned(), DataValue::Text(self.evaluation_sample_count.to_string())),
-            ("points".to_owned(), DataValue::Sequence(self.points.iter().map(|point| {
-                DataValue::object([
-                    ("adaptation_samples".to_owned(), DataValue::Text(point.adaptation_samples.to_string())),
-                    ("baseline_score".to_owned(), DataValue::Number(point.baseline_score)),
-                    ("transferred_score".to_owned(), DataValue::Number(point.transferred_score)),
-                    ("resource_cost".to_owned(), DataValue::Number(point.resource_cost)),
-                ])
-            }).collect())),
+            (
+                "source_environment_id".to_owned(),
+                DataValue::Text(self.source_environment_id.clone()),
+            ),
+            (
+                "target_environment_id".to_owned(),
+                DataValue::Text(self.target_environment_id.clone()),
+            ),
+            (
+                "source_training_dataset_id".to_owned(),
+                DataValue::Text(self.source_training_dataset_id.clone()),
+            ),
+            (
+                "target_evaluation_dataset_id".to_owned(),
+                DataValue::Text(self.target_evaluation_dataset_id.clone()),
+            ),
+            (
+                "model_artifact_ref".to_owned(),
+                DataValue::Text(self.model_artifact_ref.clone()),
+            ),
+            (
+                "metric_id".to_owned(),
+                DataValue::Text(self.metric_id.clone()),
+            ),
+            (
+                "direction".to_owned(),
+                DataValue::Text(direction_name(self.direction).to_owned()),
+            ),
+            (
+                "evaluation_sample_count".to_owned(),
+                DataValue::Text(self.evaluation_sample_count.to_string()),
+            ),
+            (
+                "points".to_owned(),
+                DataValue::Sequence(
+                    self.points
+                        .iter()
+                        .map(|point| {
+                            DataValue::object([
+                                (
+                                    "adaptation_samples".to_owned(),
+                                    DataValue::Text(point.adaptation_samples.to_string()),
+                                ),
+                                (
+                                    "baseline_score".to_owned(),
+                                    DataValue::Number(point.baseline_score),
+                                ),
+                                (
+                                    "transferred_score".to_owned(),
+                                    DataValue::Number(point.transferred_score),
+                                ),
+                                (
+                                    "resource_cost".to_owned(),
+                                    DataValue::Number(point.resource_cost),
+                                ),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
         ])
     }
 
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, BenchmarkError> {
-        let fields = value.as_object().ok_or(BenchmarkError::InvalidAdaptationCurve)?;
+        let fields = value
+            .as_object()
+            .ok_or(BenchmarkError::InvalidAdaptationCurve)?;
         if fields.len() != 10 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(BenchmarkError::InvalidAdaptationCurve);
         }
@@ -378,28 +489,39 @@ impl FewShotTransferCurve {
             _ => return Err(BenchmarkError::InvalidAdaptationCurve),
         };
         let evaluation_sample_count = text("evaluation_sample_count")?
-            .parse().map_err(|_| BenchmarkError::InvalidAdaptationCurve)?;
+            .parse()
+            .map_err(|_| BenchmarkError::InvalidAdaptationCurve)?;
         let points = match fields.get("points") {
-            Some(DataValue::Sequence(points)) => points.iter().map(|value| {
-                let point = value.as_object().ok_or(BenchmarkError::InvalidAdaptationCurve)?;
-                if point.len() != 4 {
-                    return Err(BenchmarkError::InvalidAdaptationCurve);
-                }
-                let adaptation_samples = match point.get("adaptation_samples") {
-                    Some(DataValue::Text(value)) => value.parse().map_err(|_| BenchmarkError::InvalidAdaptationCurve)?,
-                    _ => return Err(BenchmarkError::InvalidAdaptationCurve),
-                };
-                let number = |name: &str| point.get(name)
-                    .and_then(DataValue::as_f64)
-                    .filter(|value| value.is_finite())
-                    .ok_or(BenchmarkError::InvalidAdaptationCurve);
-                Ok(TransferAdaptationPoint {
-                    adaptation_samples,
-                    baseline_score: number("baseline_score")?,
-                    transferred_score: number("transferred_score")?,
-                    resource_cost: number("resource_cost")?,
+            Some(DataValue::Sequence(points)) => points
+                .iter()
+                .map(|value| {
+                    let point = value
+                        .as_object()
+                        .ok_or(BenchmarkError::InvalidAdaptationCurve)?;
+                    if point.len() != 4 {
+                        return Err(BenchmarkError::InvalidAdaptationCurve);
+                    }
+                    let adaptation_samples = match point.get("adaptation_samples") {
+                        Some(DataValue::Text(value)) => value
+                            .parse()
+                            .map_err(|_| BenchmarkError::InvalidAdaptationCurve)?,
+                        _ => return Err(BenchmarkError::InvalidAdaptationCurve),
+                    };
+                    let number = |name: &str| {
+                        point
+                            .get(name)
+                            .and_then(DataValue::as_f64)
+                            .filter(|value| value.is_finite())
+                            .ok_or(BenchmarkError::InvalidAdaptationCurve)
+                    };
+                    Ok(TransferAdaptationPoint {
+                        adaptation_samples,
+                        baseline_score: number("baseline_score")?,
+                        transferred_score: number("transferred_score")?,
+                        resource_cost: number("resource_cost")?,
+                    })
                 })
-            }).collect::<Result<Vec<_>, _>>()?,
+                .collect::<Result<Vec<_>, _>>()?,
             _ => return Err(BenchmarkError::InvalidAdaptationCurve),
         };
         let curve = Self {
@@ -413,7 +535,9 @@ impl FewShotTransferCurve {
             evaluation_sample_count,
             points,
         };
-        curve.validate().map_err(|_| BenchmarkError::InvalidAdaptationCurve)?;
+        curve
+            .validate()
+            .map_err(|_| BenchmarkError::InvalidAdaptationCurve)?;
         Ok(curve)
     }
 }
@@ -436,15 +560,27 @@ impl std::fmt::Display for BenchmarkError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidEvaluation => write!(formatter, "transfer evaluation is invalid"),
-            Self::NotCrossEnvironment => write!(formatter, "transfer evaluation must use distinct source and target environments"),
-            Self::DatasetLeakage => write!(formatter, "source training and target evaluation datasets must differ"),
+            Self::NotCrossEnvironment => write!(
+                formatter,
+                "transfer evaluation must use distinct source and target environments"
+            ),
+            Self::DatasetLeakage => write!(
+                formatter,
+                "source training and target evaluation datasets must differ"
+            ),
             Self::DuplicateCase => write!(formatter, "transfer benchmark case ID is duplicated"),
             Self::InvalidMetric => write!(formatter, "benchmark metric ID is invalid"),
             Self::NoMatchingCases => write!(formatter, "benchmark has no cases for this metric"),
-            Self::InconsistentMetricDirection => write!(formatter, "benchmark metric direction is inconsistent"),
+            Self::InconsistentMetricDirection => {
+                write!(formatter, "benchmark metric direction is inconsistent")
+            }
             Self::NumericalOverflow => write!(formatter, "benchmark aggregate overflowed"),
-            Self::InvalidSerializedState => write!(formatter, "serialized transfer benchmark is invalid"),
-            Self::InvalidAdaptationCurve => write!(formatter, "few-shot transfer adaptation curve is invalid"),
+            Self::InvalidSerializedState => {
+                write!(formatter, "serialized transfer benchmark is invalid")
+            }
+            Self::InvalidAdaptationCurve => {
+                write!(formatter, "few-shot transfer adaptation curve is invalid")
+            }
         }
     }
 }
@@ -482,9 +618,36 @@ mod tests {
     #[test]
     fn transfer_summary_reports_gain_win_rate_and_uncertainty() {
         let mut benchmark = TransferBenchmark::default();
-        benchmark.record(evaluation("case-1", "physics", "grid", 0.5, 0.3, ScoreDirection::LowerIsBetter)).expect("case 1");
-        benchmark.record(evaluation("case-2", "workflow", "grid", 0.6, 0.4, ScoreDirection::LowerIsBetter)).expect("case 2");
-        benchmark.record(evaluation("case-3", "physics", "robotics", 0.4, 0.5, ScoreDirection::LowerIsBetter)).expect("case 3");
+        benchmark
+            .record(evaluation(
+                "case-1",
+                "physics",
+                "grid",
+                0.5,
+                0.3,
+                ScoreDirection::LowerIsBetter,
+            ))
+            .expect("case 1");
+        benchmark
+            .record(evaluation(
+                "case-2",
+                "workflow",
+                "grid",
+                0.6,
+                0.4,
+                ScoreDirection::LowerIsBetter,
+            ))
+            .expect("case 2");
+        benchmark
+            .record(evaluation(
+                "case-3",
+                "physics",
+                "robotics",
+                0.4,
+                0.5,
+                ScoreDirection::LowerIsBetter,
+            ))
+            .expect("case 3");
         let summary = benchmark.summarize("prediction-error").expect("summary");
         assert_eq!(summary.case_count, 3);
         assert_eq!(summary.total_evaluation_samples, 60);
@@ -497,12 +660,29 @@ mod tests {
     fn rejects_same_environment_or_reused_dataset() {
         let mut benchmark = TransferBenchmark::default();
         assert_eq!(
-            benchmark.record(evaluation("same", "grid", "grid", 0.2, 0.1, ScoreDirection::LowerIsBetter)),
+            benchmark.record(evaluation(
+                "same",
+                "grid",
+                "grid",
+                0.2,
+                0.1,
+                ScoreDirection::LowerIsBetter
+            )),
             Err(BenchmarkError::NotCrossEnvironment)
         );
-        let mut leaked = evaluation("leak", "physics", "robotics", 0.2, 0.1, ScoreDirection::LowerIsBetter);
+        let mut leaked = evaluation(
+            "leak",
+            "physics",
+            "robotics",
+            0.2,
+            0.1,
+            ScoreDirection::LowerIsBetter,
+        );
         leaked.target_evaluation_dataset_id = leaked.source_training_dataset_id.clone();
-        assert_eq!(benchmark.record(leaked), Err(BenchmarkError::DatasetLeakage));
+        assert_eq!(
+            benchmark.record(leaked),
+            Err(BenchmarkError::DatasetLeakage)
+        );
     }
 
     #[test]
@@ -517,12 +697,30 @@ mod tests {
             direction: ScoreDirection::LowerIsBetter,
             evaluation_sample_count: 100,
             points: vec![
-                TransferAdaptationPoint { adaptation_samples: 1, baseline_score: 1.0, transferred_score: 0.8, resource_cost: 1.0 },
-                TransferAdaptationPoint { adaptation_samples: 5, baseline_score: 1.0, transferred_score: 0.6, resource_cost: 2.0 },
-                TransferAdaptationPoint { adaptation_samples: 10, baseline_score: 1.0, transferred_score: 0.5, resource_cost: 3.0 },
+                TransferAdaptationPoint {
+                    adaptation_samples: 1,
+                    baseline_score: 1.0,
+                    transferred_score: 0.8,
+                    resource_cost: 1.0,
+                },
+                TransferAdaptationPoint {
+                    adaptation_samples: 5,
+                    baseline_score: 1.0,
+                    transferred_score: 0.6,
+                    resource_cost: 2.0,
+                },
+                TransferAdaptationPoint {
+                    adaptation_samples: 10,
+                    baseline_score: 1.0,
+                    transferred_score: 0.5,
+                    resource_cost: 3.0,
+                },
             ],
         };
-        assert_eq!(curve.improvements().expect("improvements"), vec![0.2, 0.4, 0.5]);
+        assert_eq!(
+            curve.improvements().expect("improvements"),
+            vec![0.2, 0.4, 0.5]
+        );
         assert!((curve.area_under_improvement_curve().expect("area") - 3.4).abs() < 1e-12);
         assert_eq!(
             FewShotTransferCurve::from_artifact_value(&curve.to_artifact_value()).expect("restore"),
@@ -542,18 +740,41 @@ mod tests {
             direction: ScoreDirection::LowerIsBetter,
             evaluation_sample_count: 2,
             points: vec![
-                TransferAdaptationPoint { adaptation_samples: 4, baseline_score: 1.0, transferred_score: 0.8, resource_cost: 1.0 },
-                TransferAdaptationPoint { adaptation_samples: 2, baseline_score: 1.0, transferred_score: 0.7, resource_cost: 1.0 },
+                TransferAdaptationPoint {
+                    adaptation_samples: 4,
+                    baseline_score: 1.0,
+                    transferred_score: 0.8,
+                    resource_cost: 1.0,
+                },
+                TransferAdaptationPoint {
+                    adaptation_samples: 2,
+                    baseline_score: 1.0,
+                    transferred_score: 0.7,
+                    resource_cost: 1.0,
+                },
             ],
         };
-        assert_eq!(curve.validate(), Err(BenchmarkError::InvalidAdaptationCurve));
+        assert_eq!(
+            curve.validate(),
+            Err(BenchmarkError::InvalidAdaptationCurve)
+        );
     }
 
     #[test]
     fn benchmark_artifact_round_trips() {
         let mut benchmark = TransferBenchmark::default();
-        benchmark.record(evaluation("case-1", "physics", "grid", 0.5, 0.3, ScoreDirection::LowerIsBetter)).expect("case");
-        let restored = TransferBenchmark::from_artifact_value(&benchmark.to_artifact_value()).expect("restore");
+        benchmark
+            .record(evaluation(
+                "case-1",
+                "physics",
+                "grid",
+                0.5,
+                0.3,
+                ScoreDirection::LowerIsBetter,
+            ))
+            .expect("case");
+        let restored = TransferBenchmark::from_artifact_value(&benchmark.to_artifact_value())
+            .expect("restore");
         assert_eq!(restored, benchmark);
     }
 }
