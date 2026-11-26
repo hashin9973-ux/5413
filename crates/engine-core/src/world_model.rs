@@ -1,5 +1,7 @@
 use crate::experience::ExperienceRecord;
-use crate::learning::{extract_transition_samples, LearningError, NumericDeltaModel, TransitionSample};
+use crate::learning::{
+    extract_transition_samples, LearningError, NumericDeltaModel, TransitionSample,
+};
 use crate::value::DataValue;
 use std::collections::{BTreeMap, BTreeSet};
 

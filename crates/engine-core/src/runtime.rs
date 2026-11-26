@@ -455,12 +455,18 @@ mod tests {
                 &[
                     TransitionSample {
                         action_id: "advance".to_owned(),
-                        before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
                         after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
                     },
                     TransitionSample {
                         action_id: "advance".to_owned(),
-                        before: DataValue::object([("position".to_owned(), DataValue::Number(3.0))]),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(3.0),
+                        )]),
                         after: DataValue::object([("position".to_owned(), DataValue::Number(4.0))]),
                     },
                 ],
@@ -475,7 +481,9 @@ mod tests {
             execution_id: execution_id.to_owned(),
             episode_id: "episode-1".to_owned(),
             maximum_steps,
-            authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
+            authorizer: ActionAuthorizer::new(ActionAuthorizationPolicy::new(
+                ActionRisk::Reversible,
+            )),
             planning: PlanningConfig {
                 horizon: 2,
                 beam_width: 2,
@@ -503,13 +511,22 @@ mod tests {
             &actions(),
             config("run-1", 2),
             &mut journal,
-            |state| state.get("position").and_then(DataValue::as_f64).unwrap_or(0.0),
+            |state| {
+                state
+                    .get("position")
+                    .and_then(DataValue::as_f64)
+                    .unwrap_or(0.0)
+            },
         )
         .expect("runtime");
         assert_eq!(report.steps.len(), 2);
         assert_eq!(environment.executed, 2);
         assert_eq!(
-            report.final_observation.payload.get("position").and_then(DataValue::as_f64),
+            report
+                .final_observation
+                .payload
+                .get("position")
+                .and_then(DataValue::as_f64),
             Some(2.0)
         );
         assert!(report.steps.iter().all(|step| {
@@ -539,10 +556,24 @@ mod tests {
         let mut environment = CounterEnvironment::new();
         let world = trained_model();
         let cfg = config("blocked", 1);
-        run_receding_horizon(&mut environment, &world, &actions(), cfg.clone(), &mut journal, |_| 1.0)
-            .expect("first run");
+        run_receding_horizon(
+            &mut environment,
+            &world,
+            &actions(),
+            cfg.clone(),
+            &mut journal,
+            |_| 1.0,
+        )
+        .expect("first run");
         let sequence_before_retry = environment.sequence;
-        let retry = run_receding_horizon(&mut environment, &world, &actions(), cfg, &mut journal, |_| 1.0);
+        let retry = run_receding_horizon(
+            &mut environment,
+            &world,
+            &actions(),
+            cfg,
+            &mut journal,
+            |_| 1.0,
+        );
         assert!(matches!(retry, Err(RuntimeError::ExecutionAlreadyStarted)));
         assert_eq!(environment.sequence, sequence_before_retry);
         assert_eq!(environment.executed, 1);

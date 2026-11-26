@@ -126,12 +126,16 @@ pub struct ModelRegistry {
 }
 
 impl ModelRegistry {
-    pub fn register_candidate(&mut self, spec: ModelCandidateSpec) -> Result<(), ModelRegistryError> {
+    pub fn register_candidate(
+        &mut self,
+        spec: ModelCandidateSpec,
+    ) -> Result<(), ModelRegistryError> {
         spec.validate()?;
         if self.records.contains_key(&(spec.id.clone(), spec.version)) {
             return Err(ModelRegistryError::DuplicateVersion);
         }
-        if self.records
+        if self
+            .records
             .keys()
             .filter(|(id, _)| id == &spec.id)
             .any(|(_, version)| *version >= spec.version)
@@ -158,7 +162,8 @@ impl ModelRegistry {
     ) -> Result<(), ModelRegistryError> {
         policy.validate()?;
         evaluation.validate()?;
-        let record = self.records
+        let record = self
+            .records
             .get_mut(&(id.to_owned(), version))
             .ok_or(ModelRegistryError::ModelNotFound)?;
         if record.status != ModelStatus::Candidate {
@@ -184,38 +189,54 @@ impl ModelRegistry {
     ) -> Result<(), ModelRegistryError> {
         policy.validate()?;
         let candidate_key = (id.to_owned(), version);
-        let candidate = self.records.get(&candidate_key)
+        let candidate = self
+            .records
+            .get(&candidate_key)
             .ok_or(ModelRegistryError::ModelNotFound)?;
         if candidate.status != ModelStatus::Candidate {
             return Err(ModelRegistryError::InvalidLifecycle);
         }
-        let candidate_evaluation = candidate.evaluation.as_ref()
+        let candidate_evaluation = candidate
+            .evaluation
+            .as_ref()
             .ok_or(ModelRegistryError::NotEvaluated)?;
         if policy.require_calibrated_uncertainty && !candidate_evaluation.uncertainty_calibrated {
-            self.records.get_mut(&candidate_key).ok_or(ModelRegistryError::ModelNotFound)?.status =
-                ModelStatus::Rejected;
+            self.records
+                .get_mut(&candidate_key)
+                .ok_or(ModelRegistryError::ModelNotFound)?
+                .status = ModelStatus::Rejected;
             return Err(ModelRegistryError::UncalibratedUncertainty);
         }
         if candidate_evaluation.sample_count < policy.minimum_evaluation_samples {
-            self.records.get_mut(&candidate_key).ok_or(ModelRegistryError::ModelNotFound)?.status =
-                ModelStatus::Rejected;
+            self.records
+                .get_mut(&candidate_key)
+                .ok_or(ModelRegistryError::ModelNotFound)?
+                .status = ModelStatus::Rejected;
             return Err(ModelRegistryError::InsufficientEvaluationSamples);
         }
         let candidate_utility = candidate_evaluation.utility(policy)?;
-        let incumbent_key = self.records.values()
+        let incumbent_key = self
+            .records
+            .values()
             .find(|record| record.spec.id == id && record.status == ModelStatus::Active)
             .map(|record| (record.spec.id.clone(), record.spec.version));
 
         if let Some(key) = incumbent_key.as_ref() {
-            let incumbent = self.records.get(key).ok_or(ModelRegistryError::ModelNotFound)?;
+            let incumbent = self
+                .records
+                .get(key)
+                .ok_or(ModelRegistryError::ModelNotFound)?;
             if incumbent.spec.environment_id != candidate.spec.environment_id
                 || incumbent.spec.environment_version != candidate.spec.environment_version
             {
                 return Err(ModelRegistryError::IncompatibleEnvironment);
             }
-            let incumbent_evaluation = incumbent.evaluation.as_ref()
+            let incumbent_evaluation = incumbent
+                .evaluation
+                .as_ref()
                 .ok_or(ModelRegistryError::NotEvaluated)?;
-            if incumbent_evaluation.evaluation_dataset_id != candidate_evaluation.evaluation_dataset_id
+            if incumbent_evaluation.evaluation_dataset_id
+                != candidate_evaluation.evaluation_dataset_id
                 || incumbent_evaluation.metric_id != candidate_evaluation.metric_id
                 || incumbent_evaluation.direction != candidate_evaluation.direction
             {
@@ -223,25 +244,31 @@ impl ModelRegistry {
             }
             let incumbent_utility = incumbent_evaluation.utility(policy)?;
             if candidate_utility < incumbent_utility + policy.minimum_improvement {
-                self.records.get_mut(&candidate_key).ok_or(ModelRegistryError::ModelNotFound)?.status =
-                    ModelStatus::Rejected;
+                self.records
+                    .get_mut(&candidate_key)
+                    .ok_or(ModelRegistryError::ModelNotFound)?
+                    .status = ModelStatus::Rejected;
                 return Err(ModelRegistryError::InsufficientImprovement);
             }
         }
 
         if let Some(key) = incumbent_key {
-            self.records.get_mut(&key).ok_or(ModelRegistryError::ModelNotFound)?.status =
-                ModelStatus::Retired;
+            self.records
+                .get_mut(&key)
+                .ok_or(ModelRegistryError::ModelNotFound)?
+                .status = ModelStatus::Retired;
         }
-        self.records.get_mut(&candidate_key).ok_or(ModelRegistryError::ModelNotFound)?.status =
-            ModelStatus::Active;
+        self.records
+            .get_mut(&candidate_key)
+            .ok_or(ModelRegistryError::ModelNotFound)?
+            .status = ModelStatus::Active;
         Ok(())
     }
 
     pub fn active(&self, id: &str) -> Option<&ModelRecord> {
-        self.records.values().find(|record| {
-            record.spec.id == id && record.status == ModelStatus::Active
-        })
+        self.records
+            .values()
+            .find(|record| record.spec.id == id && record.status == ModelStatus::Active)
     }
 
     pub fn get(&self, id: &str, version: u64) -> Option<&ModelRecord> {
@@ -271,7 +298,9 @@ impl ModelRegistry {
     }
 
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, ModelRegistryError> {
-        let fields = value.as_object().ok_or(ModelRegistryError::InvalidSerializedState)?;
+        let fields = value
+            .as_object()
+            .ok_or(ModelRegistryError::InvalidSerializedState)?;
         if fields.len() != 2 || fields.get("artifact_version") != Some(&DataValue::Integer(1)) {
             return Err(ModelRegistryError::InvalidSerializedState);
         }
@@ -305,32 +334,73 @@ fn record_to_value(record: &ModelRecord) -> DataValue {
     let evaluation = match &record.evaluation {
         None => DataValue::Null,
         Some(value) => DataValue::object([
-            ("evaluation_dataset_id".to_owned(), DataValue::Text(value.evaluation_dataset_id.clone())),
-            ("metric_id".to_owned(), DataValue::Text(value.metric_id.clone())),
-            ("direction".to_owned(), DataValue::Text(match value.direction {
-                ScoreDirection::HigherIsBetter => "higher",
-                ScoreDirection::LowerIsBetter => "lower",
-            }.to_owned())),
-            ("sample_count".to_owned(), DataValue::Text(value.sample_count.to_string())),
+            (
+                "evaluation_dataset_id".to_owned(),
+                DataValue::Text(value.evaluation_dataset_id.clone()),
+            ),
+            (
+                "metric_id".to_owned(),
+                DataValue::Text(value.metric_id.clone()),
+            ),
+            (
+                "direction".to_owned(),
+                DataValue::Text(
+                    match value.direction {
+                        ScoreDirection::HigherIsBetter => "higher",
+                        ScoreDirection::LowerIsBetter => "lower",
+                    }
+                    .to_owned(),
+                ),
+            ),
+            (
+                "sample_count".to_owned(),
+                DataValue::Text(value.sample_count.to_string()),
+            ),
             ("score".to_owned(), DataValue::Number(value.score)),
-            ("resource_cost".to_owned(), DataValue::Number(value.resource_cost)),
-            ("uncertainty_calibrated".to_owned(), DataValue::Bool(value.uncertainty_calibrated)),
+            (
+                "resource_cost".to_owned(),
+                DataValue::Number(value.resource_cost),
+            ),
+            (
+                "uncertainty_calibrated".to_owned(),
+                DataValue::Bool(value.uncertainty_calibrated),
+            ),
         ]),
     };
     DataValue::object([
         ("id".to_owned(), DataValue::Text(record.spec.id.clone())),
-        ("version".to_owned(), DataValue::Text(record.spec.version.to_string())),
-        ("model_artifact_ref".to_owned(), DataValue::Text(record.spec.model_artifact_ref.clone())),
-        ("environment_id".to_owned(), DataValue::Text(record.spec.environment_id.clone())),
-        ("environment_version".to_owned(), DataValue::Text(record.spec.environment_version.clone())),
-        ("training_dataset_id".to_owned(), DataValue::Text(record.spec.training_dataset_id.clone())),
-        ("status".to_owned(), DataValue::Text(status_name(record.status).to_owned())),
+        (
+            "version".to_owned(),
+            DataValue::Text(record.spec.version.to_string()),
+        ),
+        (
+            "model_artifact_ref".to_owned(),
+            DataValue::Text(record.spec.model_artifact_ref.clone()),
+        ),
+        (
+            "environment_id".to_owned(),
+            DataValue::Text(record.spec.environment_id.clone()),
+        ),
+        (
+            "environment_version".to_owned(),
+            DataValue::Text(record.spec.environment_version.clone()),
+        ),
+        (
+            "training_dataset_id".to_owned(),
+            DataValue::Text(record.spec.training_dataset_id.clone()),
+        ),
+        (
+            "status".to_owned(),
+            DataValue::Text(status_name(record.status).to_owned()),
+        ),
         ("evaluation".to_owned(), evaluation),
     ])
 }
 
 fn record_from_value(value: &DataValue) -> Result<ModelRecord, ModelRegistryError> {
-    let fields = value.as_object().ok_or(ModelRegistryError::InvalidSerializedState)?;
+    let fields = value
+        .as_object()
+        .ok_or(ModelRegistryError::InvalidSerializedState)?;
     if fields.len() != 8 {
         return Err(ModelRegistryError::InvalidSerializedState);
     }
@@ -338,7 +408,9 @@ fn record_from_value(value: &DataValue) -> Result<ModelRecord, ModelRegistryErro
         Some(DataValue::Text(value)) => Ok(value.clone()),
         _ => Err(ModelRegistryError::InvalidSerializedState),
     };
-    let version = text("version")?.parse().map_err(|_| ModelRegistryError::InvalidSerializedState)?;
+    let version = text("version")?
+        .parse()
+        .map_err(|_| ModelRegistryError::InvalidSerializedState)?;
     let spec = ModelCandidateSpec {
         id: text("id")?,
         version,
@@ -367,11 +439,19 @@ fn record_from_value(value: &DataValue) -> Result<ModelRecord, ModelRegistryErro
                 "lower" => ScoreDirection::LowerIsBetter,
                 _ => return Err(ModelRegistryError::InvalidSerializedState),
             };
-            let sample_count = text_value("sample_count")?.parse().map_err(|_| ModelRegistryError::InvalidSerializedState)?;
-            let score = values.get("score").and_then(DataValue::as_f64)
-                .filter(|value| value.is_finite()).ok_or(ModelRegistryError::InvalidSerializedState)?;
-            let resource_cost = values.get("resource_cost").and_then(DataValue::as_f64)
-                .filter(|value| value.is_finite()).ok_or(ModelRegistryError::InvalidSerializedState)?;
+            let sample_count = text_value("sample_count")?
+                .parse()
+                .map_err(|_| ModelRegistryError::InvalidSerializedState)?;
+            let score = values
+                .get("score")
+                .and_then(DataValue::as_f64)
+                .filter(|value| value.is_finite())
+                .ok_or(ModelRegistryError::InvalidSerializedState)?;
+            let resource_cost = values
+                .get("resource_cost")
+                .and_then(DataValue::as_f64)
+                .filter(|value| value.is_finite())
+                .ok_or(ModelRegistryError::InvalidSerializedState)?;
             let uncertainty_calibrated = match values.get("uncertainty_calibrated") {
                 Some(DataValue::Bool(value)) => *value,
                 _ => return Err(ModelRegistryError::InvalidSerializedState),
@@ -393,12 +473,18 @@ fn record_from_value(value: &DataValue) -> Result<ModelRecord, ModelRegistryErro
         }
         _ => return Err(ModelRegistryError::InvalidSerializedState),
     };
-    if matches!(status, ModelStatus::Active | ModelStatus::Retired | ModelStatus::Rejected)
-        && evaluation.is_none()
+    if matches!(
+        status,
+        ModelStatus::Active | ModelStatus::Retired | ModelStatus::Rejected
+    ) && evaluation.is_none()
     {
         return Err(ModelRegistryError::InvalidSerializedState);
     }
-    Ok(ModelRecord { spec, status, evaluation })
+    Ok(ModelRecord {
+        spec,
+        status,
+        evaluation,
+    })
 }
 
 fn status_name(status: ModelStatus) -> &'static str {
@@ -435,20 +521,47 @@ impl std::fmt::Display for ModelRegistryError {
         match self {
             Self::InvalidSpec => write!(formatter, "predictive model candidate is invalid"),
             Self::DuplicateVersion => write!(formatter, "predictive model version already exists"),
-            Self::VersionMustIncrease => write!(formatter, "predictive model versions must increase monotonically"),
+            Self::VersionMustIncrease => write!(
+                formatter,
+                "predictive model versions must increase monotonically"
+            ),
             Self::InvalidEvaluation => write!(formatter, "predictive model evaluation is invalid"),
-            Self::InvalidPolicy => write!(formatter, "predictive model promotion policy is invalid"),
+            Self::InvalidPolicy => {
+                write!(formatter, "predictive model promotion policy is invalid")
+            }
             Self::ModelNotFound => write!(formatter, "predictive model candidate was not found"),
-            Self::InvalidLifecycle => write!(formatter, "predictive model lifecycle transition is invalid"),
-            Self::EvaluationReusesTrainingData => write!(formatter, "model evaluation must use data distinct from training"),
-            Self::InsufficientEvaluationSamples => write!(formatter, "model evaluation has too few samples"),
+            Self::InvalidLifecycle => write!(
+                formatter,
+                "predictive model lifecycle transition is invalid"
+            ),
+            Self::EvaluationReusesTrainingData => write!(
+                formatter,
+                "model evaluation must use data distinct from training"
+            ),
+            Self::InsufficientEvaluationSamples => {
+                write!(formatter, "model evaluation has too few samples")
+            }
             Self::NotEvaluated => write!(formatter, "predictive model has not been evaluated"),
-            Self::UncalibratedUncertainty => write!(formatter, "model uncertainty is not calibrated to the required policy"),
-            Self::IncompatibleEnvironment => write!(formatter, "model candidates target different environment contracts"),
-            Self::IncomparableEvaluations => write!(formatter, "model candidates require the same metric and evaluation dataset"),
-            Self::InsufficientImprovement => write!(formatter, "candidate model did not exceed the improvement margin"),
+            Self::UncalibratedUncertainty => write!(
+                formatter,
+                "model uncertainty is not calibrated to the required policy"
+            ),
+            Self::IncompatibleEnvironment => write!(
+                formatter,
+                "model candidates target different environment contracts"
+            ),
+            Self::IncomparableEvaluations => write!(
+                formatter,
+                "model candidates require the same metric and evaluation dataset"
+            ),
+            Self::InsufficientImprovement => write!(
+                formatter,
+                "candidate model did not exceed the improvement margin"
+            ),
             Self::NumericalOverflow => write!(formatter, "model promotion utility overflowed"),
-            Self::InvalidSerializedState => write!(formatter, "serialized model registry is invalid"),
+            Self::InvalidSerializedState => {
+                write!(formatter, "serialized model registry is invalid")
+            }
         }
     }
 }
@@ -495,26 +608,62 @@ mod tests {
     fn promotion_requires_same_holdout_and_calibrated_uncertainty() {
         let mut registry = ModelRegistry::default();
         registry.register_candidate(spec(1)).expect("v1");
-        registry.evaluate_candidate("world-model", 1, evaluation("holdout-1", 0.5, true), policy()).expect("evaluate v1");
-        registry.promote("world-model", 1, policy()).expect("promote v1");
+        registry
+            .evaluate_candidate(
+                "world-model",
+                1,
+                evaluation("holdout-1", 0.5, true),
+                policy(),
+            )
+            .expect("evaluate v1");
+        registry
+            .promote("world-model", 1, policy())
+            .expect("promote v1");
 
         registry.register_candidate(spec(2)).expect("v2");
-        registry.evaluate_candidate("world-model", 2, evaluation("holdout-1", 0.4, false), policy()).expect("evaluate v2");
-        assert_eq!(registry.promote("world-model", 2, policy()), Err(ModelRegistryError::UncalibratedUncertainty));
-        assert_eq!(registry.active("world-model").map(|record| record.spec.version), Some(1));
+        registry
+            .evaluate_candidate(
+                "world-model",
+                2,
+                evaluation("holdout-1", 0.4, false),
+                policy(),
+            )
+            .expect("evaluate v2");
+        assert_eq!(
+            registry.promote("world-model", 2, policy()),
+            Err(ModelRegistryError::UncalibratedUncertainty)
+        );
+        assert_eq!(
+            registry
+                .active("world-model")
+                .map(|record| record.spec.version),
+            Some(1)
+        );
     }
 
     #[test]
     fn promotion_retires_incumbent_and_registry_round_trips() {
         let mut registry = ModelRegistry::default();
         registry.register_candidate(spec(1)).expect("v1");
-        registry.evaluate_candidate("world-model", 1, evaluation("holdout", 0.6, true), policy()).expect("evaluate");
-        registry.promote("world-model", 1, policy()).expect("promote");
+        registry
+            .evaluate_candidate("world-model", 1, evaluation("holdout", 0.6, true), policy())
+            .expect("evaluate");
+        registry
+            .promote("world-model", 1, policy())
+            .expect("promote");
         registry.register_candidate(spec(2)).expect("v2");
-        registry.evaluate_candidate("world-model", 2, evaluation("holdout", 0.4, true), policy()).expect("evaluate");
-        registry.promote("world-model", 2, policy()).expect("promote v2");
-        assert_eq!(registry.get("world-model", 1).map(|record| record.status), Some(ModelStatus::Retired));
-        let restored = ModelRegistry::from_artifact_value(&registry.to_artifact_value()).expect("restore");
+        registry
+            .evaluate_candidate("world-model", 2, evaluation("holdout", 0.4, true), policy())
+            .expect("evaluate");
+        registry
+            .promote("world-model", 2, policy())
+            .expect("promote v2");
+        assert_eq!(
+            registry.get("world-model", 1).map(|record| record.status),
+            Some(ModelStatus::Retired)
+        );
+        let restored =
+            ModelRegistry::from_artifact_value(&registry.to_artifact_value()).expect("restore");
         assert_eq!(restored, registry);
     }
 }

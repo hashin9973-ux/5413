@@ -3,15 +3,15 @@
 //! References are caller-supplied stable identifiers, not hashes. CRC-32 detects
 //! accidental corruption; it does not provide authenticity or tamper resistance.
 
-use crate::causal::{CausalError, PairedRandomizedStudy};
 use crate::benchmark::{BenchmarkError, TransferBenchmark};
+use crate::causal::{CausalError, PairedRandomizedStudy};
 use crate::experience_journal::{
     crc32, decode_data_value, encode_data_value, MAX_FRAME_PAYLOAD_BYTES,
 };
-use crate::representation::{RegistryError, RepresentationRegistry};
-use crate::reasoning::{HypothesisPolicy, HypothesisRegistry, ReasoningError};
 use crate::meta_learning::{OperatorCatalogue, StrategyError, StrategyRegistry};
 use crate::model_registry::{ModelCandidateSpec, ModelRegistry, ModelRegistryError};
+use crate::reasoning::{HypothesisPolicy, HypothesisRegistry, ReasoningError};
+use crate::representation::{RegistryError, RepresentationRegistry};
 use crate::value::DataValue;
 use crate::world_model::{restore_predictive_model, PredictiveModel, WorldModelError};
 use std::collections::BTreeMap;
@@ -153,8 +153,12 @@ impl ModelArtifactStore {
         artifact_ref: &str,
         policy: HypothesisPolicy,
     ) -> Result<HypothesisRegistry, ModelArtifactError> {
-        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
-        HypothesisRegistry::from_artifact_value(artifact, policy).map_err(ModelArtifactError::Reasoning)
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        HypothesisRegistry::from_artifact_value(artifact, policy)
+            .map_err(ModelArtifactError::Reasoning)
     }
 
     /// Persists a typed, declarative strategy-registry snapshot.
@@ -172,8 +176,12 @@ impl ModelArtifactStore {
         artifact_ref: &str,
         catalogue: &OperatorCatalogue,
     ) -> Result<StrategyRegistry, ModelArtifactError> {
-        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
-        StrategyRegistry::from_artifact_value(artifact, catalogue).map_err(ModelArtifactError::Strategy)
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        StrategyRegistry::from_artifact_value(artifact, catalogue)
+            .map_err(ModelArtifactError::Strategy)
     }
 
     /// Persists an attested paired randomized study as an immutable artifact.
@@ -190,7 +198,10 @@ impl ModelArtifactStore {
         &self,
         artifact_ref: &str,
     ) -> Result<PairedRandomizedStudy, ModelArtifactError> {
-        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
         PairedRandomizedStudy::from_artifact_value(artifact).map_err(ModelArtifactError::Causal)
     }
 
@@ -207,7 +218,10 @@ impl ModelArtifactStore {
         &self,
         artifact_ref: &str,
     ) -> Result<TransferBenchmark, ModelArtifactError> {
-        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
         TransferBenchmark::from_artifact_value(artifact).map_err(ModelArtifactError::Benchmark)
     }
 
@@ -221,7 +235,9 @@ impl ModelArtifactStore {
         if model.identity().id != spec.id || model.identity().version != spec.version {
             return Err(ModelArtifactError::ModelIdentityMismatch);
         }
-        registry.register_candidate(spec).map_err(ModelArtifactError::ModelRegistry)
+        registry
+            .register_candidate(spec)
+            .map_err(ModelArtifactError::ModelRegistry)
     }
 
     pub fn put_model_registry(
@@ -231,7 +247,9 @@ impl ModelArtifactStore {
     ) -> Result<ArtifactPutOutcome, ModelArtifactError> {
         for record in registry.iter() {
             let model = self.load_model(&record.spec.model_artifact_ref)?;
-            if model.identity().id != record.spec.id || model.identity().version != record.spec.version {
+            if model.identity().id != record.spec.id
+                || model.identity().version != record.spec.version
+            {
                 return Err(ModelArtifactError::ModelIdentityMismatch);
             }
         }
@@ -242,11 +260,17 @@ impl ModelArtifactStore {
         &self,
         artifact_ref: &str,
     ) -> Result<ModelRegistry, ModelArtifactError> {
-        let artifact = self.artifacts.get(artifact_ref).ok_or(ModelArtifactError::NotFound)?;
-        let registry = ModelRegistry::from_artifact_value(artifact).map_err(ModelArtifactError::ModelRegistry)?;
+        let artifact = self
+            .artifacts
+            .get(artifact_ref)
+            .ok_or(ModelArtifactError::NotFound)?;
+        let registry = ModelRegistry::from_artifact_value(artifact)
+            .map_err(ModelArtifactError::ModelRegistry)?;
         for record in registry.iter() {
             let model = self.load_model(&record.spec.model_artifact_ref)?;
-            if model.identity().id != record.spec.id || model.identity().version != record.spec.version {
+            if model.identity().id != record.spec.id
+                || model.identity().version != record.spec.version
+            {
                 return Err(ModelArtifactError::ModelIdentityMismatch);
             }
         }
@@ -434,12 +458,24 @@ impl std::fmt::Display for ModelArtifactError {
                 formatter,
                 "representation-registry artifact is invalid: {error}"
             ),
-            Self::Reasoning(error) => write!(formatter, "hypothesis registry artifact is invalid: {error}"),
-            Self::Strategy(error) => write!(formatter, "strategy registry artifact is invalid: {error}"),
+            Self::Reasoning(error) => write!(
+                formatter,
+                "hypothesis registry artifact is invalid: {error}"
+            ),
+            Self::Strategy(error) => {
+                write!(formatter, "strategy registry artifact is invalid: {error}")
+            }
             Self::Causal(error) => write!(formatter, "causal study artifact is invalid: {error}"),
-            Self::Benchmark(error) => write!(formatter, "transfer benchmark artifact is invalid: {error}"),
-            Self::ModelRegistry(error) => write!(formatter, "model registry artifact is invalid: {error}"),
-            Self::ModelIdentityMismatch => write!(formatter, "model artifact identity does not match its registry specification"),
+            Self::Benchmark(error) => {
+                write!(formatter, "transfer benchmark artifact is invalid: {error}")
+            }
+            Self::ModelRegistry(error) => {
+                write!(formatter, "model registry artifact is invalid: {error}")
+            }
+            Self::ModelIdentityMismatch => write!(
+                formatter,
+                "model artifact identity does not match its registry specification"
+            ),
             Self::InvalidReference => write!(formatter, "artifact reference must not be empty"),
             Self::InvalidArtifact => write!(formatter, "artifact data is invalid"),
             Self::NotFound => write!(formatter, "model artifact was not found"),
@@ -681,8 +717,7 @@ mod tests {
     #[test]
     fn persists_and_restores_hypothesis_evidence() {
         use crate::reasoning::{
-            EvidenceRecord, HypothesisPolicy, HypothesisRegistry, HypothesisSpec,
-            HypothesisStatus,
+            EvidenceRecord, HypothesisPolicy, HypothesisRegistry, HypothesisSpec, HypothesisStatus,
         };
 
         let path = test_path();
@@ -692,38 +727,49 @@ mod tests {
             refutation_probability: 0.1,
         };
         let mut registry = HypothesisRegistry::default();
-        registry.insert(
-            HypothesisSpec {
-                id: "relation-a".to_owned(),
-                claim: DataValue::object([(
-                    "relation".to_owned(),
-                    DataValue::Text("x->y".to_owned()),
-                )]),
-                description: "candidate relation".to_owned(),
-                prior_probability: 0.5,
-                source_dataset_id: Some("discovery".to_owned()),
-            },
-            policy,
-        ).expect("insert");
-        registry.add_evidence(
-            "relation-a",
-            EvidenceRecord {
-                evidence_ref: "trial-1".to_owned(),
-                dataset_id: "validation-1".to_owned(),
-                log_likelihood_ratio: 2.5,
-                rationale: "predeclared trial evidence".to_owned(),
-            },
-            policy,
-        ).expect("evidence");
-        assert_eq!(registry.get("relation-a").map(|record| record.status), Some(HypothesisStatus::Supported));
+        registry
+            .insert(
+                HypothesisSpec {
+                    id: "relation-a".to_owned(),
+                    claim: DataValue::object([(
+                        "relation".to_owned(),
+                        DataValue::Text("x->y".to_owned()),
+                    )]),
+                    description: "candidate relation".to_owned(),
+                    prior_probability: 0.5,
+                    source_dataset_id: Some("discovery".to_owned()),
+                },
+                policy,
+            )
+            .expect("insert");
+        registry
+            .add_evidence(
+                "relation-a",
+                EvidenceRecord {
+                    evidence_ref: "trial-1".to_owned(),
+                    dataset_id: "validation-1".to_owned(),
+                    log_likelihood_ratio: 2.5,
+                    rationale: "predeclared trial evidence".to_owned(),
+                },
+                policy,
+            )
+            .expect("evidence");
+        assert_eq!(
+            registry.get("relation-a").map(|record| record.status),
+            Some(HypothesisStatus::Supported)
+        );
 
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
-            store.put_hypothesis_registry("hypotheses-v1", &registry).expect("persist");
+            store
+                .put_hypothesis_registry("hypotheses-v1", &registry)
+                .expect("persist");
         }
         {
             let store = ModelArtifactStore::open(&path).expect("reopen");
-            let restored = store.load_hypothesis_registry("hypotheses-v1", policy).expect("restore");
+            let restored = store
+                .load_hypothesis_registry("hypotheses-v1", policy)
+                .expect("restore");
             assert_eq!(restored, registry);
         }
         std::fs::remove_file(path).expect("remove artifact file");
@@ -741,19 +787,21 @@ mod tests {
 
         let path = test_path();
         let mut catalogue = OperatorCatalogue::default();
-        catalogue.register(OperatorSpec {
-            id: "numeric-normalizer".to_owned(),
-            inputs: vec![PortSpec {
-                name: "raw".to_owned(),
-                kind: ValueKind::Number,
-            }],
-            outputs: vec![PortSpec {
-                name: "normalized".to_owned(),
-                kind: ValueKind::Number,
-            }],
-            cost_units: 3,
-            deterministic: true,
-        }).expect("register operator");
+        catalogue
+            .register(OperatorSpec {
+                id: "numeric-normalizer".to_owned(),
+                inputs: vec![PortSpec {
+                    name: "raw".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                outputs: vec![PortSpec {
+                    name: "normalized".to_owned(),
+                    kind: ValueKind::Number,
+                }],
+                cost_units: 3,
+                deterministic: true,
+            })
+            .expect("register operator");
 
         let graph = StrategyGraph {
             external_inputs: BTreeMap::from([("observation".to_owned(), ValueKind::Number)]),
@@ -779,38 +827,49 @@ mod tests {
             resource_cost_weight: 0.1,
         };
         let mut registry = StrategyRegistry::default();
-        registry.register_candidate(
-            StrategySpec {
-                id: "pipeline".to_owned(),
-                version: 1,
-                training_dataset_id: "training-v1".to_owned(),
-                graph,
-            },
-            &catalogue,
-        ).expect("register candidate");
-        registry.evaluate_candidate(
-            "pipeline",
-            1,
-            StrategyEvaluation {
-                evaluation_dataset_id: "holdout-v1".to_owned(),
-                metric_id: "accuracy".to_owned(),
-                direction: crate::benchmark::ScoreDirection::HigherIsBetter,
-                sample_count: 20,
-                primary_score: 0.85,
-                resource_cost: 2.0,
-            },
-            policy,
-        ).expect("evaluate");
+        registry
+            .register_candidate(
+                StrategySpec {
+                    id: "pipeline".to_owned(),
+                    version: 1,
+                    training_dataset_id: "training-v1".to_owned(),
+                    graph,
+                },
+                &catalogue,
+            )
+            .expect("register candidate");
+        registry
+            .evaluate_candidate(
+                "pipeline",
+                1,
+                StrategyEvaluation {
+                    evaluation_dataset_id: "holdout-v1".to_owned(),
+                    metric_id: "accuracy".to_owned(),
+                    direction: crate::benchmark::ScoreDirection::HigherIsBetter,
+                    sample_count: 20,
+                    primary_score: 0.85,
+                    resource_cost: 2.0,
+                },
+                policy,
+            )
+            .expect("evaluate");
         registry.promote("pipeline", 1, policy).expect("promote");
-        assert_eq!(registry.active("pipeline").map(|record| record.status), Some(StrategyStatus::Active));
+        assert_eq!(
+            registry.active("pipeline").map(|record| record.status),
+            Some(StrategyStatus::Active)
+        );
 
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
-            store.put_strategy_registry("strategies-v1", &registry).expect("persist");
+            store
+                .put_strategy_registry("strategies-v1", &registry)
+                .expect("persist");
         }
         {
             let store = ModelArtifactStore::open(&path).expect("reopen");
-            let restored = store.load_strategy_registry("strategies-v1", &catalogue).expect("restore");
+            let restored = store
+                .load_strategy_registry("strategies-v1", &catalogue)
+                .expect("restore");
             assert_eq!(restored, registry);
         }
         std::fs::remove_file(path).expect("remove artifact file");
@@ -818,9 +877,7 @@ mod tests {
 
     #[test]
     fn persists_and_restores_paired_randomized_causal_study() {
-        use crate::causal::{
-            AssignmentDesign, PairedOutcome, PairedRandomizedStudy,
-        };
+        use crate::causal::{AssignmentDesign, PairedOutcome, PairedRandomizedStudy};
         let path = test_path();
         let study = PairedRandomizedStudy {
             experiment_id: "intervention-v1".to_owned(),
@@ -830,13 +887,23 @@ mod tests {
             outcome_label: "outcome".to_owned(),
             assignment_design: AssignmentDesign::Randomized,
             pairs: vec![
-                PairedOutcome { pair_id: "block-a".to_owned(), control_outcome: 1.0, treatment_outcome: 2.0 },
-                PairedOutcome { pair_id: "block-b".to_owned(), control_outcome: 1.5, treatment_outcome: 2.8 },
+                PairedOutcome {
+                    pair_id: "block-a".to_owned(),
+                    control_outcome: 1.0,
+                    treatment_outcome: 2.0,
+                },
+                PairedOutcome {
+                    pair_id: "block-b".to_owned(),
+                    control_outcome: 1.5,
+                    treatment_outcome: 2.8,
+                },
             ],
         };
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
-            store.put_causal_study("causal-study-v1", &study).expect("persist");
+            store
+                .put_causal_study("causal-study-v1", &study)
+                .expect("persist");
         }
         {
             let store = ModelArtifactStore::open(&path).expect("reopen");
@@ -854,29 +921,43 @@ mod tests {
         use crate::benchmark::{ScoreDirection, TransferBenchmark, TransferEvaluation};
         let path = test_path();
         let mut benchmark = TransferBenchmark::default();
-        benchmark.record(TransferEvaluation {
-            case_id: "transfer-1".to_owned(),
-            source_environment_id: "physics".to_owned(),
-            target_environment_id: "grid".to_owned(),
-            source_training_dataset_id: "physics-train".to_owned(),
-            target_evaluation_dataset_id: "grid-holdout".to_owned(),
-            model_artifact_ref: "model-v1".to_owned(),
-            metric_id: "prediction-rmse".to_owned(),
-            direction: ScoreDirection::LowerIsBetter,
-            baseline_score: 0.5,
-            transferred_score: 0.3,
-            sample_count: 100,
-            resource_cost: 12.0,
-        }).expect("record transfer");
+        benchmark
+            .record(TransferEvaluation {
+                case_id: "transfer-1".to_owned(),
+                source_environment_id: "physics".to_owned(),
+                target_environment_id: "grid".to_owned(),
+                source_training_dataset_id: "physics-train".to_owned(),
+                target_evaluation_dataset_id: "grid-holdout".to_owned(),
+                model_artifact_ref: "model-v1".to_owned(),
+                metric_id: "prediction-rmse".to_owned(),
+                direction: ScoreDirection::LowerIsBetter,
+                baseline_score: 0.5,
+                transferred_score: 0.3,
+                sample_count: 100,
+                resource_cost: 12.0,
+            })
+            .expect("record transfer");
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
-            store.put_transfer_benchmark("transfer-benchmark-v1", &benchmark).expect("persist");
+            store
+                .put_transfer_benchmark("transfer-benchmark-v1", &benchmark)
+                .expect("persist");
         }
         {
             let store = ModelArtifactStore::open(&path).expect("reopen");
-            let restored = store.load_transfer_benchmark("transfer-benchmark-v1").expect("restore");
+            let restored = store
+                .load_transfer_benchmark("transfer-benchmark-v1")
+                .expect("restore");
             assert_eq!(restored, benchmark);
-            assert!((restored.summarize("prediction-rmse").expect("summary").mean_improvement - 0.2).abs() < 1e-12);
+            assert!(
+                (restored
+                    .summarize("prediction-rmse")
+                    .expect("summary")
+                    .mean_improvement
+                    - 0.2)
+                    .abs()
+                    < 1e-12
+            );
         }
         std::fs::remove_file(path).expect("remove artifact file");
     }
@@ -884,54 +965,72 @@ mod tests {
     #[test]
     fn model_registry_requires_matching_persisted_model_artifacts() {
         use crate::model_registry::{
-            ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRegistry,
-            ModelStatus,
+            ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRegistry, ModelStatus,
         };
         let path = test_path();
         let mut model = ActionDeltaModel::new("registered-model", 1).expect("model");
-        model.fit("training-v1", &[
-            sample("advance", 0.0, 1.0),
-            sample("advance", 2.0, 3.0),
-        ]).expect("fit");
+        model
+            .fit(
+                "training-v1",
+                &[sample("advance", 0.0, 1.0), sample("advance", 2.0, 3.0)],
+            )
+            .expect("fit");
         let mut store = ModelArtifactStore::open(&path).expect("open");
-        store.put_model("registered-model-v1", &model).expect("put model");
+        store
+            .put_model("registered-model-v1", &model)
+            .expect("put model");
         let mut registry = ModelRegistry::default();
-        store.register_model_candidate(
-            &mut registry,
-            ModelCandidateSpec {
-                id: "registered-model".to_owned(),
-                version: 1,
-                model_artifact_ref: "registered-model-v1".to_owned(),
-                environment_id: "counter".to_owned(),
-                environment_version: "v1".to_owned(),
-                training_dataset_id: "training-v1".to_owned(),
-            },
-        ).expect("register candidate");
+        store
+            .register_model_candidate(
+                &mut registry,
+                ModelCandidateSpec {
+                    id: "registered-model".to_owned(),
+                    version: 1,
+                    model_artifact_ref: "registered-model-v1".to_owned(),
+                    environment_id: "counter".to_owned(),
+                    environment_version: "v1".to_owned(),
+                    training_dataset_id: "training-v1".to_owned(),
+                },
+            )
+            .expect("register candidate");
         let policy = ModelPromotionPolicy {
             minimum_evaluation_samples: 2,
             minimum_improvement: 0.0,
             resource_cost_weight: 0.0,
             require_calibrated_uncertainty: false,
         };
-        registry.evaluate_candidate(
-            "registered-model",
-            1,
-            ModelEvaluation {
-                evaluation_dataset_id: "holdout-v1".to_owned(),
-                metric_id: "rmse".to_owned(),
-                direction: crate::benchmark::ScoreDirection::LowerIsBetter,
-                sample_count: 5,
-                score: 0.0,
-                resource_cost: 1.0,
-                uncertainty_calibrated: true,
-            },
-            policy,
-        ).expect("evaluate");
-        registry.promote("registered-model", 1, policy).expect("promote");
-        store.put_model_registry("model-registry-v1", &registry).expect("persist registry");
-        let restored = store.load_model_registry("model-registry-v1").expect("restore registry");
+        registry
+            .evaluate_candidate(
+                "registered-model",
+                1,
+                ModelEvaluation {
+                    evaluation_dataset_id: "holdout-v1".to_owned(),
+                    metric_id: "rmse".to_owned(),
+                    direction: crate::benchmark::ScoreDirection::LowerIsBetter,
+                    sample_count: 5,
+                    score: 0.0,
+                    resource_cost: 1.0,
+                    uncertainty_calibrated: true,
+                },
+                policy,
+            )
+            .expect("evaluate");
+        registry
+            .promote("registered-model", 1, policy)
+            .expect("promote");
+        store
+            .put_model_registry("model-registry-v1", &registry)
+            .expect("persist registry");
+        let restored = store
+            .load_model_registry("model-registry-v1")
+            .expect("restore registry");
         assert_eq!(restored, registry);
-        assert_eq!(restored.active("registered-model").map(|record| record.status), Some(ModelStatus::Active));
+        assert_eq!(
+            restored
+                .active("registered-model")
+                .map(|record| record.status),
+            Some(ModelStatus::Active)
+        );
         std::fs::remove_file(path).expect("remove artifact file");
     }
 

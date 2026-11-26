@@ -6,11 +6,11 @@
 use crate::action::ActionProposal;
 use crate::benchmark::ScoreDirection;
 use crate::environment::EnvironmentAdapter;
-use crate::experiment_selection::{
-    rank_experiments, ExperimentCandidate, ExperimentSelectionError,
-    ExperimentSelectionPolicy, RankedExperiment,
-};
 use crate::experience_journal::ExperienceJournal;
+use crate::experiment_selection::{
+    rank_experiments, ExperimentCandidate, ExperimentSelectionError, ExperimentSelectionPolicy,
+    RankedExperiment,
+};
 use crate::learning::{extract_transition_samples, TransitionSample};
 use crate::model_artifact::{ModelArtifactError, ModelArtifactStore};
 use crate::model_registry::{
@@ -22,7 +22,9 @@ use crate::reasoning::{
 };
 use crate::runtime::{run_receding_horizon, RuntimeConfig, RuntimeError, RuntimeReport};
 use crate::value::DataValue;
-use crate::world_model::{EnsembleWorldModel, PredictiveModel, TrainablePredictiveModel, WorldModelError};
+use crate::world_model::{
+    EnsembleWorldModel, PredictiveModel, TrainablePredictiveModel, WorldModelError,
+};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug)]
@@ -84,9 +86,12 @@ impl AutonomousResearchConfig {
             || self.experiment.runtime.maximum_steps != 1
             || self.experiment.evidence_dataset_id.trim().is_empty()
             || self.experiment.evidence_rationale.trim().is_empty()
-            || self.experiment.hypothesis_registry_artifact_ref.trim().is_empty()
-            || self.experiment.hypothesis_registry_artifact_ref
-                == self.learning.model_artifact_ref
+            || self
+                .experiment
+                .hypothesis_registry_artifact_ref
+                .trim()
+                .is_empty()
+            || self.experiment.hypothesis_registry_artifact_ref == self.learning.model_artifact_ref
             || self.experiment.hypothesis_registry_artifact_ref
                 == self.learning.model_registry_artifact_ref
             || self.learning.model_artifact_ref == self.learning.model_registry_artifact_ref
@@ -183,8 +188,7 @@ where
     }
 
     let identity = candidate_model.identity();
-    if identity.id != config.learning.model_id
-        || identity.version != config.learning.model_version
+    if identity.id != config.learning.model_id || identity.version != config.learning.model_version
     {
         return Err(AutonomousResearchError::ModelIdentityMismatch);
     }
@@ -357,17 +361,15 @@ where
             WorldModelError::NoCompletedTransitions,
         ));
     }
-    if training_samples.len() > u32::MAX as usize
-        || validation_samples.len() > u32::MAX as usize
-    {
+    if training_samples.len() > u32::MAX as usize || validation_samples.len() > u32::MAX as usize {
         return Err(LearningCycleError::DatasetTooLarge);
     }
 
     model
         .fit_samples(&config.training_dataset_id, &training_samples)
         .map_err(LearningCycleError::WorldModel)?;
-    let evaluation = evaluate(model, validation_samples)
-        .map_err(LearningCycleError::EvaluationFailed)?;
+    let evaluation =
+        evaluate(model, validation_samples).map_err(LearningCycleError::EvaluationFailed)?;
     if evaluation.evaluation_dataset_id != config.validation_dataset_id
         || evaluation.sample_count != validation_samples.len()
     {
@@ -395,7 +397,11 @@ where
         evaluation.clone(),
         policy,
     ) {
-        persist_model_registry(artifact_store, registry, &config.model_registry_artifact_ref)?;
+        persist_model_registry(
+            artifact_store,
+            registry,
+            &config.model_registry_artifact_ref,
+        )?;
         if error != ModelRegistryError::InsufficientEvaluationSamples {
             return Err(LearningCycleError::Registry(error));
         }
@@ -412,13 +418,24 @@ where
 
     let promoted = match registry.promote(&config.model_id, config.model_version, policy) {
         Ok(()) => true,
-        Err(ModelRegistryError::InsufficientImprovement | ModelRegistryError::UncalibratedUncertainty) => false,
+        Err(
+            ModelRegistryError::InsufficientImprovement
+            | ModelRegistryError::UncalibratedUncertainty,
+        ) => false,
         Err(error) => {
-            persist_model_registry(artifact_store, registry, &config.model_registry_artifact_ref)?;
+            persist_model_registry(
+                artifact_store,
+                registry,
+                &config.model_registry_artifact_ref,
+            )?;
             return Err(LearningCycleError::Registry(error));
         }
     };
-    persist_model_registry(artifact_store, registry, &config.model_registry_artifact_ref)?;
+    persist_model_registry(
+        artifact_store,
+        registry,
+        &config.model_registry_artifact_ref,
+    )?;
     learning_report(
         registry,
         &config.model_id,
@@ -450,9 +467,12 @@ fn learning_report(
     evaluation: ModelEvaluation,
     promoted: bool,
 ) -> Result<LearningCycleReport, LearningCycleError> {
-    let record: &ModelRecord = registry
-        .get(model_id, model_version)
-        .ok_or(LearningCycleError::Registry(ModelRegistryError::ModelNotFound))?;
+    let record: &ModelRecord =
+        registry
+            .get(model_id, model_version)
+            .ok_or(LearningCycleError::Registry(
+                ModelRegistryError::ModelNotFound,
+            ))?;
     Ok(LearningCycleReport {
         model_id: model_id.to_owned(),
         model_version,
@@ -479,11 +499,24 @@ pub enum LearningCycleError {
 impl std::fmt::Display for LearningCycleError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::EmptyValidationSet => write!(formatter, "learning cycle requires held-out validation transitions"),
-            Self::DatasetLeakage => write!(formatter, "training and validation dataset IDs must differ"),
-            Self::DatasetTooLarge => write!(formatter, "learning-cycle dataset exceeds supported sample counts"),
-            Self::EvaluationFailed(message) => write!(formatter, "candidate evaluation failed: {message}"),
-            Self::EvaluationProvenanceMismatch => write!(formatter, "evaluator dataset ID or sample count does not match the supplied holdout"),
+            Self::EmptyValidationSet => write!(
+                formatter,
+                "learning cycle requires held-out validation transitions"
+            ),
+            Self::DatasetLeakage => {
+                write!(formatter, "training and validation dataset IDs must differ")
+            }
+            Self::DatasetTooLarge => write!(
+                formatter,
+                "learning-cycle dataset exceeds supported sample counts"
+            ),
+            Self::EvaluationFailed(message) => {
+                write!(formatter, "candidate evaluation failed: {message}")
+            }
+            Self::EvaluationProvenanceMismatch => write!(
+                formatter,
+                "evaluator dataset ID or sample count does not match the supplied holdout"
+            ),
             Self::WorldModel(error) => write!(formatter, "candidate fitting failed: {error}"),
             Self::Registry(error) => write!(formatter, "model lifecycle operation failed: {error}"),
             Self::Artifact(error) => write!(formatter, "model artifact operation failed: {error}"),

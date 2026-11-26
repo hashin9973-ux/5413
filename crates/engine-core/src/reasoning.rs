@@ -56,7 +56,10 @@ impl HypothesisSpec {
             || !self.prior_probability.is_finite()
             || self.prior_probability <= 0.0
             || self.prior_probability >= 1.0
-            || self.source_dataset_id.as_ref().is_some_and(|id| id.trim().is_empty())
+            || self
+                .source_dataset_id
+                .as_ref()
+                .is_some_and(|id| id.trim().is_empty())
         {
             return Err(ReasoningError::InvalidHypothesis);
         }
@@ -153,7 +156,11 @@ impl HypothesisRegistry {
         {
             return Err(ReasoningError::DuplicateEvidence);
         }
-        if record.evidence.iter().any(|existing| existing.dataset_id == evidence.dataset_id) {
+        if record
+            .evidence
+            .iter()
+            .any(|existing| existing.dataset_id == evidence.dataset_id)
+        {
             return Err(ReasoningError::DuplicateEvidenceDataset);
         }
         if record.spec.source_dataset_id.as_deref() == Some(evidence.dataset_id.as_str()) {
@@ -175,11 +182,7 @@ impl HypothesisRegistry {
 
         record.evidence.push(evidence);
         record.posterior_probability = posterior_probability;
-        record.status = classify(
-            posterior_probability,
-            record.evidence.len(),
-            policy,
-        );
+        record.status = classify(posterior_probability, record.evidence.len(), policy);
         Ok(record)
     }
 
@@ -235,11 +238,7 @@ impl HypothesisRegistry {
     }
 }
 
-fn classify(
-    probability: f64,
-    evidence_count: usize,
-    policy: HypothesisPolicy,
-) -> HypothesisStatus {
+fn classify(probability: f64, evidence_count: usize, policy: HypothesisPolicy) -> HypothesisStatus {
     if evidence_count == 0 {
         HypothesisStatus::Candidate
     } else if evidence_count < policy.minimum_evidence_count {
@@ -279,10 +278,22 @@ fn record_to_value(record: &HypothesisRecord) -> DataValue {
             .iter()
             .map(|item| {
                 DataValue::object([
-                    ("evidence_ref".to_owned(), DataValue::Text(item.evidence_ref.clone())),
-                    ("dataset_id".to_owned(), DataValue::Text(item.dataset_id.clone())),
-                    ("log_likelihood_ratio".to_owned(), DataValue::Number(item.log_likelihood_ratio)),
-                    ("rationale".to_owned(), DataValue::Text(item.rationale.clone())),
+                    (
+                        "evidence_ref".to_owned(),
+                        DataValue::Text(item.evidence_ref.clone()),
+                    ),
+                    (
+                        "dataset_id".to_owned(),
+                        DataValue::Text(item.dataset_id.clone()),
+                    ),
+                    (
+                        "log_likelihood_ratio".to_owned(),
+                        DataValue::Number(item.log_likelihood_ratio),
+                    ),
+                    (
+                        "rationale".to_owned(),
+                        DataValue::Text(item.rationale.clone()),
+                    ),
                 ])
             })
             .collect(),
@@ -290,12 +301,24 @@ fn record_to_value(record: &HypothesisRecord) -> DataValue {
     DataValue::object([
         ("id".to_owned(), DataValue::Text(record.spec.id.clone())),
         ("claim".to_owned(), record.spec.claim.clone()),
-        ("description".to_owned(), DataValue::Text(record.spec.description.clone())),
-        ("prior_probability".to_owned(), DataValue::Number(record.spec.prior_probability)),
+        (
+            "description".to_owned(),
+            DataValue::Text(record.spec.description.clone()),
+        ),
+        (
+            "prior_probability".to_owned(),
+            DataValue::Number(record.spec.prior_probability),
+        ),
         ("source_dataset_id".to_owned(), source_dataset),
         ("evidence".to_owned(), evidence),
-        ("posterior_probability".to_owned(), DataValue::Number(record.posterior_probability)),
-        ("status".to_owned(), DataValue::Text(status_name(record.status).to_owned())),
+        (
+            "posterior_probability".to_owned(),
+            DataValue::Number(record.posterior_probability),
+        ),
+        (
+            "status".to_owned(),
+            DataValue::Text(status_name(record.status).to_owned()),
+        ),
     ])
 }
 
@@ -308,20 +331,14 @@ fn status_name(status: HypothesisStatus) -> &'static str {
     }
 }
 
-fn text_field(
-    fields: &BTreeMap<String, DataValue>,
-    name: &str,
-) -> Result<String, ReasoningError> {
+fn text_field(fields: &BTreeMap<String, DataValue>, name: &str) -> Result<String, ReasoningError> {
     match fields.get(name) {
         Some(DataValue::Text(value)) => Ok(value.clone()),
         _ => Err(ReasoningError::InvalidSerializedState),
     }
 }
 
-fn numeric_field(
-    fields: &BTreeMap<String, DataValue>,
-    name: &str,
-) -> Result<f64, ReasoningError> {
+fn numeric_field(fields: &BTreeMap<String, DataValue>, name: &str) -> Result<f64, ReasoningError> {
     fields
         .get(name)
         .and_then(DataValue::as_f64)
@@ -436,11 +453,18 @@ impl std::fmt::Display for ReasoningError {
             Self::InvalidEvidence => write!(formatter, "evidence record is invalid"),
             Self::DuplicateHypothesis => write!(formatter, "hypothesis ID already exists"),
             Self::DuplicateEvidence => write!(formatter, "evidence reference was already applied"),
-            Self::DuplicateEvidenceDataset => write!(formatter, "evidence dataset was already used for this hypothesis"),
-            Self::EvidenceReusesSourceDataset => write!(formatter, "evidence reuses the hypothesis source dataset"),
+            Self::DuplicateEvidenceDataset => write!(
+                formatter,
+                "evidence dataset was already used for this hypothesis"
+            ),
+            Self::EvidenceReusesSourceDataset => {
+                write!(formatter, "evidence reuses the hypothesis source dataset")
+            }
             Self::HypothesisNotFound => write!(formatter, "hypothesis was not found"),
             Self::NumericalOverflow => write!(formatter, "evidence accumulation overflowed"),
-            Self::InvalidSerializedState => write!(formatter, "serialized hypothesis registry is invalid"),
+            Self::InvalidSerializedState => {
+                write!(formatter, "serialized hypothesis registry is invalid")
+            }
         }
     }
 }
@@ -463,10 +487,18 @@ mod tests {
         HypothesisSpec {
             id: "friction-increases-deceleration".to_owned(),
             claim: DataValue::object([
-                ("relation".to_owned(), DataValue::Text("friction -> deceleration".to_owned())),
-                ("direction".to_owned(), DataValue::Text("positive".to_owned())),
+                (
+                    "relation".to_owned(),
+                    DataValue::Text("friction -> deceleration".to_owned()),
+                ),
+                (
+                    "direction".to_owned(),
+                    DataValue::Text("positive".to_owned()),
+                ),
             ]),
-            description: "Higher friction is associated with greater deceleration in this environment".to_owned(),
+            description:
+                "Higher friction is associated with greater deceleration in this environment"
+                    .to_owned(),
             prior_probability: 0.5,
             source_dataset_id: Some("discovery-set".to_owned()),
         }
@@ -485,17 +517,21 @@ mod tests {
     fn independent_evidence_updates_posterior_and_decision() {
         let mut registry = HypothesisRegistry::default();
         registry.insert(spec(), policy()).expect("insert");
-        let first = registry.add_evidence(
-            "friction-increases-deceleration",
-            evidence("trial-1", "validation-1", 2.0),
-            policy(),
-        ).expect("evidence");
+        let first = registry
+            .add_evidence(
+                "friction-increases-deceleration",
+                evidence("trial-1", "validation-1", 2.0),
+                policy(),
+            )
+            .expect("evidence");
         assert_eq!(first.status, HypothesisStatus::Inconclusive);
-        let second = registry.add_evidence(
-            "friction-increases-deceleration",
-            evidence("trial-2", "validation-2", 2.0),
-            policy(),
-        ).expect("second evidence");
+        let second = registry
+            .add_evidence(
+                "friction-increases-deceleration",
+                evidence("trial-2", "validation-2", 2.0),
+                policy(),
+            )
+            .expect("second evidence");
         assert_eq!(second.status, HypothesisStatus::Supported);
         assert!(second.posterior_probability > 0.9);
     }
@@ -504,11 +540,13 @@ mod tests {
     fn duplicate_or_training_set_evidence_is_rejected() {
         let mut registry = HypothesisRegistry::default();
         registry.insert(spec(), policy()).expect("insert");
-        registry.add_evidence(
-            "friction-increases-deceleration",
-            evidence("trial-1", "validation-1", 1.0),
-            policy(),
-        ).expect("first");
+        registry
+            .add_evidence(
+                "friction-increases-deceleration",
+                evidence("trial-1", "validation-1", 1.0),
+                policy(),
+            )
+            .expect("first");
         assert_eq!(
             registry.add_evidence(
                 "friction-increases-deceleration",
@@ -531,11 +569,13 @@ mod tests {
     fn prevents_double_counting_different_evidence_refs_from_same_dataset() {
         let mut registry = HypothesisRegistry::default();
         registry.insert(spec(), policy()).expect("insert");
-        registry.add_evidence(
-            "friction-increases-deceleration",
-            evidence("trial-1", "validation-shared", 1.0),
-            policy(),
-        ).expect("first");
+        registry
+            .add_evidence(
+                "friction-increases-deceleration",
+                evidence("trial-1", "validation-shared", 1.0),
+                policy(),
+            )
+            .expect("first");
         assert_eq!(
             registry.add_evidence(
                 "friction-increases-deceleration",
@@ -550,13 +590,16 @@ mod tests {
     fn registry_artifact_round_trips_and_rejects_corrupt_posterior() {
         let mut registry = HypothesisRegistry::default();
         registry.insert(spec(), policy()).expect("insert");
-        registry.add_evidence(
-            "friction-increases-deceleration",
-            evidence("trial-1", "validation-1", 2.0),
-            policy(),
-        ).expect("evidence");
+        registry
+            .add_evidence(
+                "friction-increases-deceleration",
+                evidence("trial-1", "validation-1", 2.0),
+                policy(),
+            )
+            .expect("evidence");
         let artifact = registry.to_artifact_value();
-        let restored = HypothesisRegistry::from_artifact_value(&artifact, policy()).expect("restore");
+        let restored =
+            HypothesisRegistry::from_artifact_value(&artifact, policy()).expect("restore");
         assert_eq!(restored, registry);
 
         let corrupt = DataValue::object([
