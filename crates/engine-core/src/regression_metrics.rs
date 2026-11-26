@@ -28,11 +28,7 @@ impl Default for RegressionErrorAccumulator {
 impl RegressionErrorAccumulator {
     /// Records a matched prediction/observation pair and returns its absolute error.
     /// Returns `None` when the difference itself is outside the finite `f64` range.
-    pub(crate) fn record_difference(
-        &mut self,
-        predicted: f64,
-        observed: f64,
-    ) -> Option<f64> {
+    pub(crate) fn record_difference(&mut self, predicted: f64, observed: f64) -> Option<f64> {
         self.numeric_fields += 1;
         let error = predicted - observed;
         if !error.is_finite() {
