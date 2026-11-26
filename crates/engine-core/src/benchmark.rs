@@ -1537,10 +1537,16 @@ impl std::fmt::Display for BenchmarkError {
                 )
             }
             Self::DuplicateLearningCurve => {
-                write!(formatter, "learning-efficiency benchmark contains duplicate curve IDs")
+                write!(
+                    formatter,
+                    "learning-efficiency benchmark contains duplicate curve IDs"
+                )
             }
             Self::DuplicateLearningSeed => {
-                write!(formatter, "learning-efficiency curve contains duplicate random seeds")
+                write!(
+                    formatter,
+                    "learning-efficiency curve contains duplicate random seeds"
+                )
             }
             Self::InvalidLearningEfficiencyBenchmark => {
                 write!(formatter, "learning-efficiency benchmark is invalid")
