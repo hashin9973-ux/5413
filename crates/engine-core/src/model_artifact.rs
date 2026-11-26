@@ -32,7 +32,6 @@ const HEADER_SIZE: usize = 18;
 trait ArtifactStorage: Read + Write + Seek + Send + Sync {
     fn sync_all(&mut self) -> io::Result<()>;
     fn set_len(&mut self, length: u64) -> io::Result<()>;
-    fn len(&self) -> io::Result<u64>;
 }
 
 impl ArtifactStorage for File {
@@ -42,10 +41,6 @@ impl ArtifactStorage for File {
 
     fn set_len(&mut self, length: u64) -> io::Result<()> {
         File::set_len(self, length)
-    }
-
-    fn len(&self) -> io::Result<u64> {
-        self.metadata().map(|metadata| metadata.len())
     }
 }
 
@@ -800,10 +795,6 @@ mod tests {
 
         fn set_len(&mut self, length: u64) -> io::Result<()> {
             self.file.set_len(length)
-        }
-
-        fn len(&self) -> io::Result<u64> {
-            self.file.metadata().map(|metadata| metadata.len())
         }
     }
 
@@ -1574,7 +1565,7 @@ mod tests {
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
             store.put("opaque-v1", artifact.clone()).expect("put");
-            first_length = store.file.len().expect("metadata");
+            first_length = std::fs::metadata(&path).expect("metadata").len();
             assert!(matches!(
                 store.put("opaque-v1", DataValue::Null),
                 Err(ModelArtifactError::ReferenceConflict)
