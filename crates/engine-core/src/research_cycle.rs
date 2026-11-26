@@ -316,14 +316,12 @@ where
 
     // Calculate both possible log-likelihood ratios before any external effect.
     // Subtracting logarithms avoids overflow from dividing tiny probabilities.
-    let positive_log_likelihood_ratio =
-        experiment.observation_probability_if_true.ln()
-            - experiment.observation_probability_if_false.ln();
-    let negative_log_likelihood_ratio =
-        (-experiment.observation_probability_if_true).ln_1p()
-            - (-experiment.observation_probability_if_false).ln_1p();
-    let prior_log_odds = hypothesis.spec.prior_probability.ln()
-        - (-hypothesis.spec.prior_probability).ln_1p();
+    let positive_log_likelihood_ratio = experiment.observation_probability_if_true.ln()
+        - experiment.observation_probability_if_false.ln();
+    let negative_log_likelihood_ratio = (-experiment.observation_probability_if_true).ln_1p()
+        - (-experiment.observation_probability_if_false).ln_1p();
+    let prior_log_odds =
+        hypothesis.spec.prior_probability.ln() - (-hypothesis.spec.prior_probability).ln_1p();
     let existing_evidence_log_ratio = hypothesis
         .evidence
         .iter()

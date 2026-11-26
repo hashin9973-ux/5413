@@ -87,8 +87,8 @@ pub use representation::{
 pub use research_cycle::{
     run_autonomous_research_cycle, AutonomousResearchCallbacks, AutonomousResearchConfig,
     AutonomousResearchContext, AutonomousResearchError, AutonomousResearchReport,
-    AutonomousResearchRequest, ExperimentActionMapping, ExperimentExecutionConfig,
-    EvidenceCommitOutcome, LearningCycleConfig, LearningCycleError, LearningCycleReport,
+    AutonomousResearchRequest, EvidenceCommitOutcome, ExperimentActionMapping,
+    ExperimentExecutionConfig, LearningCycleConfig, LearningCycleError, LearningCycleReport,
 };
 pub use runtime::{
     run_receding_horizon, PredictionErrorMetrics, RuntimeConfig, RuntimeError, RuntimeReport,
