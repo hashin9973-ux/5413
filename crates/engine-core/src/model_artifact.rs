@@ -1211,7 +1211,10 @@ mod tests {
             )
             .expect("predict with restored active model");
         assert_eq!(
-            prediction.fields.get("position").map(|estimate| estimate.mean),
+            prediction
+                .fields
+                .get("position")
+                .map(|estimate| estimate.mean),
             Some(11.0)
         );
         assert!(matches!(
