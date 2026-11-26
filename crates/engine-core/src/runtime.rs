@@ -311,9 +311,12 @@ fn append_once(
 }
 
 fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionErrorMetrics {
-    let mut absolute_error = 0.0;
-    let mut squared_error = 0.0;
-    let mut fields = 0usize;
+    let mut numeric_fields = 0usize;
+    let mut metric_fields = 0usize;
+    let mut metrics_representable = true;
+    let mut mean_absolute_error = 0.0;
+    let mut rms_scale = 0.0;
+    let mut scaled_squared_error_sum = 0.0;
 
     if let (Some(predicted), Some(observed)) = (predicted.as_object(), observed.as_object()) {
         for (name, predicted_value) in predicted {
@@ -323,17 +326,59 @@ fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionEr
             let Some(observed_number) = observed.get(name).and_then(DataValue::as_f64) else {
                 continue;
             };
+            numeric_fields += 1;
+
             let error = predicted_number - observed_number;
-            absolute_error += error.abs();
-            squared_error += error * error;
-            fields += 1;
+            if !error.is_finite() {
+                // The exact difference is outside the f64 range. Keep the field
+                // count, but do not publish misleading infinite aggregate metrics.
+                metrics_representable = false;
+                continue;
+            }
+
+            let absolute_error = error.abs();
+            metric_fields += 1;
+
+            // Incremental mean avoids overflowing an intermediate sum of errors.
+            if metric_fields == 1 {
+                mean_absolute_error = absolute_error;
+            } else {
+                mean_absolute_error +=
+                    (absolute_error - mean_absolute_error) / metric_fields as f64;
+            }
+
+            // Scaled sum-of-squares (LASSQ-style) avoids squaring large errors.
+            if absolute_error > rms_scale {
+                let ratio = if rms_scale == 0.0 {
+                    0.0
+                } else {
+                    rms_scale / absolute_error
+                };
+                scaled_squared_error_sum =
+                    1.0 + scaled_squared_error_sum * ratio * ratio;
+                rms_scale = absolute_error;
+            } else if rms_scale > 0.0 {
+                let ratio = absolute_error / rms_scale;
+                scaled_squared_error_sum += ratio * ratio;
+            }
         }
     }
 
+    let metrics_available = numeric_fields > 0 && metrics_representable;
+    let root_mean_squared_error = if metrics_available && rms_scale == 0.0 {
+        Some(0.0)
+    } else if metrics_available {
+        let root_mean_square =
+            rms_scale * (scaled_squared_error_sum / metric_fields as f64).sqrt();
+        root_mean_square.is_finite().then_some(root_mean_square)
+    } else {
+        None
+    };
+
     PredictionErrorMetrics {
-        numeric_fields: fields,
-        mean_absolute_error: (fields > 0).then_some(absolute_error / fields as f64),
-        root_mean_squared_error: (fields > 0).then_some((squared_error / fields as f64).sqrt()),
+        numeric_fields,
+        mean_absolute_error: metrics_available.then_some(mean_absolute_error),
+        root_mean_squared_error,
     }
 }
 
@@ -618,4 +663,42 @@ mod tests {
         drop(journal);
         std::fs::remove_file(path).expect("cleanup");
     }
+    #[test]
+    fn prediction_error_uses_stable_accumulation_for_large_finite_values() {
+        let predicted = DataValue::object([
+            ("small".to_owned(), DataValue::Number(1.0e200)),
+            ("large".to_owned(), DataValue::Number(2.0e200)),
+        ]);
+        let observed = DataValue::object([
+            ("small".to_owned(), DataValue::Number(0.0)),
+            ("large".to_owned(), DataValue::Number(0.0)),
+        ]);
+
+        let metrics = prediction_error(&predicted, &observed);
+        assert_eq!(metrics.numeric_fields, 2);
+
+        let mean_absolute_error = metrics.mean_absolute_error.expect("finite MAE");
+        assert!((mean_absolute_error / 1.0e200 - 1.5).abs() < 1.0e-12);
+
+        let root_mean_squared_error = metrics.root_mean_squared_error.expect("finite RMSE");
+        assert!((root_mean_squared_error / 1.0e200 - 2.5_f64.sqrt()).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn prediction_error_omits_metrics_when_a_difference_exceeds_f64_range() {
+        let predicted = DataValue::object([(
+            "position".to_owned(),
+            DataValue::Number(f64::MAX),
+        )]);
+        let observed = DataValue::object([(
+            "position".to_owned(),
+            DataValue::Number(-f64::MAX),
+        )]);
+
+        let metrics = prediction_error(&predicted, &observed);
+        assert_eq!(metrics.numeric_fields, 1);
+        assert_eq!(metrics.mean_absolute_error, None);
+        assert_eq!(metrics.root_mean_squared_error, None);
+    }
+
 }
