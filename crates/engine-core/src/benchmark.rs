@@ -1536,6 +1536,15 @@ impl std::fmt::Display for BenchmarkError {
                     "learning-efficiency target must be finite and non-negative"
                 )
             }
+            Self::DuplicateLearningCurve => {
+                write!(formatter, "learning-efficiency benchmark contains duplicate curve IDs")
+            }
+            Self::DuplicateLearningSeed => {
+                write!(formatter, "learning-efficiency curve contains duplicate random seeds")
+            }
+            Self::InvalidLearningEfficiencyBenchmark => {
+                write!(formatter, "learning-efficiency benchmark is invalid")
+            }
         }
     }
 }
