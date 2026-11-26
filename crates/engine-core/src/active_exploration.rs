@@ -1,11 +1,11 @@
 //! Dynamic model-disagreement exploration over fresh runtime observations.
 
 use crate::environment::EnvironmentAdapter;
+use crate::experience_journal::ExperienceJournal;
 use crate::experiment_selection::{
     rank_model_disagreement_actions, ExperimentSelectionError, ModelExplorationCandidate,
     ModelExplorationPolicy, ModelExplorationRanking,
 };
-use crate::experience_journal::ExperienceJournal;
 use crate::runtime::{
     run_receding_horizon_with_selector, RuntimeConfig, RuntimeError, RuntimeReport,
 };
@@ -28,10 +28,7 @@ impl ActiveExplorationRequest {
         self.selection_policy
             .validate()
             .map_err(ActiveExplorationError::Selection)?;
-        if self.runtime.maximum_steps == 0
-            || self.candidate_actions.is_empty()
-            || model.len() < 2
-        {
+        if self.runtime.maximum_steps == 0 || self.candidate_actions.is_empty() || model.len() < 2 {
             return Err(ActiveExplorationError::InvalidRequest);
         }
         let mut ids = BTreeSet::new();
@@ -86,28 +83,26 @@ where
         model,
         runtime,
         journal,
-        |environment, state| {
-            match rank_model_disagreement_actions(
-                environment,
-                authorizer,
-                model,
-                state,
-                &candidate_actions,
-                selection_policy,
-                &utility,
-            ) {
-                Ok(ranking) => {
-                    let Some(selected) = ranking.ranked_actions.first() else {
-                        return Err("no exploration candidate was eligible".to_owned());
-                    };
-                    let selected_action = selected.action.clone();
-                    rankings.push(ranking);
-                    Ok(vec![selected_action])
-                }
-                Err(error) => {
-                    selection_error = Some(error);
-                    Err("model-disagreement ranking failed".to_owned())
-                }
+        |environment, state| match rank_model_disagreement_actions(
+            environment,
+            authorizer,
+            model,
+            state,
+            &candidate_actions,
+            selection_policy,
+            &utility,
+        ) {
+            Ok(ranking) => {
+                let Some(selected) = ranking.ranked_actions.first() else {
+                    return Err("no exploration candidate was eligible".to_owned());
+                };
+                let selected_action = selected.action.clone();
+                rankings.push(ranking);
+                Ok(vec![selected_action])
+            }
+            Err(error) => {
+                selection_error = Some(error);
+                Err("model-disagreement ranking failed".to_owned())
             }
         },
         &utility,
@@ -138,8 +133,12 @@ impl std::fmt::Display for ActiveExplorationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidRequest => write!(formatter, "active-exploration request is invalid"),
-            Self::NoEligibleActions => write!(formatter, "no active-exploration action was eligible"),
-            Self::Selection(error) => write!(formatter, "active-exploration selection failed: {error}"),
+            Self::NoEligibleActions => {
+                write!(formatter, "no active-exploration action was eligible")
+            }
+            Self::Selection(error) => {
+                write!(formatter, "active-exploration selection failed: {error}")
+            }
             Self::Runtime(error) => write!(formatter, "active-exploration runtime failed: {error}"),
         }
     }
@@ -255,10 +254,7 @@ mod tests {
             Ok(self.frame())
         }
 
-        fn execute(
-            &mut self,
-            action: AuthorizedAction,
-        ) -> Result<ActionOutcome, EnvironmentError> {
+        fn execute(&mut self, action: AuthorizedAction) -> Result<ActionOutcome, EnvironmentError> {
             match action.action_id() {
                 "advance" => self.position += 1.0,
                 "wait" => {}
