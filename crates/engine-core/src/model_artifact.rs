@@ -567,7 +567,7 @@ mod tests {
                 .expect("put second");
         }
         {
-            let mut file = OpenOptions::new()
+            let file = OpenOptions::new()
                 .write(true)
                 .open(&path)
                 .expect("open raw");
