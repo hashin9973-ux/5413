@@ -454,7 +454,6 @@ mod tests {
 #[cfg(test)]
 mod transition_extraction_tests {
     use super::*;
-    use crate::action::ActionProposal;
     use crate::environment::{ActionOutcome, ObservationFrame};
     use crate::value::DataValue;
 
