@@ -10,7 +10,7 @@ use crate::active_exploration::{
 };
 use crate::environment::{EnvironmentAdapter, LifecycleOutcome};
 use crate::experience::ExperienceEvent;
-use crate::experience_journal::ExperienceJournal;
+use crate::experience_journal::{ExperienceJournal, IdempotentAppendOutcome};
 use crate::experiment_selection::{
     ExperimentSelectionError, ModelExplorationCandidate, ModelExplorationPolicy,
 };
@@ -86,6 +86,8 @@ pub enum SafeExplorationTermination {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SafeExplorationFailure {
     ResetFailed(String),
+    ResetJournalFailed(String),
+    ResetIntentAlreadyPresent,
     ResetReturnedEmptyEpisodeId,
     ResetReusedEpisodeId(String),
     DescriptorChangedAfterReset,
@@ -155,35 +157,114 @@ where
         let reset_before = if episode_index == 0 {
             None
         } else {
-            match adapter.reset() {
-                Ok(outcome) => {
-                    if outcome.episode_id.trim().is_empty() {
-                        failure = Some(SafeExplorationFailure::ResetReturnedEmptyEpisodeId);
-                        termination = SafeExplorationTermination::StoppedAfterFailure;
-                        break;
-                    }
-                    if !episode_ids.insert(outcome.episode_id.clone()) {
-                        failure = Some(SafeExplorationFailure::ResetReusedEpisodeId(
-                            outcome.episode_id,
-                        ));
-                        termination = SafeExplorationTermination::StoppedAfterFailure;
-                        break;
-                    }
-                    let descriptor = adapter.descriptor();
-                    if descriptor != &initial_descriptor {
-                        failure = Some(SafeExplorationFailure::DescriptorChangedAfterReset);
-                        termination = SafeExplorationTermination::StoppedAfterFailure;
-                        break;
-                    }
-                    current_episode_id = outcome.episode_id.clone();
-                    Some(outcome)
+            let previous_episode_id = current_episode_id.clone();
+            let intent_key = format!(
+                "{}/episode/{episode_index}/reset/requested",
+                request.runtime.execution_id
+            );
+            let intent = ExperienceEvent::EnvironmentResetStarted {
+                previous_episode_id: previous_episode_id.clone(),
+            };
+            match journal.append_idempotent(
+                &intent_key,
+                &previous_episode_id,
+                intent,
+            ) {
+                Ok(IdempotentAppendOutcome::Appended { .. }) => {}
+                Ok(IdempotentAppendOutcome::AlreadyPresent { .. }) => {
+                    failure = Some(SafeExplorationFailure::ResetIntentAlreadyPresent);
+                    termination = SafeExplorationTermination::StoppedAfterFailure;
+                    break;
                 }
+                Err(error) => {
+                    failure = Some(SafeExplorationFailure::ResetJournalFailed(error.to_string()));
+                    termination = SafeExplorationTermination::StoppedAfterFailure;
+                    break;
+                }
+            }
+
+            let outcome = match adapter.reset() {
+                Ok(outcome) => outcome,
                 Err(error) => {
                     failure = Some(SafeExplorationFailure::ResetFailed(error.to_string()));
                     termination = SafeExplorationTermination::StoppedAfterFailure;
                     break;
                 }
+            };
+            if outcome.episode_id.trim().is_empty() {
+                failure = Some(SafeExplorationFailure::ResetReturnedEmptyEpisodeId);
+                termination = SafeExplorationTermination::StoppedAfterFailure;
+                episodes.push(SafeExplorationEpisodeReport {
+                    episode_index,
+                    episode_id: outcome.episode_id.clone(),
+                    reset_before: Some(outcome),
+                    rankings: Vec::new(),
+                    steps: Vec::new(),
+                    resource_cost: 0.0,
+                });
+                break;
             }
+
+            let completion_key = format!(
+                "{}/episode/{episode_index}/reset/completed",
+                request.runtime.execution_id
+            );
+            let completion = ExperienceEvent::EnvironmentResetCompleted {
+                previous_episode_id: previous_episode_id.clone(),
+                new_episode_id: outcome.episode_id.clone(),
+            };
+            match journal.append_idempotent(
+                &completion_key,
+                &outcome.episode_id,
+                completion,
+            ) {
+                Ok(IdempotentAppendOutcome::Appended { .. })
+                | Ok(IdempotentAppendOutcome::AlreadyPresent { .. }) => {}
+                Err(error) => {
+                    failure = Some(SafeExplorationFailure::ResetJournalFailed(error.to_string()));
+                    termination = SafeExplorationTermination::StoppedAfterFailure;
+                    episodes.push(SafeExplorationEpisodeReport {
+                        episode_index,
+                        episode_id: outcome.episode_id.clone(),
+                        reset_before: Some(outcome),
+                        rankings: Vec::new(),
+                        steps: Vec::new(),
+                        resource_cost: 0.0,
+                    });
+                    break;
+                }
+            }
+
+            if !episode_ids.insert(outcome.episode_id.clone()) {
+                failure = Some(SafeExplorationFailure::ResetReusedEpisodeId(
+                    outcome.episode_id.clone(),
+                ));
+                termination = SafeExplorationTermination::StoppedAfterFailure;
+                episodes.push(SafeExplorationEpisodeReport {
+                    episode_index,
+                    episode_id: outcome.episode_id.clone(),
+                    reset_before: Some(outcome),
+                    rankings: Vec::new(),
+                    steps: Vec::new(),
+                    resource_cost: 0.0,
+                });
+                break;
+            }
+            if adapter.descriptor() != &initial_descriptor {
+                failure = Some(SafeExplorationFailure::DescriptorChangedAfterReset);
+                termination = SafeExplorationTermination::StoppedAfterFailure;
+                episodes.push(SafeExplorationEpisodeReport {
+                    episode_index,
+                    episode_id: outcome.episode_id.clone(),
+                    reset_before: Some(outcome),
+                    rankings: Vec::new(),
+                    steps: Vec::new(),
+                    resource_cost: 0.0,
+                });
+                break;
+            }
+            current_episode_id = outcome.episode_id.clone();
+            Some(outcome)
         };
 
         let mut episode = SafeExplorationEpisodeReport {
@@ -649,7 +730,38 @@ mod tests {
             report.termination,
             SafeExplorationTermination::StepBudgetReached
         );
+        let reset_events: Vec<_> = journal.records().iter().filter_map(|record| {
+            match &record.event {
+                ExperienceEvent::EnvironmentResetStarted { previous_episode_id } => {
+                    Some((record.episode_id.as_str(), "started", previous_episode_id.as_str(), ""))
+                }
+                ExperienceEvent::EnvironmentResetCompleted {
+                    previous_episode_id,
+                    new_episode_id,
+                } => Some((
+                    record.episode_id.as_str(),
+                    "completed",
+                    previous_episode_id.as_str(),
+                    new_episode_id.as_str(),
+                )),
+                _ => None,
+            }
+        }).collect();
+        assert_eq!(
+            reset_events,
+            vec![
+                ("safe-episode-0", "started", "safe-episode-0", ""),
+                ("safe-episode-1", "completed", "safe-episode-0", "safe-episode-1"),
+            ]
+        );
         drop(journal);
+        let restored = ExperienceJournal::open(&journal_path).expect("journal should reopen");
+        assert_eq!(restored.records().len(), 20);
+        assert!(matches!(
+            restored.replay_episode("safe-episode-1").next().map(|record| &record.event),
+            Some(ExperienceEvent::EnvironmentResetCompleted { .. })
+        ));
+        drop(restored);
         std::fs::remove_file(journal_path).expect("journal cleanup");
     }
 

@@ -71,6 +71,13 @@ pub fn extract_transition_samples(
                 }
             }
             ExperienceEvent::PredictionEvaluated { .. } => {}
+            ExperienceEvent::EnvironmentResetStarted { .. }
+            | ExperienceEvent::EnvironmentResetCompleted { .. } => {
+                if let Some(previous) = pending.take() {
+                    append_completed_transition(previous, &mut samples);
+                }
+                current_state = None;
+            }
         }
     }
 

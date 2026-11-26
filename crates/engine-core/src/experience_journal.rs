@@ -18,7 +18,8 @@ use std::path::Path;
 
 const FRAME_MAGIC: [u8; 4] = *b"5413";
 const LEGACY_FORMAT_VERSION: u16 = 1;
-const FORMAT_VERSION: u16 = 2;
+const PREVIOUS_FORMAT_VERSION: u16 = 2;
+const FORMAT_VERSION: u16 = 3;
 const HEADER_SIZE: usize = 14;
 pub(crate) const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VALUE_NESTING: usize = 128;
@@ -240,7 +241,10 @@ fn scan_and_recover(
         }
 
         let version = u16::from_le_bytes([header[4], header[5]]);
-        if version != LEGACY_FORMAT_VERSION && version != FORMAT_VERSION {
+        if version != LEGACY_FORMAT_VERSION
+            && version != PREVIOUS_FORMAT_VERSION
+            && version != FORMAT_VERSION
+        {
             return Err(JournalError::UnsupportedVersion(version));
         }
 
@@ -356,7 +360,7 @@ fn decode_record(
     let mut decoder = Decoder::new(payload);
     let sequence = decoder.read_u64()?;
     let episode_id = decoder.read_string()?;
-    let idempotency_key = if version >= FORMAT_VERSION {
+    let idempotency_key = if version >= PREVIOUS_FORMAT_VERSION {
         decoder.read_optional_string()?
     } else {
         None
@@ -517,6 +521,18 @@ impl Encoder {
                 self.put_string(action_id)?;
                 self.put_value(predicted, depth + 1)?;
                 self.put_value(observed, depth + 1)?;
+            }
+            ExperienceEvent::EnvironmentResetStarted { previous_episode_id } => {
+                self.put_u8(4);
+                self.put_string(previous_episode_id)?;
+            }
+            ExperienceEvent::EnvironmentResetCompleted {
+                previous_episode_id,
+                new_episode_id,
+            } => {
+                self.put_u8(5);
+                self.put_string(previous_episode_id)?;
+                self.put_string(new_episode_id)?;
             }
         }
         Ok(())
@@ -706,6 +722,13 @@ impl<'a> Decoder<'a> {
                 action_id: self.read_string()?,
                 predicted: self.read_value(depth + 1)?,
                 observed: self.read_value(depth + 1)?,
+            }),
+            4 => Ok(ExperienceEvent::EnvironmentResetStarted {
+                previous_episode_id: self.read_string()?,
+            }),
+            5 => Ok(ExperienceEvent::EnvironmentResetCompleted {
+                previous_episode_id: self.read_string()?,
+                new_episode_id: self.read_string()?,
             }),
             _ => Err("unknown experience event tag".to_owned()),
         }
@@ -1102,6 +1125,21 @@ mod tests {
                     observed: DataValue::Number(2.25),
                 },
             },
+            ExperienceRecord {
+                sequence: 4,
+                episode_id: "episode-a".to_owned(),
+                event: ExperienceEvent::EnvironmentResetStarted {
+                    previous_episode_id: "episode-a".to_owned(),
+                },
+            },
+            ExperienceRecord {
+                sequence: 5,
+                episode_id: "episode-c".to_owned(),
+                event: ExperienceEvent::EnvironmentResetCompleted {
+                    previous_episode_id: "episode-a".to_owned(),
+                    new_episode_id: "episode-c".to_owned(),
+                },
+            },
         ];
 
         {
@@ -1121,7 +1159,7 @@ mod tests {
                 .replay_episode("episode-a")
                 .map(|record| record.sequence)
                 .collect();
-            assert_eq!(episode_sequences, vec![0, 2, 3]);
+            assert_eq!(episode_sequences, vec![0, 2, 3, 4]);
         }
 
         fs::remove_file(path).expect("test journal should be removed");
@@ -1231,13 +1269,66 @@ mod tests {
         }
 
         let mut bytes = fs::read(&path).expect("journal should be readable");
-        bytes[4] = 3;
+        bytes[4] = 4;
         fs::write(&path, bytes).expect("version should be changed");
 
         assert!(matches!(
             ExperienceJournal::open(&path),
-            Err(JournalError::UnsupportedVersion(3))
+            Err(JournalError::UnsupportedVersion(4))
         ));
+        fs::remove_file(path).expect("test journal should be removed");
+    }
+
+    #[test]
+    fn legacy_v2_idempotency_frames_remain_readable_and_extend_with_v3_reset_events() {
+        let path = test_path();
+        let mut encoder = Encoder::default();
+        encoder.put_u64(0);
+        encoder.put_string("v2-episode").expect("episode should encode");
+        encoder
+            .put_optional_string(Some("v2-stable-key"))
+            .expect("idempotency key should encode");
+        encoder
+            .put_event(&prediction_event(12), 0)
+            .expect("event should encode");
+        let payload = encoder.bytes;
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&FRAME_MAGIC);
+        frame.extend_from_slice(&PREVIOUS_FORMAT_VERSION.to_le_bytes());
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(&crc32(&payload).to_le_bytes());
+        frame.extend_from_slice(&payload);
+        fs::write(&path, frame).expect("v2 frame should be written");
+
+        {
+            let mut journal = ExperienceJournal::open(&path).expect("v2 journal should open");
+            assert_eq!(
+                journal
+                    .append_idempotent("v2-stable-key", "v2-episode", prediction_event(12))
+                    .expect("v2 idempotency index should be restored"),
+                IdempotentAppendOutcome::AlreadyPresent { sequence: 0 }
+            );
+            assert_eq!(
+                journal
+                    .append_idempotent(
+                        "reset-start",
+                        "v2-episode",
+                        ExperienceEvent::EnvironmentResetStarted {
+                            previous_episode_id: "v2-episode".to_owned(),
+                        },
+                    )
+                    .expect("v3 reset event should append"),
+                IdempotentAppendOutcome::Appended { sequence: 1 }
+            );
+        }
+
+        let restored = ExperienceJournal::open(&path).expect("mixed v2/v3 journal should reopen");
+        assert_eq!(restored.len(), 2);
+        assert!(matches!(
+            restored.records()[1].event,
+            ExperienceEvent::EnvironmentResetStarted { .. }
+        ));
+        drop(restored);
         fs::remove_file(path).expect("test journal should be removed");
     }
 

@@ -14,6 +14,13 @@ pub enum ExperienceEvent {
         predicted: DataValue,
         observed: DataValue,
     },
+    EnvironmentResetStarted {
+        previous_episode_id: String,
+    },
+    EnvironmentResetCompleted {
+        previous_episode_id: String,
+        new_episode_id: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
