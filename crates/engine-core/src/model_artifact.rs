@@ -592,6 +592,142 @@ mod tests {
     }
 
     #[test]
+    fn persists_and_restores_hypothesis_evidence() {
+        use crate::reasoning::{
+            EvidenceRecord, HypothesisPolicy, HypothesisRegistry, HypothesisSpec,
+            HypothesisStatus,
+        };
+
+        let path = test_path();
+        let policy = HypothesisPolicy {
+            minimum_evidence_count: 1,
+            support_probability: 0.9,
+            refutation_probability: 0.1,
+        };
+        let mut registry = HypothesisRegistry::default();
+        registry.insert(
+            HypothesisSpec {
+                id: "relation-a".to_owned(),
+                claim: DataValue::object([(
+                    "relation".to_owned(),
+                    DataValue::Text("x->y".to_owned()),
+                )]),
+                description: "candidate relation".to_owned(),
+                prior_probability: 0.5,
+                source_dataset_id: Some("discovery".to_owned()),
+            },
+            policy,
+        ).expect("insert");
+        registry.add_evidence(
+            "relation-a",
+            EvidenceRecord {
+                evidence_ref: "trial-1".to_owned(),
+                dataset_id: "validation-1".to_owned(),
+                log_likelihood_ratio: 2.5,
+                rationale: "predeclared trial evidence".to_owned(),
+            },
+            policy,
+        ).expect("evidence");
+        assert_eq!(registry.get("relation-a").map(|record| record.status), Some(HypothesisStatus::Supported));
+
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open");
+            store.put_hypothesis_registry("hypotheses-v1", &registry).expect("persist");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen");
+            let restored = store.load_hypothesis_registry("hypotheses-v1", policy).expect("restore");
+            assert_eq!(restored, registry);
+        }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
+    fn persists_and_restores_typed_strategy_registry() {
+        use crate::meta_learning::{
+            InputBinding, OperatorCatalogue, OperatorSpec, PortSpec, StrategyEvaluation,
+            StrategyGraph, StrategyNode, StrategyPolicy, StrategyRegistry, StrategySpec,
+            StrategyStatus,
+        };
+        use crate::schema::ValueKind;
+        use std::collections::BTreeMap;
+
+        let path = test_path();
+        let mut catalogue = OperatorCatalogue::default();
+        catalogue.register(OperatorSpec {
+            id: "numeric-normalizer".to_owned(),
+            inputs: vec![PortSpec {
+                name: "raw".to_owned(),
+                kind: ValueKind::Number,
+            }],
+            outputs: vec![PortSpec {
+                name: "normalized".to_owned(),
+                kind: ValueKind::Number,
+            }],
+            cost_units: 3,
+            deterministic: true,
+        }).expect("register operator");
+
+        let graph = StrategyGraph {
+            external_inputs: BTreeMap::from([("observation".to_owned(), ValueKind::Number)]),
+            nodes: vec![StrategyNode {
+                id: "normalize".to_owned(),
+                operator_id: "numeric-normalizer".to_owned(),
+                inputs: BTreeMap::from([(
+                    "raw".to_owned(),
+                    InputBinding::External("observation".to_owned()),
+                )]),
+            }],
+            outputs: BTreeMap::from([(
+                "features".to_owned(),
+                InputBinding::NodeOutput {
+                    node_id: "normalize".to_owned(),
+                    port: "normalized".to_owned(),
+                },
+            )]),
+        };
+        let policy = StrategyPolicy {
+            minimum_evaluation_samples: 5,
+            minimum_improvement: 0.01,
+            resource_cost_weight: 0.1,
+        };
+        let mut registry = StrategyRegistry::default();
+        registry.register_candidate(
+            StrategySpec {
+                id: "pipeline".to_owned(),
+                version: 1,
+                training_dataset_id: "training-v1".to_owned(),
+                graph,
+            },
+            &catalogue,
+        ).expect("register candidate");
+        registry.evaluate_candidate(
+            "pipeline",
+            1,
+            StrategyEvaluation {
+                evaluation_dataset_id: "holdout-v1".to_owned(),
+                sample_count: 20,
+                primary_score: 0.85,
+                resource_cost: 2.0,
+            },
+            policy,
+        ).expect("evaluate");
+        registry.promote("pipeline", 1, policy).expect("promote");
+        assert_eq!(registry.active("pipeline").map(|record| record.status), Some(StrategyStatus::Active));
+
+        {
+            let mut store = ModelArtifactStore::open(&path).expect("open");
+            store.put_strategy_registry("strategies-v1", &registry).expect("persist");
+        }
+        {
+            let store = ModelArtifactStore::open(&path).expect("reopen");
+            let restored = store.load_strategy_registry("strategies-v1", &catalogue).expect("restore");
+            assert_eq!(restored, registry);
+        }
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
     fn rejects_conflicting_reference_and_recovers_torn_tail() {
         let path = test_path();
         let artifact =
