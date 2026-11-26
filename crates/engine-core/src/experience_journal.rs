@@ -852,7 +852,10 @@ mod tests {
 
     impl FaultInjectingStorage {
         fn fail_write_after(&self, bytes: usize) {
-            self.shared.lock().expect("storage lock").write_failure_after = Some(bytes);
+            self.shared
+                .lock()
+                .expect("storage lock")
+                .write_failure_after = Some(bytes);
         }
 
         fn fail_next_sync(&self) {
@@ -1363,7 +1366,8 @@ mod tests {
         encoder.put_u8(5);
         encoder.put_u32((MAX_COLLECTION_ITEMS as u32) + 1);
 
-        let error = decode_record(&encoder.bytes, LEGACY_FORMAT_VERSION).expect_err("oversized count must be rejected");
+        let error = decode_record(&encoder.bytes, LEGACY_FORMAT_VERSION)
+            .expect_err("oversized count must be rejected");
         assert!(error.contains("configured item limit"));
     }
 
@@ -1417,8 +1421,6 @@ mod tests {
         );
         fs::remove_file(path).expect("test journal should be removed");
     }
-
-    #[test]
 
     #[test]
     fn idempotent_append_survives_reopen_and_rejects_key_reuse_with_new_content() {
@@ -1555,7 +1557,7 @@ mod tests {
         assert!(!storage.bytes().is_empty());
     }
 
-        fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
+    fn encoder_rejects_aggregate_collection_limit_before_writing_record() {
         let mut encoder = Encoder::default();
         encoder
             .put_count(60_000)
