@@ -29,8 +29,28 @@ const MAGIC: [u8; 8] = *b"5413MART";
 const FORMAT_VERSION: u16 = 1;
 const HEADER_SIZE: usize = 18;
 
+trait ArtifactStorage: Read + Write + Seek + Send + Sync {
+    fn sync_all(&mut self) -> io::Result<()>;
+    fn set_len(&mut self, length: u64) -> io::Result<()>;
+    fn len(&self) -> io::Result<u64>;
+}
+
+impl ArtifactStorage for File {
+    fn sync_all(&mut self) -> io::Result<()> {
+        File::sync_all(self)
+    }
+
+    fn set_len(&mut self, length: u64) -> io::Result<()> {
+        File::set_len(self, length)
+    }
+
+    fn len(&self) -> io::Result<u64> {
+        self.metadata().map(|metadata| metadata.len())
+    }
+}
+
 pub struct ModelArtifactStore {
-    file: File,
+    file: Box<dyn ArtifactStorage>,
     artifacts: BTreeMap<String, DataValue>,
     poisoned: bool,
 }
@@ -38,13 +58,17 @@ pub struct ModelArtifactStore {
 impl ModelArtifactStore {
     /// Opens or creates the single-writer artifact log and rebuilds its index.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, ModelArtifactError> {
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .read(true)
             .write(true)
             .open(path)?;
-        let artifacts = scan_and_recover(&mut file)?;
+        Self::from_storage(Box::new(file))
+    }
+
+    fn from_storage(mut file: Box<dyn ArtifactStorage>) -> Result<Self, ModelArtifactError> {
+        let artifacts = scan_and_recover(file.as_mut())?;
         file.seek(SeekFrom::End(0))?;
         Ok(Self {
             file,
@@ -488,7 +512,9 @@ pub enum ArtifactPutOutcome {
     AlreadyPresent,
 }
 
-fn scan_and_recover(file: &mut File) -> Result<BTreeMap<String, DataValue>, ModelArtifactError> {
+fn scan_and_recover(
+    file: &mut dyn ArtifactStorage,
+) -> Result<BTreeMap<String, DataValue>, ModelArtifactError> {
     file.seek(SeekFrom::Start(0))?;
     let mut artifacts = BTreeMap::new();
     let mut offset = 0_u64;
@@ -595,7 +621,10 @@ fn scan_and_recover(file: &mut File) -> Result<BTreeMap<String, DataValue>, Mode
     Ok(artifacts)
 }
 
-fn truncate_incomplete_tail(file: &mut File, valid_length: u64) -> Result<(), ModelArtifactError> {
+fn truncate_incomplete_tail(
+    file: &mut dyn ArtifactStorage,
+    valid_length: u64,
+) -> Result<(), ModelArtifactError> {
     file.set_len(valid_length)?;
     file.sync_all()?;
     Ok(())
@@ -702,7 +731,8 @@ mod tests {
     use super::*;
     use crate::learning::TransitionSample;
     use crate::world_model::{ActionDeltaModel, ContextualLinearModel, PredictiveModel};
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
 
     static NEXT_FILE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -720,6 +750,89 @@ mod tests {
             before: DataValue::object([("position".to_owned(), DataValue::Number(before))]),
             after: DataValue::object([("position".to_owned(), DataValue::Number(after))]),
         }
+    }
+
+    struct FaultInjectingStorage {
+        file: File,
+        fail_partial_write: Arc<AtomicBool>,
+        fail_sync: Arc<AtomicBool>,
+        fail_next_write: bool,
+    }
+
+    impl Read for FaultInjectingStorage {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.file.read(buffer)
+        }
+    }
+
+    impl Write for FaultInjectingStorage {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            if self.fail_next_write {
+                self.fail_next_write = false;
+                return Err(io::Error::other("injected write failure"));
+            }
+            if self.fail_partial_write.swap(false, Ordering::SeqCst) {
+                let partial_length = buffer.len().min(5);
+                self.fail_next_write = true;
+                return self.file.write(&buffer[..partial_length]);
+            }
+            self.file.write(buffer)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.file.flush()
+        }
+    }
+
+    impl Seek for FaultInjectingStorage {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            self.file.seek(position)
+        }
+    }
+
+    impl ArtifactStorage for FaultInjectingStorage {
+        fn sync_all(&mut self) -> io::Result<()> {
+            if self.fail_sync.swap(false, Ordering::SeqCst) {
+                return Err(io::Error::other("injected synchronization failure"));
+            }
+            self.file.sync_all()
+        }
+
+        fn set_len(&mut self, length: u64) -> io::Result<()> {
+            self.file.set_len(length)
+        }
+
+        fn len(&self) -> io::Result<u64> {
+            self.file.metadata().map(|metadata| metadata.len())
+        }
+    }
+
+    fn fault_injecting_storage(
+        path: &std::path::Path,
+    ) -> (
+        FaultInjectingStorage,
+        Arc<AtomicBool>,
+        Arc<AtomicBool>,
+    ) {
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(path)
+            .expect("open fault-injection file");
+        let fail_partial_write = Arc::new(AtomicBool::new(false));
+        let fail_sync = Arc::new(AtomicBool::new(false));
+        (
+            FaultInjectingStorage {
+                file,
+                fail_partial_write: Arc::clone(&fail_partial_write),
+                fail_sync: Arc::clone(&fail_sync),
+                fail_next_write: false,
+            },
+            fail_partial_write,
+            fail_sync,
+        )
     }
 
     #[test]
@@ -1383,6 +1496,80 @@ mod tests {
     }
 
     #[test]
+    fn partial_artifact_write_poisons_store_and_recovery_truncates_only_torn_tail() {
+        let path = test_path();
+        let (storage, fail_partial_write, _) = fault_injecting_storage(&path);
+        let mut store = ModelArtifactStore::from_storage(Box::new(storage)).expect("open store");
+        store
+            .put("incumbent-artifact", DataValue::Integer(1))
+            .expect("persist incumbent");
+
+        fail_partial_write.store(true, Ordering::SeqCst);
+        assert!(matches!(
+            store.put("partially-written-artifact", DataValue::Integer(2)),
+            Err(ModelArtifactError::Io(_))
+        ));
+        assert!(matches!(
+            store.put("must-not-be-written", DataValue::Integer(3)),
+            Err(ModelArtifactError::Poisoned)
+        ));
+        drop(store);
+
+        let mut recovered = ModelArtifactStore::open(&path).expect("recover torn artifact tail");
+        assert_eq!(
+            recovered.get("incumbent-artifact"),
+            Some(&DataValue::Integer(1))
+        );
+        assert_eq!(recovered.get("partially-written-artifact"), None);
+        recovered
+            .put("after-recovery", DataValue::Integer(4))
+            .expect("append after reopening");
+        drop(recovered);
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
+    fn artifact_sync_failure_is_ambiguous_until_reopen_and_retry() {
+        let path = test_path();
+        let (storage, _, fail_sync) = fault_injecting_storage(&path);
+        let mut store = ModelArtifactStore::from_storage(Box::new(storage)).expect("open store");
+        store
+            .put("committed-before-failure", DataValue::Integer(1))
+            .expect("persist first artifact");
+
+        fail_sync.store(true, Ordering::SeqCst);
+        assert!(matches!(
+            store.put("sync-ambiguous-artifact", DataValue::Integer(2)),
+            Err(ModelArtifactError::Io(_))
+        ));
+        assert!(matches!(
+            store.put("blocked-after-sync-failure", DataValue::Integer(3)),
+            Err(ModelArtifactError::Poisoned)
+        ));
+        drop(store);
+
+        let mut recovered = ModelArtifactStore::open(&path).expect("reopen after sync failure");
+        // The injected sync error does not tell the caller whether the complete
+        // frame reached storage. Recovery is authoritative for the retry decision.
+        assert_eq!(
+            recovered.get("sync-ambiguous-artifact"),
+            Some(&DataValue::Integer(2))
+        );
+        assert_eq!(
+            recovered
+                .put("sync-ambiguous-artifact", DataValue::Integer(2))
+                .expect("idempotent retry after recovery"),
+            ArtifactPutOutcome::AlreadyPresent
+        );
+        assert!(matches!(
+            recovered.put("sync-ambiguous-artifact", DataValue::Integer(9)),
+            Err(ModelArtifactError::ReferenceConflict)
+        ));
+        drop(recovered);
+        std::fs::remove_file(path).expect("remove artifact file");
+    }
+
+    #[test]
     fn rejects_conflicting_reference_and_recovers_torn_tail() {
         let path = test_path();
         let artifact =
@@ -1391,7 +1578,7 @@ mod tests {
         {
             let mut store = ModelArtifactStore::open(&path).expect("open");
             store.put("opaque-v1", artifact.clone()).expect("put");
-            first_length = store.file.metadata().expect("metadata").len();
+            first_length = store.file.len().expect("metadata");
             assert!(matches!(
                 store.put("opaque-v1", DataValue::Null),
                 Err(ModelArtifactError::ReferenceConflict)
