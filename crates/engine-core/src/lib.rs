@@ -13,6 +13,7 @@ pub mod learning;
 pub mod mapping;
 pub mod meta_learning;
 pub mod model_artifact;
+pub mod model_registry;
 pub mod planning;
 pub mod representation;
 pub mod reasoning;
@@ -50,6 +51,7 @@ pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
     RepresentationMapping, RepresentationRef,
 };
+pub use model_registry::{ModelCandidateSpec, ModelEvaluation, ModelPromotionPolicy, ModelRecord, ModelRegistry, ModelRegistryError, ModelStatus};
 pub use model_artifact::{ArtifactPutOutcome, ModelArtifactError, ModelArtifactStore};
 pub use planning::{plan, Plan, PlanStep, PlanningConfig, PlanningError};
 pub use representation::{
