@@ -4,8 +4,11 @@
 //! and P(observation | not-H). It ranks informative experiments while applying
 //! hard resource/risk/irreversibility constraints. It does not execute actions.
 
+use crate::action::{ActionAuthorizer, ActionProposal, ActionRisk};
+use crate::environment::EnvironmentDescriptor;
 use crate::reasoning::HypothesisRecord;
 use crate::value::DataValue;
+use crate::world_model::{EnsembleWorldModel, WorldModelError};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -189,12 +192,245 @@ fn binary_entropy(probability: f64) -> f64 {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelExplorationCandidate {
+    pub id: String,
+    pub action: ActionProposal,
+    pub resource_cost: f64,
+}
+
+impl ModelExplorationCandidate {
+    fn validate(&self) -> Result<(), ExperimentSelectionError> {
+        if self.id.trim().is_empty()
+            || self.action.action_id.trim().is_empty()
+            || !self.resource_cost.is_finite()
+            || self.resource_cost < 0.0
+        {
+            return Err(ExperimentSelectionError::InvalidCandidate);
+        }
+        self.action
+            .arguments
+            .validate_finite()
+            .map_err(|_| ExperimentSelectionError::InvalidCandidate)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ModelExplorationPolicy {
+    pub maximum_resource_cost: f64,
+    pub maximum_action_risk: ActionRisk,
+    pub task_utility_weight: f64,
+    pub disagreement_weight: f64,
+    pub resource_cost_weight: f64,
+    pub risk_weight: f64,
+}
+
+impl Default for ModelExplorationPolicy {
+    fn default() -> Self {
+        Self {
+            maximum_resource_cost: 100.0,
+            maximum_action_risk: ActionRisk::Reversible,
+            task_utility_weight: 1.0,
+            disagreement_weight: 1.0,
+            resource_cost_weight: 0.01,
+            risk_weight: 1.0,
+        }
+    }
+}
+
+impl ModelExplorationPolicy {
+    pub fn validate(&self) -> Result<(), ExperimentSelectionError> {
+        if !self.maximum_resource_cost.is_finite()
+            || self.maximum_resource_cost < 0.0
+            || [
+                self.task_utility_weight,
+                self.disagreement_weight,
+                self.resource_cost_weight,
+                self.risk_weight,
+            ]
+            .iter()
+            .any(|weight| !weight.is_finite() || *weight < 0.0)
+            || (self.task_utility_weight == 0.0 && self.disagreement_weight == 0.0)
+        {
+            return Err(ExperimentSelectionError::InvalidPolicy);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RankedExplorationAction {
+    pub candidate_id: String,
+    pub action: ActionProposal,
+    pub predicted_state: DataValue,
+    pub predicted_task_utility: f64,
+    /// Root-sum-square of ensemble epistemic standard deviations. This is a
+    /// scale-dependent disagreement proxy, not a calibrated information gain.
+    pub model_disagreement: f64,
+    pub resource_cost: f64,
+    pub risk: ActionRisk,
+    pub score: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelExplorationRanking {
+    pub ranked_actions: Vec<RankedExplorationAction>,
+    pub rejected_candidates: usize,
+}
+
+/// Ranks one-step action proposals by task utility plus ensemble disagreement.
+///
+/// Only ensembles with at least two models are accepted. The method validates
+/// every candidate through the environment descriptor and authorizer, applies
+/// hard cost/risk limits, and then ranks predicted utility plus an epistemic
+/// disagreement proxy, less declared resource and risk penalties.
+pub fn rank_model_disagreement_actions<F>(
+    environment: &EnvironmentDescriptor,
+    authorizer: ActionAuthorizer,
+    model: &EnsembleWorldModel,
+    current_state: &DataValue,
+    candidates: &[ModelExplorationCandidate],
+    policy: ModelExplorationPolicy,
+    utility: F,
+) -> Result<ModelExplorationRanking, ExperimentSelectionError>
+where
+    F: Fn(&DataValue) -> f64,
+{
+    policy.validate()?;
+    environment
+        .validate()
+        .map_err(|_| ExperimentSelectionError::InvalidEnvironment)?;
+    current_state
+        .validate_finite()
+        .map_err(|_| ExperimentSelectionError::InvalidState)?;
+    let current_fields = current_state
+        .as_object()
+        .ok_or(ExperimentSelectionError::InvalidState)?;
+    if model.len() < 2 {
+        return Err(ExperimentSelectionError::InsufficientEnsembleDiversity);
+    }
+    if candidates.is_empty() {
+        return Err(ExperimentSelectionError::NoEligibleActions);
+    }
+
+    let mut seen_ids = BTreeSet::new();
+    let mut ranked_actions = Vec::new();
+    let mut rejected_candidates = 0usize;
+    for candidate in candidates {
+        candidate.validate()?;
+        if !seen_ids.insert(candidate.id.as_str()) {
+            return Err(ExperimentSelectionError::DuplicateCandidate);
+        }
+        if candidate.resource_cost > policy.maximum_resource_cost {
+            rejected_candidates = rejected_candidates
+                .checked_add(1)
+                .ok_or(ExperimentSelectionError::CounterOverflow)?;
+            continue;
+        }
+        let Some(descriptor) = environment
+            .actions
+            .iter()
+            .find(|action| action.id == candidate.action.action_id)
+        else {
+            rejected_candidates = rejected_candidates
+                .checked_add(1)
+                .ok_or(ExperimentSelectionError::CounterOverflow)?;
+            continue;
+        };
+        if descriptor.risk > policy.maximum_action_risk
+            || authorizer
+                .authorize(environment, candidate.action.clone())
+                .is_err()
+        {
+            rejected_candidates = rejected_candidates
+                .checked_add(1)
+                .ok_or(ExperimentSelectionError::CounterOverflow)?;
+            continue;
+        }
+
+        let prediction = model
+            .predict(&candidate.action.action_id, current_state)
+            .map_err(ExperimentSelectionError::WorldModel)?;
+        if prediction.fields.is_empty() {
+            rejected_candidates = rejected_candidates
+                .checked_add(1)
+                .ok_or(ExperimentSelectionError::CounterOverflow)?;
+            continue;
+        }
+
+        let mut predicted_fields = current_fields.clone();
+        let mut disagreement_squared = 0.0;
+        for (field, estimate) in prediction.fields {
+            if !estimate.mean.is_finite()
+                || !estimate.epistemic_std_dev.is_finite()
+                || estimate.epistemic_std_dev < 0.0
+            {
+                return Err(ExperimentSelectionError::NumericalOverflow);
+            }
+            predicted_fields.insert(field, DataValue::Number(estimate.mean));
+            disagreement_squared += estimate.epistemic_std_dev.powi(2);
+            if !disagreement_squared.is_finite() {
+                return Err(ExperimentSelectionError::NumericalOverflow);
+            }
+        }
+        let predicted_state = DataValue::Object(predicted_fields);
+        let predicted_task_utility = utility(&predicted_state);
+        let model_disagreement = disagreement_squared.sqrt();
+        if !predicted_task_utility.is_finite() || !model_disagreement.is_finite() {
+            return Err(ExperimentSelectionError::NumericalOverflow);
+        }
+        let risk = descriptor.risk;
+        let normalized_risk = match risk {
+            ActionRisk::ReadOnly => 0.0,
+            ActionRisk::Reversible => 0.5,
+            ActionRisk::Irreversible => 1.0,
+        };
+        let score = policy.task_utility_weight * predicted_task_utility
+            + policy.disagreement_weight * model_disagreement
+            - policy.resource_cost_weight * candidate.resource_cost
+            - policy.risk_weight * normalized_risk;
+        if !score.is_finite() {
+            return Err(ExperimentSelectionError::NumericalOverflow);
+        }
+        ranked_actions.push(RankedExplorationAction {
+            candidate_id: candidate.id.clone(),
+            action: candidate.action.clone(),
+            predicted_state,
+            predicted_task_utility,
+            model_disagreement,
+            resource_cost: candidate.resource_cost,
+            risk,
+            score,
+        });
+    }
+
+    ranked_actions.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.candidate_id.cmp(&right.candidate_id))
+    });
+    if ranked_actions.is_empty() {
+        return Err(ExperimentSelectionError::NoEligibleActions);
+    }
+    Ok(ModelExplorationRanking {
+        ranked_actions,
+        rejected_candidates,
+    })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExperimentSelectionError {
     InvalidCandidate,
     InvalidPolicy,
     InvalidHypothesis,
     DuplicateCandidate,
+    InvalidEnvironment,
+    InvalidState,
+    InsufficientEnsembleDiversity,
+    NoEligibleActions,
+    CounterOverflow,
+    WorldModel(WorldModelError),
     NumericalOverflow,
 }
 
@@ -205,6 +441,12 @@ impl std::fmt::Display for ExperimentSelectionError {
             Self::InvalidPolicy => write!(formatter, "experiment selection policy is invalid"),
             Self::InvalidHypothesis => write!(formatter, "hypothesis posterior is invalid"),
             Self::DuplicateCandidate => write!(formatter, "experiment candidate ID is duplicated"),
+            Self::InvalidEnvironment => write!(formatter, "environment descriptor is invalid"),
+            Self::InvalidState => write!(formatter, "model-exploration state must be a finite object"),
+            Self::InsufficientEnsembleDiversity => write!(formatter, "model-disagreement exploration requires at least two predictive models"),
+            Self::NoEligibleActions => write!(formatter, "no model-exploration action passed prediction and safety constraints"),
+            Self::CounterOverflow => write!(formatter, "rejected-candidate counter overflowed"),
+            Self::WorldModel(error) => write!(formatter, "model-disagreement prediction failed: {error}"),
             Self::NumericalOverflow => write!(
                 formatter,
                 "experiment information-gain calculation overflowed"
@@ -248,6 +490,224 @@ mod tests {
             risk: 0.01,
             irreversible: false,
         }
+    }
+
+    fn exploration_environment() -> EnvironmentDescriptor {
+        use crate::action::{ActionDescriptor, ActionRisk};
+        use crate::schema::SchemaDefinition;
+
+        let empty_arguments = || SchemaDefinition {
+            id: "empty-arguments".to_owned(),
+            version: 1,
+            fields: Vec::new(),
+            allow_additional_fields: false,
+        };
+        EnvironmentDescriptor {
+            id: "exploration-counter".to_owned(),
+            version: "v1".to_owned(),
+            observation_schemas: Vec::new(),
+            actions: vec![
+                ActionDescriptor {
+                    id: "advance".to_owned(),
+                    arguments: empty_arguments(),
+                    risk: ActionRisk::Reversible,
+                },
+                ActionDescriptor {
+                    id: "wait".to_owned(),
+                    arguments: empty_arguments(),
+                    risk: ActionRisk::ReadOnly,
+                },
+            ],
+            supports_reset: false,
+        }
+    }
+
+    fn exploration_model() -> EnsembleWorldModel {
+        use crate::learning::TransitionSample;
+        use crate::world_model::{ActionDeltaModel, PredictiveModel};
+
+        let mut first = ActionDeltaModel::new("explore-model-a", 1).expect("first model");
+        first.fit(
+            "explore-train-a",
+            &[
+                TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
+                },
+                TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(11.0))]),
+                },
+                TransitionSample {
+                    action_id: "wait".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                },
+                TransitionSample {
+                    action_id: "wait".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                },
+            ],
+        ).expect("fit first model");
+
+        let mut second = ActionDeltaModel::new("explore-model-b", 1).expect("second model");
+        second.fit(
+            "explore-train-b",
+            &[
+                TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(3.0))]),
+                },
+                TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(13.0))]),
+                },
+                TransitionSample {
+                    action_id: "wait".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                },
+                TransitionSample {
+                    action_id: "wait".to_owned(),
+                    before: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(10.0))]),
+                },
+            ],
+        ).expect("fit second model");
+        EnsembleWorldModel::new(vec![
+            Box::new(first) as Box<dyn PredictiveModel>,
+            Box::new(second) as Box<dyn PredictiveModel>,
+        ]).expect("ensemble")
+    }
+
+    #[test]
+    fn model_disagreement_ranking_prefers_uncertain_actions_under_safety_limits() {
+        let environment = exploration_environment();
+        let model = exploration_model();
+        let state = DataValue::object([("position".to_owned(), DataValue::Number(0.0))]);
+        let candidates = vec![
+            ModelExplorationCandidate {
+                id: "wait".to_owned(),
+                action: ActionProposal {
+                    action_id: "wait".to_owned(),
+                    arguments: DataValue::object(std::iter::empty()),
+                },
+                resource_cost: 0.0,
+            },
+            ModelExplorationCandidate {
+                id: "advance".to_owned(),
+                action: ActionProposal {
+                    action_id: "advance".to_owned(),
+                    arguments: DataValue::object(std::iter::empty()),
+                },
+                resource_cost: 0.0,
+            },
+        ];
+        let ranking = rank_model_disagreement_actions(
+            &environment,
+            ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
+            &model,
+            &state,
+            &candidates,
+            ModelExplorationPolicy {
+                maximum_resource_cost: 1.0,
+                maximum_action_risk: ActionRisk::Reversible,
+                task_utility_weight: 0.0,
+                disagreement_weight: 1.0,
+                resource_cost_weight: 0.0,
+                risk_weight: 0.0,
+            },
+            |_| 0.0,
+        ).expect("rank exploration actions");
+        assert_eq!(ranking.ranked_actions[0].candidate_id, "advance");
+        assert!(ranking.ranked_actions[0].model_disagreement > 0.0);
+        assert_eq!(ranking.ranked_actions[1].candidate_id, "wait");
+    }
+
+    #[test]
+    fn model_disagreement_ranking_rejects_single_model_and_overrisk_actions() {
+        let environment = exploration_environment();
+        let state = DataValue::object([("position".to_owned(), DataValue::Number(0.0))]);
+        let candidate = ModelExplorationCandidate {
+            id: "advance".to_owned(),
+            action: ActionProposal {
+                action_id: "advance".to_owned(),
+                arguments: DataValue::object(std::iter::empty()),
+            },
+            resource_cost: 0.0,
+        };
+        let mut only = crate::world_model::ActionDeltaModel::new("only-model", 1)
+            .expect("model");
+        only.fit(
+            "only-training",
+            &[
+                crate::learning::TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: state.clone(),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
+                },
+                crate::learning::TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: state.clone(),
+                    after: DataValue::object([("position".to_owned(), DataValue::Number(2.0))]),
+                },
+            ],
+        ).expect("fit");
+        let one_model = EnsembleWorldModel::new(vec![
+            Box::new(only) as Box<dyn crate::world_model::PredictiveModel>
+        ]).expect("single model ensemble");
+        assert_eq!(
+            rank_model_disagreement_actions(
+                &environment,
+                ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(ActionRisk::Reversible)),
+                &one_model,
+                &state,
+                std::slice::from_ref(&candidate),
+                ModelExplorationPolicy::default(),
+                |_| 0.0,
+            ),
+            Err(ExperimentSelectionError::InsufficientEnsembleDiversity)
+        );
+
+        let mut irreversible_environment = environment;
+        irreversible_environment.actions.push(crate::action::ActionDescriptor {
+            id: "delete".to_owned(),
+            arguments: crate::schema::SchemaDefinition {
+                id: "empty-delete".to_owned(),
+                version: 1,
+                fields: Vec::new(),
+                allow_additional_fields: false,
+            },
+            risk: ActionRisk::Irreversible,
+        });
+        let delete = ModelExplorationCandidate {
+            id: "delete".to_owned(),
+            action: ActionProposal {
+                action_id: "delete".to_owned(),
+                arguments: DataValue::object(std::iter::empty()),
+            },
+            resource_cost: 0.0,
+        };
+        assert_eq!(
+            rank_model_disagreement_actions(
+                &irreversible_environment,
+                ActionAuthorizer::new(crate::action::ActionAuthorizationPolicy::new(ActionRisk::Irreversible)),
+                &exploration_model(),
+                &state,
+                &[delete],
+                ModelExplorationPolicy {
+                    maximum_action_risk: ActionRisk::Reversible,
+                    ..ModelExplorationPolicy::default()
+                },
+                |_| 0.0,
+            ),
+            Err(ExperimentSelectionError::NoEligibleActions)
+        );
     }
 
     #[test]
