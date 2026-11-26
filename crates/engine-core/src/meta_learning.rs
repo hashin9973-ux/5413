@@ -1009,23 +1009,21 @@ pub fn execute_strategy_graph<E: StrategyOperatorExecutor>(
             inputs.insert(input_port.name.clone(), value.clone());
         }
 
-        let outputs = executor
-            .execute(operator, &inputs)
-            .map_err(|message| StrategyExecutionError::OperatorFailed {
+        let outputs = executor.execute(operator, &inputs).map_err(|message| {
+            StrategyExecutionError::OperatorFailed {
                 operator_id: operator.id.clone(),
                 message,
-            })?;
+            }
+        })?;
         if outputs.len() != operator.outputs.len() {
             return Err(StrategyExecutionError::OutputPortSetMismatch(
                 operator.id.clone(),
             ));
         }
         for output_port in &operator.outputs {
-            let value = outputs
-                .get(&output_port.name)
-                .ok_or_else(|| {
-                    StrategyExecutionError::OutputPortSetMismatch(operator.id.clone())
-                })?;
+            let value = outputs.get(&output_port.name).ok_or_else(|| {
+                StrategyExecutionError::OutputPortSetMismatch(operator.id.clone())
+            })?;
             value
                 .validate_finite()
                 .map_err(|_| StrategyExecutionError::NonFiniteOutput {
@@ -1143,16 +1141,28 @@ impl std::fmt::Display for StrategyExecutionError {
         match self {
             Self::Graph(error) => write!(formatter, "strategy graph validation failed: {error}"),
             Self::CostBudgetExceeded { estimated, maximum } => {
-                write!(formatter, "strategy cost {estimated} exceeds budget {maximum}")
+                write!(
+                    formatter,
+                    "strategy cost {estimated} exceeds budget {maximum}"
+                )
             }
             Self::ExternalInputSetMismatch => {
-                write!(formatter, "external input set does not match the strategy declaration")
+                write!(
+                    formatter,
+                    "external input set does not match the strategy declaration"
+                )
             }
             Self::ExternalInputTypeMismatch(name) => {
-                write!(formatter, "external input {name} has an incompatible value type")
+                write!(
+                    formatter,
+                    "external input {name} has an incompatible value type"
+                )
             }
             Self::NonFiniteExternalInput(name) => {
-                write!(formatter, "external input {name} contains a non-finite number")
+                write!(
+                    formatter,
+                    "external input {name} contains a non-finite number"
+                )
             }
             Self::UpstreamValueMissing { node_id, port } => {
                 write!(formatter, "upstream value missing for {node_id}.{port}")
@@ -1161,31 +1171,46 @@ impl std::fmt::Display for StrategyExecutionError {
                 write!(formatter, "runtime input type mismatch at {node_id}.{port}")
             }
             Self::NonFiniteInput { node_id, port } => {
-                write!(formatter, "runtime input {node_id}.{port} contains a non-finite number")
+                write!(
+                    formatter,
+                    "runtime input {node_id}.{port} contains a non-finite number"
+                )
             }
             Self::OperatorFailed {
                 operator_id,
                 message,
-            } => write!(formatter, "trusted operator {operator_id} failed: {message}"),
+            } => write!(
+                formatter,
+                "trusted operator {operator_id} failed: {message}"
+            ),
             Self::OutputPortSetMismatch(operator_id) => {
-                write!(formatter, "operator {operator_id} returned missing or unexpected outputs")
+                write!(
+                    formatter,
+                    "operator {operator_id} returned missing or unexpected outputs"
+                )
             }
-            Self::NonFiniteOutput {
-                operator_id,
-                port,
-            } => write!(formatter, "operator {operator_id}.{port} returned a non-finite number"),
-            Self::RuntimeOutputTypeMismatch {
-                operator_id,
-                port,
-            } => write!(formatter, "operator {operator_id}.{port} returned an incompatible type"),
+            Self::NonFiniteOutput { operator_id, port } => write!(
+                formatter,
+                "operator {operator_id}.{port} returned a non-finite number"
+            ),
+            Self::RuntimeOutputTypeMismatch { operator_id, port } => write!(
+                formatter,
+                "operator {operator_id}.{port} returned an incompatible type"
+            ),
             Self::StrategyOutputMissing(name) => {
                 write!(formatter, "strategy output {name} could not be resolved")
             }
             Self::NonFiniteStrategyOutput(name) => {
-                write!(formatter, "strategy output {name} contains a non-finite number")
+                write!(
+                    formatter,
+                    "strategy output {name} contains a non-finite number"
+                )
             }
             Self::InvalidGraphState => {
-                write!(formatter, "validated strategy graph entered an invalid execution state")
+                write!(
+                    formatter,
+                    "validated strategy graph entered an invalid execution state"
+                )
             }
         }
     }
@@ -1456,7 +1481,10 @@ mod tests {
             operator: &OperatorSpec,
             _inputs: &BTreeMap<String, DataValue>,
         ) -> Result<BTreeMap<String, DataValue>, String> {
-            let output = operator.outputs.first().ok_or_else(|| "no output".to_owned())?;
+            let output = operator
+                .outputs
+                .first()
+                .ok_or_else(|| "no output".to_owned())?;
             Ok(BTreeMap::from([(
                 output.name.clone(),
                 DataValue::Text("wrong type".to_owned()),
@@ -1468,10 +1496,7 @@ mod tests {
     fn executes_trusted_operators_in_deterministic_order_with_type_and_cost_checks() {
         let catalogue = catalogue();
         let graph = graph();
-        let external_values = BTreeMap::from([(
-            "observation".to_owned(),
-            DataValue::Number(3.0),
-        )]);
+        let external_values = BTreeMap::from([("observation".to_owned(), DataValue::Number(3.0))]);
         let report = execute_strategy_graph(
             &graph,
             &catalogue,
