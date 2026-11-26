@@ -24,7 +24,7 @@ const MAX_FRAME_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 const MAX_VALUE_NESTING: usize = 128;
 const MAX_COLLECTION_ITEMS: usize = 100_000;
 
-trait JournalStorage: Read + Write + Seek {
+trait JournalStorage: Read + Write + Seek + Send + Sync {
     fn sync_all(&mut self) -> io::Result<()>;
     fn set_len(&mut self, length: u64) -> io::Result<()>;
 }
