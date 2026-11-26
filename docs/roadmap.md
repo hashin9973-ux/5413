@@ -47,7 +47,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 - [x] Interchangeable predictive-model interface with model identity and training dataset provenance
 - [x] Versioned model artifact storage and restore for built-in statistical/contextual models
-- [x] Model registry with held-out promotion gates, resource penalty, calibration requirement, and rollback by version retirement
+- [x] Model registry with held-out promotion gates, resource penalty, calibration requirement, rollback by version retirement, and snapshot-before-publication promotion semantics
 - [x] Action-conditioned statistical delta model
 - [x] Contextual numeric ridge-regression model with dynamically discovered features
 - [x] Empirical model ensemble with separate aleatoric and disagreement-based epistemic uncertainty estimates
@@ -70,7 +70,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
 - [x] Bounded one-step research-cycle orchestration linking experiment selection, authorized runtime execution, durable evidence, episode training, held-out evaluation, and model promotion
-- [x] Preserve completed runtime reports across subsequent evidence update/persistence failures; preflight both possible likelihood updates for numerical validity
+- [x] Preserve completed runtime reports across subsequent evidence update/persistence and learning failures; preflight both possible likelihood updates for numerical validity
 - [x] Reset-aware multi-episode exploration with reset capability preflight, unique episode/execution IDs, durable reset-request/completion journal events, global action/resource budgets, and preserved completed reports
 - [ ] Durable reset lifecycle events, environment recovery policies after ambiguous failures, and automatic compensation where adapters support it
 
