@@ -1314,6 +1314,22 @@ mod tests {
     }
 
     #[test]
+    fn ensemble_averages_large_aleatoric_uncertainties_without_overflow() {
+        let ensemble = EnsembleWorldModel::new(vec![
+            fixed_model("first", 0.0, 1.2e308, 0.0),
+            fixed_model("second", 0.0, 1.2e308, 0.0),
+        ])
+        .expect("ensemble");
+        let prediction = ensemble
+            .predict("advance", &DataValue::object(std::iter::empty()))
+            .expect("stable aleatoric uncertainty");
+        let estimate = prediction.fields.get("position").expect("position");
+
+        assert!((estimate.aleatoric_std_dev / 1.2e308 - 1.0).abs() < 1.0e-12);
+        assert!(estimate.total_std_dev().is_finite());
+    }
+
+    #[test]
     fn field_estimate_rejects_negative_uncertainty_components() {
         let estimate = FieldEstimate {
             mean: 0.0,
@@ -1328,9 +1344,9 @@ mod tests {
     #[test]
     fn ensemble_prediction_handles_extreme_means_and_uncertainties() {
         let ensemble = EnsembleWorldModel::new(vec![
-            fixed_model("first", f64::MAX, 1.2e308, 0.0),
-            fixed_model("second", f64::MAX, 1.2e308, 0.0),
-            fixed_model("third", -f64::MAX, 1.2e308, 0.0),
+            fixed_model("first", f64::MAX, 0.0, 0.0),
+            fixed_model("second", f64::MAX, 0.0, 0.0),
+            fixed_model("third", -f64::MAX, 0.0, 0.0),
         ])
         .expect("ensemble");
         let prediction = ensemble
@@ -1339,8 +1355,7 @@ mod tests {
         let estimate = prediction.fields.get("position").expect("position");
 
         assert!(estimate.mean.is_finite());
-        assert!(estimate.aleatoric_std_dev.is_finite());
-        assert!((estimate.aleatoric_std_dev / 1.2e308 - 1.0).abs() < 1.0e-12);
+        assert_eq!(estimate.aleatoric_std_dev, 0.0);
         assert!(estimate.epistemic_std_dev.is_finite());
         assert!(estimate.epistemic_std_dev > 0.9 * f64::MAX);
         assert!(estimate.epistemic_std_dev < f64::MAX);
