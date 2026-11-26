@@ -6,7 +6,7 @@
 //! cannot verify those design assumptions from outcome values alone.
 
 use crate::value::DataValue;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssignmentDesign {
