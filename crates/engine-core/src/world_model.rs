@@ -1322,11 +1322,7 @@ mod tests {
             .expect("fit");
 
         assert_eq!(
-            evaluate_model(
-                &model,
-                "validation",
-                &[sample("advance", 0.0, -f64::MAX)],
-            ),
+            evaluate_model(&model, "validation", &[sample("advance", 0.0, -f64::MAX)],),
             Err(WorldModelError::NonFinitePrediction)
         );
     }
