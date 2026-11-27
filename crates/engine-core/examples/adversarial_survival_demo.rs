@@ -6,8 +6,7 @@
 //! The experiment compares a cumulative NumericDeltaModel with a recent-window
 //! variant that can discard stale evidence after opponent strategy changes.
 
-use engine_core::{DataValue, NumericDeltaModel, TransitionSample};
-use std::collections::VecDeque;
+use engine_core::{DataValue, NumericDeltaModel, TransitionSample, WindowedNumericDeltaModel};
 
 const ACTIONS: [&str; 3] = ["evade", "guard", "counter"];
 const HEALTH_FIELD: &str = "health";
@@ -63,9 +62,7 @@ struct Metrics {
 
 struct Agent {
     model: NumericDeltaModel,
-    history: VecDeque<TransitionSample>,
-    adaptive: bool,
-    recent_window: usize,
+    recent_model: Option<WindowedNumericDeltaModel>,
     exploration_rate: f64,
     rng: u64,
 }
@@ -74,9 +71,10 @@ impl Agent {
     fn new(seed: u64, adaptive: bool, recent_window: usize, exploration_rate: f64) -> Self {
         Self {
             model: NumericDeltaModel::default(),
-            history: VecDeque::new(),
-            adaptive,
-            recent_window,
+            recent_model: adaptive.then(|| {
+                WindowedNumericDeltaModel::new(recent_window)
+                    .expect("positive recent window configured by benchmark")
+            }),
             exploration_rate,
             rng: seed.max(1),
         }
@@ -100,9 +98,10 @@ impl Agent {
         let mut best: Option<(usize, f64)> = None;
         for (index, action) in ACTIONS.iter().enumerate() {
             let estimate = self
-                .model
-                .predict_next(action, &state)
-                .ok()
+                .recent_model
+                .as_ref()
+                .and_then(|model| model.predict_next(action, &state).ok())
+                .or_else(|| self.model.predict_next(action, &state).ok())
                 .and_then(|values| values.get(HEALTH_FIELD).copied());
             let Some(estimate) = estimate else {
                 // Optimism under ignorance: sample an unmeasured action before
@@ -121,17 +120,10 @@ impl Agent {
     }
 
     fn observe(&mut self, sample: TransitionSample) {
-        self.history.push_back(sample.clone());
-        while self.history.len() > self.recent_window {
-            self.history.pop_front();
-        }
-        if self.adaptive {
-            self.model = NumericDeltaModel::default();
-            for recent in &self.history {
-                self.model
-                    .observe_transition(recent)
-                    .expect("finite survival transition");
-            }
+        if let Some(model) = &mut self.recent_model {
+            model
+                .observe_transition(&sample)
+                .expect("finite survival transition");
         } else {
             self.model
                 .observe_transition(&sample)
