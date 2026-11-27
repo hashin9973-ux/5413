@@ -345,8 +345,8 @@ fn main() {
         stable_observations_to_expand: 24,
         minimum_model_samples: 2,
         minimum_residual_samples: 4,
-        consecutive_outliers: 2,
-        change_threshold_sigma: 3.0,
+        consecutive_outliers: 1,
+        change_threshold_sigma: 4.0,
     };
     println!("Adversarial survival experiment");
     println!("seeds={SEEDS}, horizon={EPISODE_STEPS}, hidden irregular opponent schedule");
