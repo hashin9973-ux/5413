@@ -719,13 +719,10 @@ impl AdaptiveNumericDeltaModel {
                 .checked_add(1)
                 .ok_or(LearningError::SampleCountExhausted)?;
             self.model.resize_window(self.policy.min_window_size)?;
-            // Recalibrate only the detectors that fired. Other actions retain
-            // their own residual baselines, so a regime shift is still detectable
-            // when those actions are sampled later.
-            for key in detected_keys {
-                self.residual_monitors
-                    .insert(key, ResidualMonitor::default());
-            }
+            // All residual baselines refer to the previous regime. Clear them
+            // together so stale action-specific evidence cannot trigger delayed
+            // alarms after a later phase has already begun.
+            self.residual_monitors.clear();
             self.stable_observations = 0;
         } else if prediction_errors_observed > 0 {
             self.stable_observations = self.stable_observations.saturating_add(1);
@@ -1041,9 +1038,9 @@ mod tests {
             max_window_size: 16,
             stable_observations_to_expand: 8,
             minimum_model_samples: 2,
-            minimum_residual_samples: 8,
+            minimum_residual_samples: 4,
             consecutive_outliers: 2,
-            change_threshold_sigma: 3.0,
+            change_threshold_sigma: 4.0,
         }
     }
 
