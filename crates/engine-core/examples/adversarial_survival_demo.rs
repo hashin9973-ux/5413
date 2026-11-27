@@ -168,9 +168,11 @@ fn run_episode(seed: u64, adaptive: bool, recent_window: usize, exploration_rate
     let mut previous_phase = 0;
     let mut recovering = false;
     let mut recovery_steps = 0;
+    let schedule_cycle: usize = OPPONENT.iter().map(|phase| phase.duration).sum();
+    let schedule_offset = (seed % schedule_cycle as u64) as usize;
 
     for step in 0..EPISODE_STEPS {
-        let (phase, preferred_action) = opponent_phase(step);
+        let (phase, preferred_action) = opponent_phase(step + schedule_offset);
         if step > 0 && phase != previous_phase {
             metrics.phase_changes += 1;
             recovering = true;
@@ -247,6 +249,16 @@ fn main() {
 
     for exploration_rate in EXPLORATION_RATES {
         let baseline = summarize(false, usize::MAX, exploration_rate);
+        let fastest_adaptation = summarize(true, WINDOW_SIZES[0], exploration_rate);
+        assert!(
+            fastest_adaptation.survival_steps > baseline.survival_steps,
+            "recent-window learner must out-survive the cumulative baseline"
+        );
+        assert_eq!(
+            count_survivors(true, WINDOW_SIZES[0], exploration_rate),
+            SEEDS as usize,
+            "recent-window learner must survive the full benchmark horizon"
+        );
         print_row(exploration_rate, 0, baseline, false);
         for window in WINDOW_SIZES {
             let adaptive = summarize(true, window, exploration_rate);
