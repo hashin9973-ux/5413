@@ -54,3 +54,6 @@ jobs:
       - name: Run active exploration example
         run: cargo run -p engine-core --example active_exploration_demo
 
+      - name: Run adversarial survival experiment
+        run: cargo run -p engine-core --example adversarial_survival_demo
+

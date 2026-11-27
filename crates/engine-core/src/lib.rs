@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod regression_metrics;
+
 pub mod action;
 pub mod active_exploration;
 pub mod benchmark;
@@ -81,7 +83,12 @@ pub use experimentation::{
     rank_experiments, ExperimentCandidate, ExperimentError, ExperimentPolicy, ExperimentRanking,
     ExperimentScore,
 };
-pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
+pub use learning::{
+    AdaptiveLearningPolicy, AdaptiveLearningUpdate, AdaptiveNumericDeltaModel,
+    CrossActionAdaptiveLearningPolicy, CrossActionAdaptiveLearningUpdate,
+    CrossActionAdaptiveNumericDeltaModel, FieldPrediction, LearningError, NumericDeltaModel,
+    TransitionSample, WindowedNumericDeltaModel,
+};
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
     RepresentationMapping, RepresentationRef,

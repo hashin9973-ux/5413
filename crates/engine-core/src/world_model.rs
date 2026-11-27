@@ -2,6 +2,7 @@ use crate::experience::ExperienceRecord;
 use crate::learning::{
     extract_transition_samples, LearningError, NumericDeltaModel, TransitionSample,
 };
+use crate::regression_metrics::{OnlineMean, RegressionErrorAccumulator, ScaledSumSquares};
 use crate::value::DataValue;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,7 +24,14 @@ pub struct FieldEstimate {
 
 impl FieldEstimate {
     pub fn total_std_dev(&self) -> f64 {
-        (self.aleatoric_std_dev.powi(2) + self.epistemic_std_dev.powi(2)).sqrt()
+        if !self.aleatoric_std_dev.is_finite()
+            || self.aleatoric_std_dev < 0.0
+            || !self.epistemic_std_dev.is_finite()
+            || self.epistemic_std_dev < 0.0
+        {
+            return f64::NAN;
+        }
+        self.aleatoric_std_dev.hypot(self.epistemic_std_dev)
     }
 }
 
@@ -508,26 +516,50 @@ impl EnsembleWorldModel {
 
         let mut fields = BTreeMap::new();
         for (name, estimates) in estimates_by_field {
-            let count = estimates.len() as f64;
-            let mean = estimates.iter().map(|estimate| estimate.mean).sum::<f64>() / count;
-            let between_model_variance = estimates
-                .iter()
-                .map(|estimate| (estimate.mean - mean).powi(2))
-                .sum::<f64>()
-                / count;
-            let aleatoric_variance = estimates
-                .iter()
-                .map(|estimate| estimate.aleatoric_std_dev.powi(2))
-                .sum::<f64>()
-                / count;
-            let within_epistemic_variance = estimates
-                .iter()
-                .map(|estimate| estimate.epistemic_std_dev.powi(2))
-                .sum::<f64>()
-                / count;
-            let aleatoric_std_dev = aleatoric_variance.sqrt();
-            let epistemic_std_dev = (between_model_variance + within_epistemic_variance).sqrt();
-            if !mean.is_finite() || !aleatoric_std_dev.is_finite() || !epistemic_std_dev.is_finite()
+            let mut mean = OnlineMean::default();
+            let mut maximum_absolute_mean = 0.0_f64;
+            let mut aleatoric_rms = ScaledSumSquares::default();
+            let mut within_epistemic_rms = ScaledSumSquares::default();
+            for estimate in &estimates {
+                if !mean.push_finite(estimate.mean)
+                    || !aleatoric_rms.push_nonnegative(estimate.aleatoric_std_dev)
+                    || !within_epistemic_rms.push_nonnegative(estimate.epistemic_std_dev)
+                {
+                    return Err(WorldModelError::NonFinitePrediction);
+                }
+                maximum_absolute_mean = maximum_absolute_mean.max(estimate.mean.abs());
+            }
+            let mean = mean.mean().ok_or(WorldModelError::NonFinitePrediction)?;
+
+            // Normalize before centering so differences such as -MAX - MAX/3
+            // do not overflow even when the resulting population spread fits f64.
+            let between_model_std_dev = if maximum_absolute_mean == 0.0 {
+                0.0
+            } else {
+                let normalized_mean = mean / maximum_absolute_mean;
+                let mut normalized_deviations = ScaledSumSquares::default();
+                for estimate in &estimates {
+                    let deviation = (estimate.mean / maximum_absolute_mean) - normalized_mean;
+                    if !normalized_deviations.push_nonnegative(deviation.abs()) {
+                        return Err(WorldModelError::NonFinitePrediction);
+                    }
+                }
+                let normalized_std_dev = normalized_deviations
+                    .root_mean_square()
+                    .ok_or(WorldModelError::NonFinitePrediction)?;
+                maximum_absolute_mean * normalized_std_dev
+            };
+            let aleatoric_std_dev = aleatoric_rms
+                .root_mean_square()
+                .ok_or(WorldModelError::NonFinitePrediction)?;
+            let within_epistemic_std_dev = within_epistemic_rms
+                .root_mean_square()
+                .ok_or(WorldModelError::NonFinitePrediction)?;
+            let epistemic_std_dev = between_model_std_dev.hypot(within_epistemic_std_dev);
+            if !between_model_std_dev.is_finite()
+                || !mean.is_finite()
+                || !aleatoric_std_dev.is_finite()
+                || !epistemic_std_dev.is_finite()
             {
                 return Err(WorldModelError::NonFinitePrediction);
             }
@@ -813,10 +845,8 @@ fn evaluate_predictions(
         return Err(WorldModelError::NoEvaluationSamples);
     }
 
-    let mut absolute_error = 0.0;
-    let mut squared_error = 0.0;
-    let mut predicted_std_dev = 0.0;
-    let mut predicted_fields = 0usize;
+    let mut errors = RegressionErrorAccumulator::default();
+    let mut mean_predicted_std_dev = OnlineMean::default();
     let mut calibrated_predictions = 0usize;
     let mut covered_predictions = 0usize;
 
@@ -826,35 +856,44 @@ fn evaluate_predictions(
             let Some(actual) = sample.after.get(&name).and_then(DataValue::as_f64) else {
                 continue;
             };
-            let error = estimate.mean - actual;
+            let absolute_error = errors
+                .record_difference(estimate.mean, actual)
+                .ok_or(WorldModelError::NonFinitePrediction)?;
             let std_dev = estimate.total_std_dev();
-            if !error.is_finite() || !std_dev.is_finite() {
+            if !std_dev.is_finite() || !mean_predicted_std_dev.push_nonnegative(std_dev) {
                 return Err(WorldModelError::NonFinitePrediction);
             }
-            absolute_error += error.abs();
-            squared_error += error * error;
-            predicted_std_dev += std_dev;
-            predicted_fields += 1;
             if estimate.uncertainty_calibrated {
                 calibrated_predictions += 1;
-                if error.abs() <= 1.96 * std_dev {
+                let within_95_interval = if std_dev == 0.0 {
+                    absolute_error == 0.0
+                } else {
+                    absolute_error / std_dev <= 1.96
+                };
+                if within_95_interval {
                     covered_predictions += 1;
                 }
             }
         }
     }
 
+    let predicted_fields = errors.numeric_fields();
     if predicted_fields == 0 {
         return Err(WorldModelError::NoEvaluationPredictions);
     }
-    let count = predicted_fields as f64;
+    let summary = errors
+        .finish()
+        .ok_or(WorldModelError::NonFinitePrediction)?;
+    let mean_predicted_std_dev = mean_predicted_std_dev
+        .mean()
+        .ok_or(WorldModelError::NonFinitePrediction)?;
     Ok(ModelEvaluation {
         evaluation_dataset_id: evaluation_dataset_id.to_owned(),
         evaluated_transitions: samples.len(),
         predicted_fields,
-        mean_absolute_error: absolute_error / count,
-        root_mean_squared_error: (squared_error / count).sqrt(),
-        mean_predicted_std_dev: predicted_std_dev / count,
+        mean_absolute_error: summary.mean_absolute_error,
+        root_mean_squared_error: summary.root_mean_squared_error,
+        mean_predicted_std_dev,
         calibrated_predictions,
         empirical_coverage_95: if calibrated_predictions == 0 {
             None
@@ -966,15 +1005,17 @@ fn fit_linear_field(
     }
 
     let coefficients = solve_linear_system(gram, cross)?;
-    let mut squared_residuals = 0.0;
+    let mut residual_rms = ScaledSumSquares::default();
     for (features, target) in rows {
         let prediction = dot(&coefficients, features)?;
-        squared_residuals += (prediction - target).powi(2);
+        let residual = prediction - target;
+        if !residual_rms.push_nonnegative(residual.abs()) {
+            return Err(WorldModelError::NonFinitePrediction);
+        }
     }
-    let residual_std_dev = (squared_residuals / rows.len() as f64).sqrt();
-    if !residual_std_dev.is_finite() {
-        return Err(WorldModelError::NonFinitePrediction);
-    }
+    let residual_std_dev = residual_rms
+        .root_mean_square()
+        .ok_or(WorldModelError::NonFinitePrediction)?;
 
     let sample_count = to_u64(rows.len())?;
     Ok(LinearFieldModel {
@@ -1171,6 +1212,156 @@ mod tests {
         }
     }
 
+    struct FixedPredictionModel {
+        identity: ModelIdentity,
+        dataset_id: String,
+        estimate: FieldEstimate,
+    }
+
+    impl PredictiveModel for FixedPredictionModel {
+        fn identity(&self) -> &ModelIdentity {
+            &self.identity
+        }
+
+        fn fit(
+            &mut self,
+            _training_dataset_id: &str,
+            _samples: &[TransitionSample],
+        ) -> Result<ModelFitReport, WorldModelError> {
+            Ok(ModelFitReport {
+                samples_seen: 1,
+                trainable_fields: 1,
+            })
+        }
+
+        fn predict(
+            &self,
+            _action_id: &str,
+            _current_state: &DataValue,
+        ) -> Result<ModelPrediction, WorldModelError> {
+            Ok(ModelPrediction {
+                contributors: vec![self.identity.clone()],
+                fields: BTreeMap::from([("position".to_owned(), self.estimate)]),
+            })
+        }
+
+        fn training_dataset_id(&self) -> Option<&str> {
+            Some(&self.dataset_id)
+        }
+
+        fn training_samples(&self) -> u64 {
+            1
+        }
+
+        fn to_artifact_value(&self) -> Result<DataValue, WorldModelError> {
+            Ok(DataValue::Null)
+        }
+    }
+
+    fn fixed_model(
+        id: &str,
+        mean: f64,
+        aleatoric_std_dev: f64,
+        epistemic_std_dev: f64,
+    ) -> Box<dyn PredictiveModel> {
+        Box::new(FixedPredictionModel {
+            identity: ModelIdentity {
+                id: id.to_owned(),
+                version: 1,
+            },
+            dataset_id: format!("training-{id}"),
+            estimate: FieldEstimate {
+                mean,
+                aleatoric_std_dev,
+                epistemic_std_dev,
+                sample_count: 10,
+                uncertainty_calibrated: true,
+            },
+        })
+    }
+
+    #[test]
+    fn contextual_model_residual_spread_avoids_intermediate_square_overflow() {
+        let rows = vec![(vec![1.0, 0.0], 1.0e200), (vec![1.0, 0.0], -1.0e200)];
+        let fitted = fit_linear_field(&rows, 1.0).expect("fit with large residuals");
+        assert!(fitted.residual_std_dev.is_finite());
+        assert!((fitted.residual_std_dev / 1.0e200 - 1.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn ensemble_rejects_negative_uncertainty_components() {
+        let ensemble = EnsembleWorldModel::new(vec![fixed_model("invalid", 0.0, -1.0, 0.0)])
+            .expect("ensemble");
+        assert_eq!(
+            ensemble.predict("advance", &DataValue::object(std::iter::empty())),
+            Err(WorldModelError::NonFinitePrediction)
+        );
+    }
+
+    #[test]
+    fn field_estimate_combines_large_uncertainties_without_overflow() {
+        let estimate = FieldEstimate {
+            mean: 0.0,
+            aleatoric_std_dev: 1.2e308,
+            epistemic_std_dev: 1.2e308,
+            sample_count: 10,
+            uncertainty_calibrated: true,
+        };
+        let total = estimate.total_std_dev();
+        assert!(total.is_finite());
+        assert!(total > 1.2e308);
+        assert!(total < f64::MAX);
+    }
+
+    #[test]
+    fn ensemble_averages_large_aleatoric_uncertainties_without_overflow() {
+        let ensemble = EnsembleWorldModel::new(vec![
+            fixed_model("first", 0.0, 1.2e308, 0.0),
+            fixed_model("second", 0.0, 1.2e308, 0.0),
+        ])
+        .expect("ensemble");
+        let prediction = ensemble
+            .predict("advance", &DataValue::object(std::iter::empty()))
+            .expect("stable aleatoric uncertainty");
+        let estimate = prediction.fields.get("position").expect("position");
+
+        assert!((estimate.aleatoric_std_dev / 1.2e308 - 1.0).abs() < 1.0e-12);
+        assert!(estimate.total_std_dev().is_finite());
+    }
+
+    #[test]
+    fn field_estimate_rejects_negative_uncertainty_components() {
+        let estimate = FieldEstimate {
+            mean: 0.0,
+            aleatoric_std_dev: -1.0,
+            epistemic_std_dev: 0.0,
+            sample_count: 1,
+            uncertainty_calibrated: false,
+        };
+        assert!(estimate.total_std_dev().is_nan());
+    }
+
+    #[test]
+    fn ensemble_prediction_handles_extreme_means_and_uncertainties() {
+        let ensemble = EnsembleWorldModel::new(vec![
+            fixed_model("first", f64::MAX, 0.0, 0.0),
+            fixed_model("second", f64::MAX, 0.0, 0.0),
+            fixed_model("third", -f64::MAX, 0.0, 0.0),
+        ])
+        .expect("ensemble");
+        let prediction = ensemble
+            .predict("advance", &DataValue::object(std::iter::empty()))
+            .expect("stable ensemble prediction");
+        let estimate = prediction.fields.get("position").expect("position");
+
+        assert!(estimate.mean.is_finite());
+        assert_eq!(estimate.aleatoric_std_dev, 0.0);
+        assert!(estimate.epistemic_std_dev.is_finite());
+        assert!(estimate.epistemic_std_dev > 0.9 * f64::MAX);
+        assert!(estimate.epistemic_std_dev < f64::MAX);
+        assert!(estimate.total_std_dev().is_finite());
+    }
+
     #[test]
     fn statistical_model_predicts_mean_delta_and_uncertainty() {
         let mut model = ActionDeltaModel::new("delta", 1).expect("identity");
@@ -1283,6 +1474,40 @@ mod tests {
         let estimate = prediction.fields.get("position").expect("position");
         assert_eq!(estimate.mean, 6.0);
         assert_eq!(estimate.epistemic_std_dev, 1.0);
+    }
+
+    #[test]
+    fn held_out_evaluation_uses_stable_metrics_for_large_errors() {
+        let mut model = ActionDeltaModel::new("large-delta", 1).expect("model");
+        model
+            .fit("training", &[sample("advance", 0.0, 1.0e308)])
+            .expect("fit");
+        let report = evaluate_model(
+            &model,
+            "validation",
+            &[sample("advance", 0.0, 0.0), sample("advance", 0.0, 0.0)],
+        )
+        .expect("large finite evaluation");
+
+        assert_eq!(report.predicted_fields, 2);
+        assert!(report.mean_absolute_error.is_finite());
+        assert!(report.root_mean_squared_error.is_finite());
+        assert!(report.mean_predicted_std_dev.is_finite());
+        assert!((report.mean_absolute_error / 1.0e308 - 1.0).abs() < 1.0e-12);
+        assert!((report.root_mean_squared_error / 1.0e308 - 1.0).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn held_out_evaluation_rejects_unrepresentable_prediction_difference() {
+        let mut model = ActionDeltaModel::new("maximum-delta", 1).expect("model");
+        model
+            .fit("training", &[sample("advance", 0.0, f64::MAX)])
+            .expect("fit");
+
+        assert_eq!(
+            evaluate_model(&model, "validation", &[sample("advance", 0.0, -f64::MAX)],),
+            Err(WorldModelError::NonFinitePrediction)
+        );
     }
 
     #[test]

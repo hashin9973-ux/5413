@@ -11,6 +11,7 @@ use crate::environment::{
 use crate::experience::ExperienceEvent;
 use crate::experience_journal::{ExperienceJournal, IdempotentAppendOutcome, JournalError};
 use crate::planning::{plan, PlanningConfig, PlanningError};
+use crate::regression_metrics::RegressionErrorAccumulator;
 use crate::value::DataValue;
 use crate::world_model::EnsembleWorldModel;
 
@@ -311,9 +312,7 @@ fn append_once(
 }
 
 fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionErrorMetrics {
-    let mut absolute_error = 0.0;
-    let mut squared_error = 0.0;
-    let mut fields = 0usize;
+    let mut errors = RegressionErrorAccumulator::default();
 
     if let (Some(predicted), Some(observed)) = (predicted.as_object(), observed.as_object()) {
         for (name, predicted_value) in predicted {
@@ -323,17 +322,15 @@ fn prediction_error(predicted: &DataValue, observed: &DataValue) -> PredictionEr
             let Some(observed_number) = observed.get(name).and_then(DataValue::as_f64) else {
                 continue;
             };
-            let error = predicted_number - observed_number;
-            absolute_error += error.abs();
-            squared_error += error * error;
-            fields += 1;
+            errors.record_difference(predicted_number, observed_number);
         }
     }
 
+    let metrics = errors.finish();
     PredictionErrorMetrics {
-        numeric_fields: fields,
-        mean_absolute_error: (fields > 0).then_some(absolute_error / fields as f64),
-        root_mean_squared_error: (fields > 0).then_some((squared_error / fields as f64).sqrt()),
+        numeric_fields: errors.numeric_fields(),
+        mean_absolute_error: metrics.map(|summary| summary.mean_absolute_error),
+        root_mean_squared_error: metrics.map(|summary| summary.root_mean_squared_error),
     }
 }
 
@@ -617,5 +614,36 @@ mod tests {
         assert_eq!(environment.executed, 1);
         drop(journal);
         std::fs::remove_file(path).expect("cleanup");
+    }
+    #[test]
+    fn prediction_error_uses_stable_accumulation_for_large_finite_values() {
+        let predicted = DataValue::object([
+            ("small".to_owned(), DataValue::Number(1.0e200)),
+            ("large".to_owned(), DataValue::Number(2.0e200)),
+        ]);
+        let observed = DataValue::object([
+            ("small".to_owned(), DataValue::Number(0.0)),
+            ("large".to_owned(), DataValue::Number(0.0)),
+        ]);
+
+        let metrics = prediction_error(&predicted, &observed);
+        assert_eq!(metrics.numeric_fields, 2);
+
+        let mean_absolute_error = metrics.mean_absolute_error.expect("finite MAE");
+        assert!((mean_absolute_error / 1.0e200 - 1.5).abs() < 1.0e-12);
+
+        let root_mean_squared_error = metrics.root_mean_squared_error.expect("finite RMSE");
+        assert!((root_mean_squared_error / 1.0e200 - 2.5_f64.sqrt()).abs() < 1.0e-12);
+    }
+
+    #[test]
+    fn prediction_error_omits_metrics_when_a_difference_exceeds_f64_range() {
+        let predicted = DataValue::object([("position".to_owned(), DataValue::Number(f64::MAX))]);
+        let observed = DataValue::object([("position".to_owned(), DataValue::Number(-f64::MAX))]);
+
+        let metrics = prediction_error(&predicted, &observed);
+        assert_eq!(metrics.numeric_fields, 1);
+        assert_eq!(metrics.mean_absolute_error, None);
+        assert_eq!(metrics.root_mean_squared_error, None);
     }
 }

@@ -50,9 +50,16 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Versioned model artifact storage and restore for built-in statistical/contextual models
 - [x] Model registry with held-out promotion gates, resource penalty, calibration requirement, rollback by version retirement, and snapshot-before-publication promotion semantics
 - [x] Action-conditioned statistical delta model
+- [x] Overflow-resistant online delta mean/variance with versioned learner artifacts and legacy-state migration
+- [x] Transactional recent-window numeric delta learner with a lifetime sample counter for adaptation to non-stationary dynamics
+- [x] Configurable prediction-residual change detection across interleaved actions, transactional adaptive memory shrink, post-change recalibration cooldown, and gradual stable-period expansion; stationary-noise false-alarm regression test (experimental, with an explicit detection-recall/false-alarm trade-off)
 - [x] Contextual numeric ridge-regression model with dynamically discovered features
 - [x] Empirical model ensemble with separate aleatoric and disagreement-based epistemic uncertainty estimates
+- [x] Overflow-resistant ensemble mean and population-spread calculations, scaled aleatoric/epistemic aggregation, stable total-standard-deviation composition, and invalid uncertainty rejection
 - [x] Held-out model evaluation with MAE, RMSE, spread, empirical coverage, and dataset-ID leakage guard
+- [x] Stable contextual residual-spread fitting for very large finite residuals without intermediate square overflow
+- [x] Action-specific residual calibration with bounded cross-action CUSUM-style surprise accumulation, evidence decay, transactional adaptive memory updates, and isolated-outlier stationary-noise regression coverage (experimental; benchmark superiority not established)
+  - Its drift allowance, evidence threshold, per-transition cap, and decay are empirical policy parameters, not confidence levels, p-values, or false-alarm guarantees.
 - [ ] Temporal sequence models and relational dynamics
 - [ ] Symbolic transition-rule induction and competing hypotheses
 - [ ] Better calibrated predictive distributions and proper scoring rules
@@ -69,6 +76,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Controlled causal interventions with confounder-aware evaluation
 - [ ] Goal predicates, hard constraints, resource budgets, and terminal conditions
 - [x] Receding-horizon runtime with fresh-state replanning, durable pre-execution intent, immediate reauthorization, observed outcome capture, and prediction-error metrics
+- [x] Overflow-resistant runtime and held-out MAE/RMSE accumulation plus scaled planner uncertainty aggregation and finite-score guards
 - [x] Episode-scoped transition extraction from completed journaled action/observation sequences
 - [x] Bounded one-step research-cycle orchestration linking experiment selection, authorized runtime execution, durable evidence, episode training, held-out evaluation, and model promotion
 - [x] Preserve completed runtime reports across subsequent evidence update/persistence and learning failures; preflight both possible likelihood updates for numerical validity
@@ -83,10 +91,10 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Unique evidence references, provenance dataset IDs, and log-likelihood-ratio accumulation
 - [x] Posterior confidence and explicit support/refutation/inconclusive thresholds
 - [x] Strict versioned snapshot serialization and restore validation
-- [x] Paired randomized-trial difference-in-means estimator with uncertainty and strict pair validation
-- [x] Independent-unit randomized multi-arm treatment-vs-control estimates, declared allocation checks, Welch-style standard errors, normal-approximation intervals, Holm-Bonferroni adjustment, and immutable study persistence
-- [x] Exact exhaustive paired sign-flip randomization inference under an explicitly attested independent fair-swap assignment mechanism, with a hard enumeration cap
-- [x] Exact bounded multi-arm fixed-allocation randomization test using the maximum absolute treatment-control contrast as an omnibus statistic
+- [x] Paired randomized-trial difference-in-means estimator with uncertainty and strict pair validation, using scaled differences, online means, and overflow-resistant standard errors
+- [x] Independent-unit randomized multi-arm treatment-vs-control estimates, declared allocation checks, scaled sample-spread and hypot-combined Welch-style standard errors, normal-approximation intervals, Holm-Bonferroni adjustment, and immutable study persistence
+- [x] Exact exhaustive paired sign-flip randomization inference under an explicitly attested independent fair-swap assignment mechanism, with a hard enumeration cap and normalized signed-mean accumulation
+- [x] Exact bounded multi-arm fixed-allocation randomization test using online arm means for the maximum absolute treatment-control contrast as an omnibus statistic
 - [ ] Confounder-aware estimators and sensitivity analysis
 - [x] Binary-outcome expected-information-gain ranking from caller-supplied likelihood models, risk and cost penalties, and irreversible-action constraints
 - [ ] Automatic hypothesis generation and online calibration of experiment likelihoods
@@ -97,12 +105,14 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Aggregate transfer improvement, win rate, case-level standard error, and resource cost
 - [x] Few-shot transfer curves over strictly increasing adaptation sample counts, with direction-aware improvement and area-under-curve metric
 - [x] Sparse directed multi-task transfer matrices with per-pair improvement, win/loss rates, uncertainty, and resource cost
+- [x] Overflow-resistant transfer means, standard errors, and resource-cost averages in summaries and directed matrices, with rejection of unrepresentable score improvements
 - [x] Configurable negative-transfer diagnosis with minimum case count and negative-outcome rate
 - [ ] Multi-task transfer graph optimization and source-selection policy
 
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
 - [x] Per-seed sample-efficiency curves against caller-declared reference strategies, with area under improvement and samples-to-target metrics
 - [x] Aggregate repeated learning-curve seeds only within matching protocol signatures, with per-budget standard errors, AUC uncertainty, and target-reach statistics
+- [x] Overflow-resistant signed trapezoidal AUC integration for few-shot transfer and repeated-seed learning-efficiency curves
 - [x] Executable paired benchmark-protocol runner across seeds and sample budgets, with strict result-provenance checks, resource/evaluation budgets, aggregate summaries, and immutable persistence
 - [ ] Confidence intervals robust to non-normal seed distributions
 - [ ] Calibration, robustness, and out-of-distribution benchmark suites
@@ -123,6 +133,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 ## Milestone 9 — Controlled algorithm improvement
 
+- [x] Reproducible adversarial survival benchmark with randomized hidden opponent phases, 64 seeded episodes, cumulative/fixed/per-action-adaptive/cross-action-adaptive learner comparison, exploration/window-size sweeps, survival and prediction metrics, detector delay/misses/false alarms, and stationary-noise controls
 - [ ] Operator proposals from measured failure analysis
 - [ ] Sandboxed implementation experiments
 - [ ] Reproducible build and benchmark pipeline

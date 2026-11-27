@@ -3,6 +3,7 @@
 //! This module measures supplied baseline and transferred-model evaluations.
 //! It does not train, execute, or infer transfer from schema compatibility.
 
+use crate::regression_metrics::{OnlineMean, ScaledSumSquares};
 use crate::value::DataValue;
 use std::collections::BTreeMap;
 
@@ -47,6 +48,9 @@ impl TransferEvaluation {
         }
         if self.source_environment_id == self.target_environment_id {
             return Err(BenchmarkError::NotCrossEnvironment);
+        }
+        if !self.improvement().is_finite() {
+            return Err(BenchmarkError::NumericalOverflow);
         }
         if self.source_training_dataset_id == self.target_evaluation_dataset_id {
             return Err(BenchmarkError::DatasetLeakage);
@@ -123,30 +127,20 @@ impl TransferBenchmark {
             .map(|evaluation| evaluation.improvement())
             .collect();
         let count = improvements.len() as f64;
-        let mean_improvement = improvements.iter().sum::<f64>() / count;
+        let (mean_improvement, standard_error) = mean_and_standard_error(&improvements)?;
         let wins = improvements
             .iter()
             .filter(|improvement| **improvement > 0.0)
             .count();
-        let sample_variance = if improvements.len() > 1 {
-            improvements
-                .iter()
-                .map(|improvement| (improvement - mean_improvement).powi(2))
-                .sum::<f64>()
-                / (count - 1.0)
-        } else {
-            0.0
-        };
-        let standard_error = if improvements.len() > 1 {
-            Some((sample_variance / count).sqrt())
-        } else {
-            None
-        };
-        let mean_resource_cost = selected
-            .iter()
-            .map(|evaluation| evaluation.resource_cost)
-            .sum::<f64>()
-            / count;
+        let mut resource_cost_mean = OnlineMean::default();
+        for evaluation in &selected {
+            if !resource_cost_mean.push_nonnegative(evaluation.resource_cost) {
+                return Err(BenchmarkError::NumericalOverflow);
+            }
+        }
+        let mean_resource_cost = resource_cost_mean
+            .mean()
+            .ok_or(BenchmarkError::NumericalOverflow)?;
         let total_samples = selected.iter().try_fold(0usize, |sum, evaluation| {
             sum.checked_add(evaluation.sample_count)
                 .ok_or(BenchmarkError::NumericalOverflow)
@@ -395,15 +389,12 @@ impl FewShotTransferCurve {
     /// Trapezoidal area under the improvement-vs-adaptation-sample curve.
     pub fn area_under_improvement_curve(&self) -> Result<f64, BenchmarkError> {
         let improvements = self.improvements()?;
-        let mut area = 0.0;
-        for (index, pair) in self.points.windows(2).enumerate() {
-            let width = (pair[1].adaptation_samples - pair[0].adaptation_samples) as f64;
-            area += width * (improvements[index] + improvements[index + 1]) / 2.0;
-            if !area.is_finite() {
-                return Err(BenchmarkError::NumericalOverflow);
-            }
-        }
-        Ok(area)
+        let sample_budgets: Vec<usize> = self
+            .points
+            .iter()
+            .map(|point| point.adaptation_samples)
+            .collect();
+        stable_trapezoidal_area(&sample_budgets, &improvements)
     }
 
     pub fn to_artifact_value(&self) -> DataValue {
@@ -632,15 +623,12 @@ impl LearningEfficiencyCurve {
     /// Raw trapezoidal area under improvement versus training samples.
     pub fn area_under_improvement_curve(&self) -> Result<f64, BenchmarkError> {
         let improvements = self.improvements()?;
-        let mut area = 0.0;
-        for (index, pair) in self.points.windows(2).enumerate() {
-            let width = (pair[1].training_samples - pair[0].training_samples) as f64;
-            area += width * (improvements[index] + improvements[index + 1]) / 2.0;
-            if !area.is_finite() {
-                return Err(BenchmarkError::NumericalOverflow);
-            }
-        }
-        Ok(area)
+        let sample_budgets: Vec<usize> = self
+            .points
+            .iter()
+            .map(|point| point.training_samples)
+            .collect();
+        stable_trapezoidal_area(&sample_budgets, &improvements)
     }
 
     /// Returns the first training budget at which the learner reaches a
@@ -1030,27 +1018,107 @@ fn learning_efficiency_group_key(curve: &LearningEfficiencyCurve) -> LearningEff
 }
 
 fn mean_and_standard_error(values: &[f64]) -> Result<(f64, Option<f64>), BenchmarkError> {
-    if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
+    if values.is_empty() {
         return Err(BenchmarkError::NumericalOverflow);
     }
-    let count = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / count;
-    if !mean.is_finite() {
-        return Err(BenchmarkError::NumericalOverflow);
+
+    let mut mean = OnlineMean::default();
+    let mut scale = 0.0_f64;
+    for value in values {
+        if !mean.push_finite(*value) {
+            return Err(BenchmarkError::NumericalOverflow);
+        }
+        scale = scale.max(value.abs());
     }
+    let mean = mean.mean().ok_or(BenchmarkError::NumericalOverflow)?;
     if values.len() < 2 {
         return Ok((mean, None));
     }
-    let variance = values
-        .iter()
-        .map(|value| (value - mean).powi(2))
-        .sum::<f64>()
-        / (count - 1.0);
-    let standard_error = (variance / count).sqrt();
-    if !variance.is_finite() || !standard_error.is_finite() {
+    if scale == 0.0 {
+        return Ok((mean, Some(0.0)));
+    }
+
+    // Center normalized inputs to avoid overflowing value - mean at opposite
+    // finite extremes; scaled RMS then yields the sample standard error.
+    let normalized_mean = mean / scale;
+    let mut deviations = ScaledSumSquares::default();
+    for value in values {
+        let deviation = (*value / scale) - normalized_mean;
+        if !deviations.push_nonnegative(deviation.abs()) {
+            return Err(BenchmarkError::NumericalOverflow);
+        }
+    }
+    let normalized_rms = deviations
+        .root_mean_square()
+        .ok_or(BenchmarkError::NumericalOverflow)?;
+    let standard_error = scale * (normalized_rms / ((values.len() - 1) as f64).sqrt());
+    if !standard_error.is_finite() {
         return Err(BenchmarkError::NumericalOverflow);
     }
     Ok((mean, Some(standard_error)))
+}
+
+/// Computes trapezoidal area after scaling both axes, then restores the units.
+/// Compensated normalized summation preserves cancellation without overflowing
+/// intermediate segment areas or the unscaled improvement sum.
+fn stable_trapezoidal_area(
+    sample_budgets: &[usize],
+    improvements: &[f64],
+) -> Result<f64, BenchmarkError> {
+    if sample_budgets.len() != improvements.len()
+        || sample_budgets.len() < 2
+        || improvements.iter().any(|value| !value.is_finite())
+    {
+        return Err(BenchmarkError::NumericalOverflow);
+    }
+
+    let mut maximum_width = 0.0_f64;
+    for pair in sample_budgets.windows(2) {
+        let width = pair[1]
+            .checked_sub(pair[0])
+            .filter(|width| *width > 0)
+            .ok_or(BenchmarkError::NumericalOverflow)? as f64;
+        maximum_width = maximum_width.max(width);
+    }
+    let maximum_improvement = improvements
+        .iter()
+        .map(|value| value.abs())
+        .fold(0.0_f64, f64::max);
+    if maximum_improvement == 0.0 {
+        return Ok(0.0);
+    }
+
+    let mut normalized_sum = 0.0;
+    let mut compensation = 0.0;
+    for (index, pair) in sample_budgets.windows(2).enumerate() {
+        let width = (pair[1] - pair[0]) as f64;
+        let normalized_width = width / maximum_width;
+        let normalized_start = improvements[index] / maximum_improvement;
+        let normalized_end = improvements[index + 1] / maximum_improvement;
+        let normalized_average = normalized_start * 0.5 + normalized_end * 0.5;
+        let term = normalized_width * normalized_average;
+
+        // Neumaier compensation improves cancellation when signed segments
+        // differ greatly in magnitude; normalized terms are bounded by one.
+        let next_sum = normalized_sum + term;
+        if normalized_sum.abs() >= term.abs() {
+            compensation += (normalized_sum - next_sum) + term;
+        } else {
+            compensation += (term - next_sum) + normalized_sum;
+        }
+        normalized_sum = next_sum;
+    }
+
+    let normalized_area = normalized_sum + compensation;
+    let (larger_scale, smaller_scale) = if maximum_improvement >= maximum_width {
+        (maximum_improvement, maximum_width)
+    } else {
+        (maximum_width, maximum_improvement)
+    };
+    let area = (normalized_area * larger_scale) * smaller_scale;
+    area.is_finite()
+        .then_some(area)
+        .ok_or(BenchmarkError::NumericalOverflow)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1142,36 +1210,26 @@ impl TransferMatrix {
         for ((source_environment_id, target_environment_id), evaluations) in pairs {
             let mut improvements = Vec::with_capacity(evaluations.len());
             let mut total_evaluation_samples = 0usize;
-            let mut total_resource_cost = 0.0;
+            let mut resource_cost_mean = OnlineMean::default();
             for evaluation in &evaluations {
                 let improvement = evaluation.improvement();
-                if !improvement.is_finite() {
+                if !improvement.is_finite()
+                    || !resource_cost_mean.push_nonnegative(evaluation.resource_cost)
+                {
                     return Err(BenchmarkError::NumericalOverflow);
                 }
                 improvements.push(improvement);
                 total_evaluation_samples = total_evaluation_samples
                     .checked_add(evaluation.sample_count)
                     .ok_or(BenchmarkError::NumericalOverflow)?;
-                total_resource_cost += evaluation.resource_cost;
             }
             let count = improvements.len() as f64;
-            let mean_improvement = improvements.iter().sum::<f64>() / count;
+            let (mean_improvement, standard_error) = mean_and_standard_error(&improvements)?;
+            let mean_resource_cost = resource_cost_mean
+                .mean()
+                .ok_or(BenchmarkError::NumericalOverflow)?;
             let positive_count = improvements.iter().filter(|value| **value > 0.0).count();
             let negative_count = improvements.iter().filter(|value| **value < 0.0).count();
-            let variance = if improvements.len() > 1 {
-                improvements
-                    .iter()
-                    .map(|value| (value - mean_improvement).powi(2))
-                    .sum::<f64>()
-                    / (count - 1.0)
-            } else {
-                0.0
-            };
-            let standard_error = if improvements.len() > 1 {
-                Some((variance / count).sqrt())
-            } else {
-                None
-            };
             let cell = TransferMatrixCell {
                 source_environment_id,
                 target_environment_id,
@@ -1180,7 +1238,7 @@ impl TransferMatrix {
                 mean_improvement,
                 positive_transfer_rate: positive_count as f64 / count,
                 negative_transfer_rate: negative_count as f64 / count,
-                mean_resource_cost: total_resource_cost / count,
+                mean_resource_cost,
                 standard_error,
             };
             if !cell.mean_improvement.is_finite()
@@ -1627,6 +1685,62 @@ mod tests {
     }
 
     #[test]
+    fn transfer_summary_uses_stable_large_magnitude_aggregates() {
+        let mut benchmark = TransferBenchmark::default();
+        let mut positive = evaluation(
+            "large-positive",
+            "source",
+            "target",
+            0.0,
+            1.0e308,
+            ScoreDirection::HigherIsBetter,
+        );
+        positive.resource_cost = 1.5e308;
+        let mut negative = evaluation(
+            "large-negative",
+            "source",
+            "target",
+            0.0,
+            -1.0e308,
+            ScoreDirection::HigherIsBetter,
+        );
+        negative.resource_cost = 1.5e308;
+        benchmark.record(positive).expect("positive case");
+        benchmark.record(negative).expect("negative case");
+
+        let summary = benchmark.summarize("prediction-error").expect("summary");
+        assert_eq!(summary.mean_improvement, 0.0);
+        assert!((summary.standard_error.expect("standard error") / 1.0e308 - 1.0).abs() < 1.0e-12);
+        assert_eq!(summary.mean_resource_cost, 1.5e308);
+        assert_eq!(summary.positive_transfer_rate, 0.5);
+
+        let matrix = TransferMatrix::from_benchmark(&benchmark, "prediction-error")
+            .expect("large-magnitude transfer matrix");
+        let cell = matrix.cell("source", "target").expect("source-target cell");
+        assert_eq!(cell.mean_improvement, 0.0);
+        assert!(
+            (cell.standard_error.expect("matrix standard error") / 1.0e308 - 1.0).abs() < 1.0e-12
+        );
+        assert_eq!(cell.mean_resource_cost, 1.5e308);
+    }
+
+    #[test]
+    fn transfer_evaluation_rejects_unrepresentable_improvement() {
+        let evaluation = evaluation(
+            "overflow",
+            "source",
+            "target",
+            -f64::MAX,
+            f64::MAX,
+            ScoreDirection::HigherIsBetter,
+        );
+        assert_eq!(
+            evaluation.validate(),
+            Err(BenchmarkError::NumericalOverflow)
+        );
+    }
+
+    #[test]
     fn rejects_same_environment_or_reused_dataset() {
         let mut benchmark = TransferBenchmark::default();
         assert_eq!(
@@ -1696,6 +1810,104 @@ mod tests {
         assert_eq!(
             FewShotTransferCurve::from_artifact_value(&curve.to_artifact_value()).expect("restore"),
             curve
+        );
+    }
+
+    #[test]
+    fn curve_area_handles_extreme_segments_and_signed_cancellation() {
+        let transfer_curve = FewShotTransferCurve {
+            source_environment_id: "source".to_owned(),
+            target_environment_id: "target".to_owned(),
+            source_training_dataset_id: "train".to_owned(),
+            target_evaluation_dataset_id: "holdout".to_owned(),
+            model_artifact_ref: "model".to_owned(),
+            metric_id: "error".to_owned(),
+            direction: ScoreDirection::LowerIsBetter,
+            evaluation_sample_count: 10,
+            points: vec![
+                TransferAdaptationPoint {
+                    adaptation_samples: 1,
+                    baseline_score: 1.0e308,
+                    transferred_score: 0.0,
+                    resource_cost: 1.0,
+                },
+                TransferAdaptationPoint {
+                    adaptation_samples: 3,
+                    baseline_score: 1.0e308,
+                    transferred_score: 0.0,
+                    resource_cost: 1.0,
+                },
+                TransferAdaptationPoint {
+                    adaptation_samples: 5,
+                    baseline_score: 0.0,
+                    transferred_score: 1.0e308,
+                    resource_cost: 1.0,
+                },
+                TransferAdaptationPoint {
+                    adaptation_samples: 7,
+                    baseline_score: 0.0,
+                    transferred_score: 1.0e308,
+                    resource_cost: 1.0,
+                },
+            ],
+        };
+        assert_eq!(
+            transfer_curve
+                .area_under_improvement_curve()
+                .expect("finite transfer-curve area"),
+            0.0
+        );
+
+        let learning_curve = LearningEfficiencyCurve {
+            curve_id: "extreme-area".to_owned(),
+            environment_id: "environment".to_owned(),
+            environment_version: "v1".to_owned(),
+            task_id: "task".to_owned(),
+            learner_strategy_id: "learner".to_owned(),
+            reference_strategy_id: "reference".to_owned(),
+            learner_artifact_ref: "artifact".to_owned(),
+            training_dataset_id: "train".to_owned(),
+            evaluation_dataset_id: "holdout".to_owned(),
+            metric_id: "score".to_owned(),
+            direction: ScoreDirection::HigherIsBetter,
+            seed: 1,
+            evaluation_sample_count: 10,
+            points: vec![
+                LearningEfficiencyPoint {
+                    training_samples: 0,
+                    learner_score: 1.0e308,
+                    reference_score: 0.0,
+                    learner_resource_cost: 1.0,
+                    reference_resource_cost: 1.0,
+                },
+                LearningEfficiencyPoint {
+                    training_samples: 2,
+                    learner_score: 1.0e308,
+                    reference_score: 0.0,
+                    learner_resource_cost: 1.0,
+                    reference_resource_cost: 1.0,
+                },
+                LearningEfficiencyPoint {
+                    training_samples: 4,
+                    learner_score: 0.0,
+                    reference_score: 1.0e308,
+                    learner_resource_cost: 1.0,
+                    reference_resource_cost: 1.0,
+                },
+                LearningEfficiencyPoint {
+                    training_samples: 6,
+                    learner_score: 0.0,
+                    reference_score: 1.0e308,
+                    learner_resource_cost: 1.0,
+                    reference_resource_cost: 1.0,
+                },
+            ],
+        };
+        assert_eq!(
+            learning_curve
+                .area_under_improvement_curve()
+                .expect("finite learning-curve area"),
+            0.0
         );
     }
 
