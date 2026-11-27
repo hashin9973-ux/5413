@@ -1433,7 +1433,10 @@ mod tests {
         let effect = report.effects.first().expect("treatment effect");
         assert!((effect.mean_effect / (0.4 * magnitude) - 1.0).abs() < 1.0e-12);
         assert!(effect.standard_error.is_finite());
-        assert!((effect.standard_error / (0.2_f64.sqrt() * magnitude * 0.1)).is_finite());
+        assert!(
+            (effect.standard_error / magnitude - (std::f64::consts::SQRT_2 * 0.1)).abs()
+                < 1.0e-12
+        );
         assert!(effect.normal_approximation_95_percent_interval.0.is_finite());
         assert!(effect.normal_approximation_95_percent_interval.1.is_finite());
     }
