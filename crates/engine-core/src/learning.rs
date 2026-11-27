@@ -1137,8 +1137,7 @@ mod tests {
     fn adaptive_learner_cools_down_after_confirmed_change() {
         let mut policy = adaptive_policy();
         policy.consecutive_outliers = 1;
-        let mut model =
-            AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive policy");
+        let mut model = AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive policy");
 
         for _ in 0..12 {
             model
