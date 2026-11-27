@@ -460,7 +460,7 @@ impl WindowedNumericDeltaModel {
         }
         Ok(Self {
             window_size,
-            history: VecDeque::with_capacity(window_size),
+            history: VecDeque::new(),
             model: NumericDeltaModel::default(),
             transitions_seen: 0,
         })
