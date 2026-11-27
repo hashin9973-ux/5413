@@ -226,9 +226,11 @@ fn cross_action_policy(policy: AdaptiveLearningPolicy) -> CrossActionAdaptiveLea
         max_window_size: policy.max_window_size,
         stable_observations_to_expand: policy.stable_observations_to_expand,
         minimum_model_samples: policy.minimum_model_samples,
-        minimum_residual_samples: policy.minimum_residual_samples,
+        // Shorter local calibration and a lower global threshold are tested
+        // for faster adaptation; a single transition remains capped below threshold.
+        minimum_residual_samples: policy.minimum_residual_samples.min(3).max(2),
         drift_allowance_sigma: 2.0,
-        evidence_threshold: 3.0,
+        evidence_threshold: 2.0,
         maximum_evidence_per_transition: 1.0,
         evidence_decay_per_transition: 0.05,
     }
