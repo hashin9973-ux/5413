@@ -536,6 +536,55 @@ mod tests {
     }
 
     #[test]
+    fn opposite_sign_maximum_deltas_keep_a_finite_mean() {
+        let mut model = NumericDeltaModel::default();
+        for delta in [f64::MAX, -f64::MAX] {
+            model
+                .observe_transition(&TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: state(0.0, "before"),
+                    after: state(delta, "after"),
+                })
+                .expect("each delta is finite");
+        }
+
+        let statistics = model
+            .statistics
+            .get(&("advance".to_owned(), "position".to_owned()))
+            .expect("position statistics");
+        assert_eq!(statistics.mean(), 0.0);
+        assert!(!statistics.standard_deviation().is_finite());
+        assert_eq!(
+            model.predict_next("advance", &state(0.0, "current")),
+            Err(LearningError::NonFinitePrediction("position".to_owned()))
+        );
+    }
+
+    #[test]
+    fn rejects_unrepresentable_delta_without_partially_updating_other_fields() {
+        let before = DataValue::object([
+            ("a_safe".to_owned(), DataValue::Number(0.0)),
+            ("z_overflow".to_owned(), DataValue::Number(-f64::MAX)),
+        ]);
+        let after = DataValue::object([
+            ("a_safe".to_owned(), DataValue::Number(1.0)),
+            ("z_overflow".to_owned(), DataValue::Number(f64::MAX)),
+        ]);
+        let mut model = NumericDeltaModel::default();
+
+        assert_eq!(
+            model.observe_transition(&TransitionSample {
+                action_id: "advance".to_owned(),
+                before,
+                after,
+            }),
+            Err(LearningError::NonFiniteDelta("z_overflow".to_owned()))
+        );
+        assert!(model.statistics.is_empty());
+        assert_eq!(model.transitions_seen(), 0);
+    }
+
+    #[test]
     fn learns_extreme_finite_deltas_without_overflowing_variance() {
         let magnitude = f64::MAX / 2.0;
         let mut model = NumericDeltaModel::default();
