@@ -513,6 +513,264 @@ impl WindowedNumericDeltaModel {
     pub fn transitions_seen(&self) -> u64 {
         self.transitions_seen
     }
+
+    fn resize_window(&mut self, window_size: usize) -> Result<(), LearningError> {
+        if window_size == 0 {
+            return Err(LearningError::InvalidWindowSize);
+        }
+        let mut history = self.history.clone();
+        while history.len() > window_size {
+            history.pop_front();
+        }
+        let mut model = NumericDeltaModel::default();
+        for retained in &history {
+            model.observe_transition(retained)?;
+        }
+        self.window_size = window_size;
+        self.history = history;
+        self.model = model;
+        Ok(())
+    }
+}
+
+/// Data-driven policy for detecting prediction-error shifts and adapting memory.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AdaptiveLearningPolicy {
+    pub min_window_size: usize,
+    pub max_window_size: usize,
+    pub stable_observations_to_expand: usize,
+    pub minimum_model_samples: u64,
+    pub minimum_residual_samples: u64,
+    pub consecutive_outliers: usize,
+    pub change_threshold_sigma: f64,
+}
+
+impl AdaptiveLearningPolicy {
+    fn validate(self) -> Result<Self, LearningError> {
+        if self.min_window_size == 0
+            || self.max_window_size < self.min_window_size
+            || self.stable_observations_to_expand == 0
+            || self.minimum_model_samples == 0
+            || self.minimum_residual_samples < 2
+            || self.consecutive_outliers == 0
+            || !self.change_threshold_sigma.is_finite()
+            || self.change_threshold_sigma <= 0.0
+        {
+            return Err(LearningError::InvalidAdaptivePolicy);
+        }
+        Ok(self)
+    }
+}
+
+/// Diagnostics returned after one adaptive learner update.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AdaptiveLearningUpdate {
+    pub change_detected: bool,
+    pub window_size: usize,
+    pub prediction_errors_observed: usize,
+    pub change_points_detected: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ResidualMonitor {
+    statistics: DeltaStatistics,
+    consecutive_outliers: usize,
+}
+
+impl ResidualMonitor {
+    fn observe(
+        &mut self,
+        residual: f64,
+        policy: AdaptiveLearningPolicy,
+    ) -> Result<bool, LearningError> {
+        if !residual.is_finite() {
+            return Err(LearningError::NonFinitePrediction(
+                "prediction residual".to_owned(),
+            ));
+        }
+
+        let mut is_outlier = false;
+        if self.statistics.count >= policy.minimum_residual_samples {
+            // Compare in normalized coordinates so even extreme finite residuals
+            // do not overflow while computing a standard deviation or z-score.
+            let scale = self.statistics.scale.max(residual.abs()).max(1.0);
+            let previous_scale_ratio = self.statistics.scale / scale;
+            let normalized_center = self.statistics.normalized_mean * previous_scale_ratio;
+            let normalized_residual = residual / scale - normalized_center;
+            let normalized_spread = (self.statistics.normalized_sum_squared_deviations
+                / (self.statistics.count - 1) as f64)
+                .sqrt()
+                * previous_scale_ratio;
+            let threshold = policy.change_threshold_sigma * normalized_spread;
+            is_outlier = if normalized_spread == 0.0 {
+                normalized_residual.abs() > 8.0 * f64::EPSILON
+            } else {
+                normalized_residual.abs() > threshold
+            };
+        }
+
+        if is_outlier {
+            self.consecutive_outliers = self.consecutive_outliers.saturating_add(1);
+            return Ok(self.consecutive_outliers >= policy.consecutive_outliers);
+        }
+
+        self.consecutive_outliers = 0;
+        self.statistics = self
+            .statistics
+            .updated(residual, "prediction residual")?;
+        Ok(false)
+    }
+}
+
+/// Action-conditioned online learner with change detection and adaptive memory.
+///
+/// Prediction residuals are monitored per action/field. A confirmed shift shrinks
+/// memory to the configured minimum; stable evidence then expands it gradually.
+/// Updates are transactional, including detector state and memory resizing.
+#[derive(Clone, Debug)]
+pub struct AdaptiveNumericDeltaModel {
+    policy: AdaptiveLearningPolicy,
+    model: WindowedNumericDeltaModel,
+    residual_monitors: BTreeMap<(String, String), ResidualMonitor>,
+    stable_observations: usize,
+    change_points_detected: u64,
+}
+
+impl AdaptiveNumericDeltaModel {
+    pub fn new(policy: AdaptiveLearningPolicy) -> Result<Self, LearningError> {
+        let policy = policy.validate()?;
+        Ok(Self {
+            model: WindowedNumericDeltaModel::new(policy.min_window_size)?,
+            policy,
+            residual_monitors: BTreeMap::new(),
+            stable_observations: 0,
+            change_points_detected: 0,
+        })
+    }
+
+    pub fn observe_transition(
+        &mut self,
+        sample: &TransitionSample,
+    ) -> Result<AdaptiveLearningUpdate, LearningError> {
+        let mut candidate = self.clone();
+        let update = candidate.observe_transition_inner(sample)?;
+        *self = candidate;
+        Ok(update)
+    }
+
+    fn observe_transition_inner(
+        &mut self,
+        sample: &TransitionSample,
+    ) -> Result<AdaptiveLearningUpdate, LearningError> {
+        sample
+            .before
+            .validate_finite()
+            .map_err(|_| LearningError::NonFiniteObservation)?;
+        sample
+            .after
+            .validate_finite()
+            .map_err(|_| LearningError::NonFiniteObservation)?;
+        let before = sample
+            .before
+            .as_object()
+            .ok_or(LearningError::ExpectedObjectState)?;
+        let after = sample
+            .after
+            .as_object()
+            .ok_or(LearningError::ExpectedObjectState)?;
+
+        let predictions = self.model.predict_next(&sample.action_id, &sample.before)?;
+        let mut prediction_errors_observed = 0;
+        let mut change_detected = false;
+        for (field, before_value) in before {
+            let Some(after_value) = after.get(field) else {
+                continue;
+            };
+            let (Some(before_number), Some(after_number)) =
+                (before_value.as_f64(), after_value.as_f64())
+            else {
+                continue;
+            };
+            let Some(prediction) = predictions.get(field) else {
+                continue;
+            };
+            if prediction.sample_count < self.policy.minimum_model_samples {
+                continue;
+            }
+
+            let actual_delta = after_number - before_number;
+            if !actual_delta.is_finite() {
+                return Err(LearningError::NonFiniteDelta(field.clone()));
+            }
+            let residual = actual_delta - prediction.mean_delta;
+            if !residual.is_finite() {
+                return Err(LearningError::NonFinitePrediction(field.clone()));
+            }
+            prediction_errors_observed += 1;
+            let monitor = self
+                .residual_monitors
+                .entry((sample.action_id.clone(), field.clone()))
+                .or_default();
+            if monitor.observe(residual, self.policy)? {
+                change_detected = true;
+            }
+        }
+
+        if change_detected {
+            self.change_points_detected = self
+                .change_points_detected
+                .checked_add(1)
+                .ok_or(LearningError::SampleCountExhausted)?;
+            self.model.resize_window(self.policy.min_window_size)?;
+            self.residual_monitors.clear();
+            self.stable_observations = 0;
+        } else if prediction_errors_observed > 0 {
+            self.stable_observations = self.stable_observations.saturating_add(1);
+            if self.stable_observations >= self.policy.stable_observations_to_expand
+                && self.model.window_size < self.policy.max_window_size
+            {
+                self.model
+                    .resize_window(self.model.window_size.saturating_add(1))?;
+                self.stable_observations = 0;
+            }
+        }
+
+        self.model.observe_transition(sample)?;
+        Ok(AdaptiveLearningUpdate {
+            change_detected,
+            window_size: self.model.window_size(),
+            prediction_errors_observed,
+            change_points_detected: self.change_points_detected,
+        })
+    }
+
+    pub fn predict_next(
+        &self,
+        action_id: &str,
+        current_state: &DataValue,
+    ) -> Result<BTreeMap<String, FieldPrediction>, LearningError> {
+        self.model.predict_next(action_id, current_state)
+    }
+
+    pub fn window_size(&self) -> usize {
+        self.model.window_size()
+    }
+
+    pub fn retained_transitions(&self) -> usize {
+        self.model.retained_transitions()
+    }
+
+    pub fn transitions_seen(&self) -> u64 {
+        self.model.transitions_seen()
+    }
+
+    pub fn change_points_detected(&self) -> u64 {
+        self.change_points_detected
+    }
+
+    pub fn policy(&self) -> AdaptiveLearningPolicy {
+        self.policy
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -524,6 +782,7 @@ pub enum LearningError {
     SampleCountExhausted,
     InvalidSerializedState,
     InvalidWindowSize,
+    InvalidAdaptivePolicy,
 }
 
 impl std::fmt::Display for LearningError {
@@ -544,6 +803,7 @@ impl std::fmt::Display for LearningError {
                 write!(formatter, "serialized learner state is invalid")
             }
             Self::InvalidWindowSize => write!(formatter, "learner window size must be positive"),
+            Self::InvalidAdaptivePolicy => write!(formatter, "adaptive learning policy is invalid"),
         }
     }
 }
@@ -769,6 +1029,144 @@ mod tests {
         assert!(matches!(
             WindowedNumericDeltaModel::new(0),
             Err(LearningError::InvalidWindowSize)
+        ));
+    }
+
+    fn adaptive_policy() -> AdaptiveLearningPolicy {
+        AdaptiveLearningPolicy {
+            min_window_size: 4,
+            max_window_size: 16,
+            stable_observations_to_expand: 8,
+            minimum_model_samples: 2,
+            minimum_residual_samples: 12,
+            consecutive_outliers: 3,
+            change_threshold_sigma: 4.0,
+        }
+    }
+
+    fn numeric_sample(delta: f64) -> TransitionSample {
+        TransitionSample {
+            action_id: "adapt".to_owned(),
+            before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+            after: DataValue::object([("position".to_owned(), DataValue::Number(delta))]),
+        }
+    }
+
+    #[test]
+    fn adaptive_learner_expands_during_stability_and_shrinks_after_a_change() {
+        let mut model =
+            AdaptiveNumericDeltaModel::new(adaptive_policy()).expect("valid adaptive policy");
+        for _ in 0..100 {
+            model
+                .observe_transition(&numeric_sample(1.0))
+                .expect("stable transition");
+        }
+        assert_eq!(model.window_size(), adaptive_policy().max_window_size);
+        assert_eq!(model.change_points_detected(), 0);
+
+        let mut detection_step = None;
+        for step in 1..=6 {
+            let update = model
+                .observe_transition(&numeric_sample(-1.0))
+                .expect("changed transition");
+            if update.change_detected {
+                detection_step = Some(step);
+                assert_eq!(update.window_size, adaptive_policy().min_window_size);
+                break;
+            }
+        }
+        assert!(
+            detection_step.is_some_and(|step| step <= 3),
+            "the regime shift should be detected within three observations"
+        );
+        assert_eq!(model.change_points_detected(), 1);
+    }
+
+    #[test]
+    fn adaptive_learner_avoids_false_alarms_under_stationary_noise() {
+        let mut model =
+            AdaptiveNumericDeltaModel::new(adaptive_policy()).expect("valid adaptive policy");
+        let mut random = 0xD1B5_4A32_D192_ED03_u64;
+        for _ in 0..5_000 {
+            let mut noise = 0.0;
+            for _ in 0..12 {
+                random ^= random << 13;
+                random ^= random >> 7;
+                random ^= random << 17;
+                noise += ((random >> 11) as f64 / ((1_u64 << 53) as f64)) - 0.5;
+            }
+            let delta = 1.0 + noise / 12.0_f64.sqrt() * 0.7;
+            model
+                .observe_transition(&numeric_sample(delta))
+                .expect("finite stationary noisy transition");
+        }
+        assert_eq!(
+            model.change_points_detected(),
+            0,
+            "stationary noise must not be mistaken for a persistent regime change"
+        );
+    }
+
+    #[test]
+    fn adaptive_learner_rejects_invalid_updates_transactionally() {
+        let mut model =
+            AdaptiveNumericDeltaModel::new(adaptive_policy()).expect("valid adaptive policy");
+        for _ in 0..40 {
+            model
+                .observe_transition(&numeric_sample(1.0))
+                .expect("valid transition");
+        }
+        let before_prediction = model
+            .predict_next(
+                "adapt",
+                &DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+            )
+            .expect("prediction before invalid update");
+        let before_window = model.window_size();
+        let before_count = model.transitions_seen();
+        let before_changes = model.change_points_detected();
+        let invalid = TransitionSample {
+            action_id: "adapt".to_owned(),
+            before: DataValue::object([(
+                "position".to_owned(),
+                DataValue::Number(-f64::MAX),
+            )]),
+            after: DataValue::object([(
+                "position".to_owned(),
+                DataValue::Number(f64::MAX),
+            )]),
+        };
+        assert_eq!(
+            model.observe_transition(&invalid),
+            Err(LearningError::NonFiniteDelta("position".to_owned()))
+        );
+        assert_eq!(model.window_size(), before_window);
+        assert_eq!(model.transitions_seen(), before_count);
+        assert_eq!(model.change_points_detected(), before_changes);
+        assert_eq!(
+            model
+                .predict_next(
+                    "adapt",
+                    &DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+                )
+                .expect("prediction remains unchanged"),
+            before_prediction
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_adaptive_learning_policies() {
+        let mut policy = adaptive_policy();
+        policy.max_window_size = 0;
+        assert!(matches!(
+            AdaptiveNumericDeltaModel::new(policy),
+            Err(LearningError::InvalidAdaptivePolicy)
+        ));
+        policy = adaptive_policy();
+        policy.change_threshold_sigma = f64::NAN;
+        assert!(matches!(
+            AdaptiveNumericDeltaModel::new(policy),
+            Err(LearningError::InvalidAdaptivePolicy)
         ));
     }
 
