@@ -101,14 +101,18 @@ impl Agent {
                 WindowedNumericDeltaModel::new(recent_window)
                     .expect("positive recent window configured by benchmark"),
             ),
-            LearnerKind::Cumulative | LearnerKind::Adaptive | LearnerKind::CrossActionAdaptive => None,
+            LearnerKind::Cumulative | LearnerKind::Adaptive | LearnerKind::CrossActionAdaptive => {
+                None
+            }
         };
         let adaptive_model = match learner {
             LearnerKind::Adaptive => Some(
                 AdaptiveNumericDeltaModel::new(adaptive_policy)
                     .expect("valid adaptive policy configured by benchmark"),
             ),
-            LearnerKind::Cumulative | LearnerKind::FixedWindow | LearnerKind::CrossActionAdaptive => None,
+            LearnerKind::Cumulative
+            | LearnerKind::FixedWindow
+            | LearnerKind::CrossActionAdaptive => None,
         };
         let cross_action_model = match learner {
             LearnerKind::CrossActionAdaptive => Some(
@@ -205,18 +209,16 @@ impl Agent {
             .map(CrossActionAdaptiveNumericDeltaModel::window_size)
             .or_else(|| {
                 self.adaptive_model
-            .as_ref()
-            .as_ref()
-            .map(AdaptiveNumericDeltaModel::window_size)
-            .or_else(|| {
-                self.recent_model
                     .as_ref()
-                    .map(WindowedNumericDeltaModel::window_size)
-            })
+                    .map(AdaptiveNumericDeltaModel::window_size)
+                    .or_else(|| {
+                        self.recent_model
+                            .as_ref()
+                            .map(WindowedNumericDeltaModel::window_size)
+                    })
             })
     }
 }
-
 
 fn cross_action_policy(policy: AdaptiveLearningPolicy) -> CrossActionAdaptiveLearningPolicy {
     CrossActionAdaptiveLearningPolicy {
@@ -562,7 +564,6 @@ fn count_survivors(
         })
         .count()
 }
-
 
 fn cross_action_stationary_false_alarms(policy: CrossActionAdaptiveLearningPolicy) -> u64 {
     let mut model = CrossActionAdaptiveNumericDeltaModel::new(policy)

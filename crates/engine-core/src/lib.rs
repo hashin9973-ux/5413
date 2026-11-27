@@ -86,8 +86,8 @@ pub use experimentation::{
 pub use learning::{
     AdaptiveLearningPolicy, AdaptiveLearningUpdate, AdaptiveNumericDeltaModel,
     CrossActionAdaptiveLearningPolicy, CrossActionAdaptiveLearningUpdate,
-    CrossActionAdaptiveNumericDeltaModel, FieldPrediction,
-    LearningError, NumericDeltaModel, TransitionSample, WindowedNumericDeltaModel,
+    CrossActionAdaptiveNumericDeltaModel, FieldPrediction, LearningError, NumericDeltaModel,
+    TransitionSample, WindowedNumericDeltaModel,
 };
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,

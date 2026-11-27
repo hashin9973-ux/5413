@@ -786,7 +786,6 @@ impl AdaptiveNumericDeltaModel {
     }
 }
 
-
 /// Configuration for calibrated cross-action sequential change detection.
 ///
 /// Residuals remain calibrated independently for each action and numeric field.
@@ -933,9 +932,7 @@ pub struct CrossActionAdaptiveNumericDeltaModel {
 }
 
 impl CrossActionAdaptiveNumericDeltaModel {
-    pub fn new(
-        policy: CrossActionAdaptiveLearningPolicy,
-    ) -> Result<Self, LearningError> {
+    pub fn new(policy: CrossActionAdaptiveLearningPolicy) -> Result<Self, LearningError> {
         let policy = policy.validate()?;
         Ok(Self {
             model: WindowedNumericDeltaModel::new(policy.min_window_size)?,
@@ -1018,10 +1015,9 @@ impl CrossActionAdaptiveNumericDeltaModel {
 
                 let key = (sample.action_id.clone(), field.clone());
                 let monitor = self.residual_monitors.entry(key).or_default();
-                let Some(standardized_surprise) = monitor.standardized_surprise(
-                    residual,
-                    self.policy.minimum_residual_samples,
-                )? else {
+                let Some(standardized_surprise) = monitor
+                    .standardized_surprise(residual, self.policy.minimum_residual_samples)?
+                else {
                     // Calibration samples are retained per action/field, but
                     // insufficiently calibrated residuals contribute no evidence.
                     monitor.observe(residual)?;
@@ -1029,10 +1025,9 @@ impl CrossActionAdaptiveNumericDeltaModel {
                 };
 
                 calibrated_residuals += 1;
-                let excess_surprise =
-                    (standardized_surprise - self.policy.drift_allowance_sigma)
-                        .max(0.0)
-                        .min(self.policy.maximum_evidence_per_transition);
+                let excess_surprise = (standardized_surprise - self.policy.drift_allowance_sigma)
+                    .max(0.0)
+                    .min(self.policy.maximum_evidence_per_transition);
                 mean_excess_surprise +=
                     (excess_surprise - mean_excess_surprise) / calibrated_residuals as f64;
 
@@ -1049,15 +1044,14 @@ impl CrossActionAdaptiveNumericDeltaModel {
         if calibrated_residuals > 0 {
             let decayed_evidence =
                 (self.change_evidence - self.policy.evidence_decay_per_transition).max(0.0);
-            let contribution = mean_excess_surprise
-                .min(self.policy.maximum_evidence_per_transition);
-            self.change_evidence = if decayed_evidence
-                >= self.policy.evidence_threshold - contribution
-            {
-                self.policy.evidence_threshold
-            } else {
-                decayed_evidence + contribution
-            };
+            let contribution =
+                mean_excess_surprise.min(self.policy.maximum_evidence_per_transition);
+            self.change_evidence =
+                if decayed_evidence >= self.policy.evidence_threshold - contribution {
+                    self.policy.evidence_threshold
+                } else {
+                    decayed_evidence + contribution
+                };
             reported_evidence = self.change_evidence;
 
             if self.change_evidence >= self.policy.evidence_threshold {
@@ -1140,6 +1134,7 @@ pub enum LearningError {
     InvalidSerializedState,
     InvalidWindowSize,
     InvalidAdaptivePolicy,
+    InvalidCrossActionAdaptivePolicy,
 }
 
 impl std::fmt::Display for LearningError {
@@ -1161,6 +1156,9 @@ impl std::fmt::Display for LearningError {
             }
             Self::InvalidWindowSize => write!(formatter, "learner window size must be positive"),
             Self::InvalidAdaptivePolicy => write!(formatter, "adaptive learning policy is invalid"),
+            Self::InvalidCrossActionAdaptivePolicy => {
+                write!(formatter, "cross-action adaptive learning policy is invalid")
+            }
         }
     }
 }
@@ -1586,7 +1584,6 @@ mod tests {
         ));
     }
 
-
     fn cross_action_policy() -> CrossActionAdaptiveLearningPolicy {
         CrossActionAdaptiveLearningPolicy {
             min_window_size: 4,
@@ -1610,9 +1607,8 @@ mod tests {
     }
 
     fn calibrated_cross_action_model() -> CrossActionAdaptiveNumericDeltaModel {
-        let mut model =
-            CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy())
-                .expect("valid cross-action policy");
+        let mut model = CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy())
+            .expect("valid cross-action policy");
         for _ in 0..16 {
             for action in ["left", "right"] {
                 model
@@ -1668,9 +1664,8 @@ mod tests {
 
     #[test]
     fn cross_action_learner_normalizes_heterogeneous_action_noise() {
-        let mut model =
-            CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy())
-                .expect("valid cross-action policy");
+        let mut model = CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy())
+            .expect("valid cross-action policy");
         for step in 0..80 {
             let quiet = if step % 2 == 0 { 0.99 } else { 1.01 };
             let noisy = if step % 2 == 0 { 0.5 } else { 1.5 };
@@ -1705,7 +1700,9 @@ mod tests {
         let mut model =
             CrossActionAdaptiveNumericDeltaModel::new(policy).expect("valid cross-action policy");
 
-        for count in 0..(policy.minimum_model_samples as usize + policy.minimum_residual_samples as usize) {
+        for count in
+            0..(policy.minimum_model_samples as usize + policy.minimum_residual_samples as usize)
+        {
             let update = model
                 .observe_transition(&cross_action_sample("unseen", 1.0))
                 .expect("calibration transition");
@@ -1800,9 +1797,8 @@ mod tests {
 
     #[test]
     fn cross_action_learner_resists_stationary_heteroscedastic_noise_and_outliers() {
-        let mut model =
-            CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy())
-                .expect("valid cross-action policy");
+        let mut model = CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy())
+            .expect("valid cross-action policy");
         let action_scales = [0.03, 0.2, 1.0];
         let actions = ["quiet", "medium", "noisy"];
         let mut random = 0xD1B5_4A32_D192_ED03_u64;
