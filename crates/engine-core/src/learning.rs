@@ -700,7 +700,9 @@ mod tests {
                 before: state(0.0, "before"),
                 after: state(delta, "after"),
             };
-            cumulative.observe_transition(&sample).expect("cumulative update");
+            cumulative
+                .observe_transition(&sample)
+                .expect("cumulative update");
             recent.observe_transition(&sample).expect("recent update");
         }
 
@@ -712,11 +714,17 @@ mod tests {
             .predict_next("adapt", &current)
             .expect("recent prediction");
         assert_eq!(
-            cumulative_prediction.get("position").expect("cumulative field").mean_delta,
+            cumulative_prediction
+                .get("position")
+                .expect("cumulative field")
+                .mean_delta,
             0.0
         );
         assert_eq!(
-            recent_prediction.get("position").expect("recent field").mean_delta,
+            recent_prediction
+                .get("position")
+                .expect("recent field")
+                .mean_delta,
             -1.0
         );
         assert_eq!(recent.window_size(), 2);
