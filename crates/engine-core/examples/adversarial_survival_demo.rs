@@ -342,16 +342,16 @@ fn main() {
     let adaptive_policy = AdaptiveLearningPolicy {
         min_window_size: 4,
         max_window_size: 32,
-        stable_observations_to_expand: 12,
+        stable_observations_to_expand: 24,
         minimum_model_samples: 2,
-        minimum_residual_samples: 12,
-        consecutive_outliers: 3,
-        change_threshold_sigma: 4.0,
+        minimum_residual_samples: 8,
+        consecutive_outliers: 2,
+        change_threshold_sigma: 3.0,
     };
     println!("Adversarial survival experiment");
     println!("seeds={SEEDS}, horizon={EPISODE_STEPS}, hidden irregular opponent schedule");
     println!("no action, energy, or compute budget; survival ends only at zero health");
-    println!("adaptive policy: minimum 4, maximum 32, expansion after 12 stable predictions");
+    println!("adaptive policy: minimum 4, maximum 32, expansion after 24 stable predictions");
     let stationary_false_alarms = stationary_false_alarms(adaptive_policy);
     println!(
         "stationary-noise control: {stationary_false_alarms} false alarms over 5,000 transitions"
