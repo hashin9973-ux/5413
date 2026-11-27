@@ -24,12 +24,30 @@ struct OpponentPhase {
 }
 
 const OPPONENT: [OpponentPhase; 6] = [
-    OpponentPhase { duration: 23, preferred_action: 0 },
-    OpponentPhase { duration: 41, preferred_action: 1 },
-    OpponentPhase { duration: 29, preferred_action: 2 },
-    OpponentPhase { duration: 37, preferred_action: 0 },
-    OpponentPhase { duration: 31, preferred_action: 2 },
-    OpponentPhase { duration: 43, preferred_action: 1 },
+    OpponentPhase {
+        duration: 23,
+        preferred_action: 0,
+    },
+    OpponentPhase {
+        duration: 41,
+        preferred_action: 1,
+    },
+    OpponentPhase {
+        duration: 29,
+        preferred_action: 2,
+    },
+    OpponentPhase {
+        duration: 37,
+        preferred_action: 0,
+    },
+    OpponentPhase {
+        duration: 31,
+        preferred_action: 2,
+    },
+    OpponentPhase {
+        duration: 43,
+        preferred_action: 1,
+    },
 ];
 
 #[derive(Clone, Copy, Default)]
@@ -211,9 +229,8 @@ fn main() {
     let baseline = summarize(false);
     let adaptive = summarize(true);
     let average = |value: usize| value as f64 / SEEDS as f64;
-    let prediction_mae = |metrics: Metrics| {
-        metrics.prediction_absolute_error / metrics.predictions.max(1) as f64
-    };
+    let prediction_mae =
+        |metrics: Metrics| metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
     let recovery = |metrics: Metrics| {
         metrics.phase_recovery_steps as f64 / metrics.phase_changes.max(1) as f64
     };
