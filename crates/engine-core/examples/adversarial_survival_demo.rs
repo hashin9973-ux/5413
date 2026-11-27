@@ -7,8 +7,9 @@
 //! variant that can discard stale evidence after opponent strategy changes.
 
 use engine_core::{
-    AdaptiveLearningPolicy, AdaptiveNumericDeltaModel, DataValue, NumericDeltaModel,
-    TransitionSample, WindowedNumericDeltaModel,
+    AdaptiveLearningPolicy, AdaptiveNumericDeltaModel, CrossActionAdaptiveLearningPolicy,
+    CrossActionAdaptiveNumericDeltaModel, DataValue, NumericDeltaModel, TransitionSample,
+    WindowedNumericDeltaModel,
 };
 
 const ACTIONS: [&str; 3] = ["evade", "guard", "counter"];
@@ -75,12 +76,14 @@ enum LearnerKind {
     Cumulative,
     FixedWindow,
     Adaptive,
+    CrossActionAdaptive,
 }
 
 struct Agent {
     model: NumericDeltaModel,
     recent_model: Option<WindowedNumericDeltaModel>,
     adaptive_model: Option<AdaptiveNumericDeltaModel>,
+    cross_action_model: Option<CrossActionAdaptiveNumericDeltaModel>,
     exploration_rate: f64,
     rng: u64,
 }
@@ -98,19 +101,27 @@ impl Agent {
                 WindowedNumericDeltaModel::new(recent_window)
                     .expect("positive recent window configured by benchmark"),
             ),
-            LearnerKind::Cumulative | LearnerKind::Adaptive => None,
+            LearnerKind::Cumulative | LearnerKind::Adaptive | LearnerKind::CrossActionAdaptive => None,
         };
         let adaptive_model = match learner {
             LearnerKind::Adaptive => Some(
                 AdaptiveNumericDeltaModel::new(adaptive_policy)
                     .expect("valid adaptive policy configured by benchmark"),
             ),
-            LearnerKind::Cumulative | LearnerKind::FixedWindow => None,
+            LearnerKind::Cumulative | LearnerKind::FixedWindow | LearnerKind::CrossActionAdaptive => None,
+        };
+        let cross_action_model = match learner {
+            LearnerKind::CrossActionAdaptive => Some(
+                CrossActionAdaptiveNumericDeltaModel::new(cross_action_policy(adaptive_policy))
+                    .expect("valid cross-action policy configured by benchmark"),
+            ),
+            LearnerKind::Cumulative | LearnerKind::FixedWindow | LearnerKind::Adaptive => None,
         };
         Self {
             model: NumericDeltaModel::default(),
             recent_model,
             adaptive_model,
+            cross_action_model,
             exploration_rate,
             rng: seed.max(1),
         }
@@ -126,7 +137,9 @@ impl Agent {
     }
 
     fn predict_delta(&self, action: &str, state: &DataValue) -> Option<f64> {
-        let predictions = if let Some(model) = &self.adaptive_model {
+        let predictions = if let Some(model) = &self.cross_action_model {
+            model.predict_next(action, state).ok()?
+        } else if let Some(model) = &self.adaptive_model {
             model.predict_next(action, state).ok()?
         } else if let Some(model) = &self.recent_model {
             model.predict_next(action, state).ok()?
@@ -163,7 +176,12 @@ impl Agent {
     }
 
     fn observe(&mut self, sample: TransitionSample) -> bool {
-        if let Some(model) = &mut self.adaptive_model {
+        if let Some(model) = &mut self.cross_action_model {
+            model
+                .observe_transition(&sample)
+                .expect("finite survival transition")
+                .change_detected
+        } else if let Some(model) = &mut self.adaptive_model {
             model
                 .observe_transition(&sample)
                 .expect("finite survival transition")
@@ -182,7 +200,12 @@ impl Agent {
     }
 
     fn window_size(&self) -> Option<usize> {
-        self.adaptive_model
+        self.cross_action_model
+            .as_ref()
+            .map(CrossActionAdaptiveNumericDeltaModel::window_size)
+            .or_else(|| {
+                self.adaptive_model
+            .as_ref()
             .as_ref()
             .map(AdaptiveNumericDeltaModel::window_size)
             .or_else(|| {
@@ -190,6 +213,22 @@ impl Agent {
                     .as_ref()
                     .map(WindowedNumericDeltaModel::window_size)
             })
+            })
+    }
+}
+
+
+fn cross_action_policy(policy: AdaptiveLearningPolicy) -> CrossActionAdaptiveLearningPolicy {
+    CrossActionAdaptiveLearningPolicy {
+        min_window_size: policy.min_window_size,
+        max_window_size: policy.max_window_size,
+        stable_observations_to_expand: policy.stable_observations_to_expand,
+        minimum_model_samples: policy.minimum_model_samples,
+        minimum_residual_samples: policy.minimum_residual_samples,
+        drift_allowance_sigma: 2.0,
+        evidence_threshold: 3.0,
+        maximum_evidence_per_transition: 1.0,
+        evidence_decay_per_transition: 0.05,
     }
 }
 
@@ -353,12 +392,18 @@ fn main() {
     println!("no action, energy, or compute budget; survival ends only at zero health");
     println!("adaptive policy: minimum 4, maximum 32, expansion after 24 stable predictions");
     let stationary_false_alarms = stationary_false_alarms(adaptive_policy);
+    let cross_action_false_alarms =
+        cross_action_stationary_false_alarms(cross_action_policy(adaptive_policy));
     println!(
-        "stationary-noise control: {stationary_false_alarms} false alarms over 5,000 transitions"
+        "stationary-noise control: existing={stationary_false_alarms}, cross-action={cross_action_false_alarms} false alarms over 5,000 transitions"
     );
     assert_eq!(
         stationary_false_alarms, 0,
-        "stationary control must not trigger a change-point alarm"
+        "existing detector stationary control must not trigger a change-point alarm"
+    );
+    assert_eq!(
+        cross_action_false_alarms, 0,
+        "cross-action detector must resist heteroscedastic stationary noise and isolated outliers"
     );
     println!();
     println!("explore learner      survival  survivors  pred-MAE  recover  rec-lag  detected  det-lag  missed  false+  avg-window");
@@ -379,6 +424,12 @@ fn main() {
         );
         let adaptive = summarize(
             LearnerKind::Adaptive,
+            WINDOW_SIZES[0],
+            adaptive_policy,
+            exploration_rate,
+        );
+        let cross_action = summarize(
+            LearnerKind::CrossActionAdaptive,
             WINDOW_SIZES[0],
             adaptive_policy,
             exploration_rate,
@@ -425,6 +476,17 @@ fn main() {
             adaptive,
             count_survivors(
                 LearnerKind::Adaptive,
+                WINDOW_SIZES[0],
+                adaptive_policy,
+                exploration_rate,
+            ),
+        );
+        print_row(
+            exploration_rate,
+            "cross-action",
+            cross_action,
+            count_survivors(
+                LearnerKind::CrossActionAdaptive,
                 WINDOW_SIZES[0],
                 adaptive_policy,
                 exploration_rate,
@@ -499,6 +561,39 @@ fn count_survivors(
                 == EPISODE_STEPS
         })
         .count()
+}
+
+
+fn cross_action_stationary_false_alarms(policy: CrossActionAdaptiveLearningPolicy) -> u64 {
+    let mut model = CrossActionAdaptiveNumericDeltaModel::new(policy)
+        .expect("valid cross-action stationary-control policy");
+    let actions = ["quiet", "medium", "noisy"];
+    let scales = [0.03, 0.2, 1.0];
+    let mut random = 0xD1B5_4A32_D192_ED03_u64;
+
+    for step in 0..5_000 {
+        let action_index = step % actions.len();
+        let mut noise = 0.0;
+        for _ in 0..12 {
+            random ^= random << 13;
+            random ^= random >> 7;
+            random ^= random << 17;
+            noise += ((random >> 11) as f64 / ((1_u64 << 53) as f64)) - 0.5;
+        }
+        let scale = scales[action_index];
+        let mut delta = 1.0 + noise / 12.0_f64.sqrt() * 0.7 * scale;
+        if step % 173 == 0 {
+            delta += 12.0 * scale;
+        }
+        model
+            .observe_transition(&TransitionSample {
+                action_id: actions[action_index].to_owned(),
+                before: DataValue::object([("signal".to_owned(), DataValue::Number(0.0))]),
+                after: DataValue::object([("signal".to_owned(), DataValue::Number(delta))]),
+            })
+            .expect("finite stationary heteroscedastic transition");
+    }
+    model.change_points_detected()
 }
 
 fn stationary_false_alarms(policy: AdaptiveLearningPolicy) -> u64 {

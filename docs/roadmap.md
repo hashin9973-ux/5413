@@ -58,6 +58,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Overflow-resistant ensemble mean and population-spread calculations, scaled aleatoric/epistemic aggregation, stable total-standard-deviation composition, and invalid uncertainty rejection
 - [x] Held-out model evaluation with MAE, RMSE, spread, empirical coverage, and dataset-ID leakage guard
 - [x] Stable contextual residual-spread fitting for very large finite residuals without intermediate square overflow
+- [x] Action-specific residual calibration with bounded cross-action CUSUM-style surprise accumulation, evidence decay, transactional adaptive memory updates, and isolated-outlier stationary-noise regression coverage (experimental; benchmark superiority not established)
 - [ ] Temporal sequence models and relational dynamics
 - [ ] Symbolic transition-rule induction and competing hypotheses
 - [ ] Better calibrated predictive distributions and proper scoring rules
@@ -131,7 +132,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 ## Milestone 9 — Controlled algorithm improvement
 
-- [x] Reproducible adversarial survival benchmark with randomized hidden opponent phases, 64 seeded episodes, cumulative/fixed/adaptive learner comparison, exploration/window-size sweeps, survival and prediction metrics, detector delay/misses/false alarms, and a 5,000-transition stationary-noise control
+- [x] Reproducible adversarial survival benchmark with randomized hidden opponent phases, 64 seeded episodes, cumulative/fixed/per-action-adaptive/cross-action-adaptive learner comparison, exploration/window-size sweeps, survival and prediction metrics, detector delay/misses/false alarms, and stationary-noise controls
 - [ ] Operator proposals from measured failure analysis
 - [ ] Sandboxed implementation experiments
 - [ ] Reproducible build and benchmark pipeline
