@@ -711,13 +711,11 @@ impl AdaptiveNumericDeltaModel {
         }
 
         if any_outlier {
-            self.consecutive_global_outliers =
-                self.consecutive_global_outliers.saturating_add(1);
+            self.consecutive_global_outliers = self.consecutive_global_outliers.saturating_add(1);
         } else if prediction_errors_observed > 0 {
             self.consecutive_global_outliers = 0;
         }
-        let change_detected =
-            self.consecutive_global_outliers >= self.policy.consecutive_outliers;
+        let change_detected = self.consecutive_global_outliers >= self.policy.consecutive_outliers;
         if change_detected {
             self.change_points_detected = self
                 .change_points_detected
