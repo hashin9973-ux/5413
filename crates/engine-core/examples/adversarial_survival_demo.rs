@@ -95,7 +95,9 @@ impl Agent {
         } else {
             self.model.predict_next(action, state).ok()?
         };
-        predictions.get(HEALTH_FIELD).map(|estimate| estimate.mean_delta)
+        predictions
+            .get(HEALTH_FIELD)
+            .map(|estimate| estimate.mean_delta)
     }
 
     fn choose_action(&mut self, health: f64) -> usize {
