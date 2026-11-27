@@ -89,6 +89,15 @@ impl Agent {
         self.rng
     }
 
+    fn predict_delta(&self, action: &str, state: &DataValue) -> Option<f64> {
+        let predictions = if let Some(model) = &self.recent_model {
+            model.predict_next(action, state).ok()?
+        } else {
+            self.model.predict_next(action, state).ok()?
+        };
+        predictions.get(HEALTH_FIELD).map(|estimate| estimate.mean_delta)
+    }
+
     fn choose_action(&mut self, health: f64) -> usize {
         if self.random_unit() < self.exploration_rate {
             return (self.random() as usize) % ACTIONS.len();
@@ -97,13 +106,7 @@ impl Agent {
         let state = DataValue::object([(HEALTH_FIELD.to_owned(), DataValue::Number(health))]);
         let mut best: Option<(usize, f64)> = None;
         for (index, action) in ACTIONS.iter().enumerate() {
-            let estimate = self
-                .recent_model
-                .as_ref()
-                .and_then(|model| model.predict_next(action, &state).ok())
-                .or_else(|| self.model.predict_next(action, &state).ok())
-                .and_then(|values| values.get(HEALTH_FIELD).copied());
-            let Some(estimate) = estimate else {
+            let Some(estimate) = self.predict_delta(action, &state) else {
                 // Optimism under ignorance: sample an unmeasured action before
                 // exploiting a measured one.
                 return index;
@@ -179,11 +182,9 @@ fn run_episode(seed: u64, adaptive: bool, recent_window: usize, exploration_rate
         let next_state =
             DataValue::object([(HEALTH_FIELD.to_owned(), DataValue::Number(next_health))]);
 
-        if let Ok(predictions) = agent.model.predict_next(ACTIONS[action], &state) {
-            if let Some(prediction) = predictions.get(HEALTH_FIELD) {
-                metrics.prediction_absolute_error += (prediction.mean_delta - delta).abs();
-                metrics.predictions += 1;
-            }
+        if let Some(predicted_delta) = agent.predict_delta(ACTIONS[action], &state) {
+            metrics.prediction_absolute_error += (predicted_delta - delta).abs();
+            metrics.predictions += 1;
         }
 
         agent.observe(TransitionSample {
