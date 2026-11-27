@@ -679,7 +679,7 @@ impl AdaptiveNumericDeltaModel {
 
         let predictions = self.model.predict_next(&sample.action_id, &sample.before)?;
         let mut prediction_errors_observed = 0;
-        let mut change_detected = false;
+        let mut detected_keys = Vec::new();
         for (field, before_value) in before {
             let Some(after_value) = after.get(field) else {
                 continue;
@@ -705,22 +705,26 @@ impl AdaptiveNumericDeltaModel {
                 return Err(LearningError::NonFinitePrediction(field.clone()));
             }
             prediction_errors_observed += 1;
-            let monitor = self
-                .residual_monitors
-                .entry((sample.action_id.clone(), field.clone()))
-                .or_default();
+            let key = (sample.action_id.clone(), field.clone());
+            let monitor = self.residual_monitors.entry(key.clone()).or_default();
             if monitor.observe(residual, self.policy)? {
-                change_detected = true;
+                detected_keys.push(key);
             }
         }
 
+        let change_detected = !detected_keys.is_empty();
         if change_detected {
             self.change_points_detected = self
                 .change_points_detected
                 .checked_add(1)
                 .ok_or(LearningError::SampleCountExhausted)?;
             self.model.resize_window(self.policy.min_window_size)?;
-            self.residual_monitors.clear();
+            // Recalibrate only the detectors that fired. Other actions retain
+            // their own residual baselines, so a regime shift is still detectable
+            // when those actions are sampled later.
+            for key in detected_keys {
+                self.residual_monitors.insert(key, ResidualMonitor::default());
+            }
             self.stable_observations = 0;
         } else if prediction_errors_observed > 0 {
             self.stable_observations = self.stable_observations.saturating_add(1);
