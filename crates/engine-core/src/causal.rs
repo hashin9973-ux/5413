@@ -139,9 +139,7 @@ impl PairedRandomizedStudy {
                 return Err(CausalError::NumericalOverflow);
             }
         }
-        let observed_mean = observed_mean
-            .mean()
-            .ok_or(CausalError::NumericalOverflow)?;
+        let observed_mean = observed_mean.mean().ok_or(CausalError::NumericalOverflow)?;
         let observed_statistic = scale * observed_mean.abs();
         if !observed_statistic.is_finite() {
             return Err(CausalError::NumericalOverflow);
@@ -206,7 +204,9 @@ impl PairedRandomizedStudy {
             .mean()
             .ok_or(CausalError::NumericalOverflow)?;
         let mean_effect = scale * normalized_mean_effect;
-        let treatment_mean = treatment_mean.mean().ok_or(CausalError::NumericalOverflow)?;
+        let treatment_mean = treatment_mean
+            .mean()
+            .ok_or(CausalError::NumericalOverflow)?;
         let control_mean = control_mean.mean().ok_or(CausalError::NumericalOverflow)?;
         let mut deviations = ScaledSumSquares::default();
         for difference in &differences {
@@ -566,8 +566,8 @@ impl RandomizedMultiArmStudy {
             let mean_effect = treatment_mean - control_mean;
             let treatment_standard_error = treatment_scale
                 * (treatment_normalized_rms / ((treatment_values.len() - 1) as f64).sqrt());
-            let control_standard_error = control_scale
-                * (control_normalized_rms / ((control_count - 1) as f64).sqrt());
+            let control_standard_error =
+                control_scale * (control_normalized_rms / ((control_count - 1) as f64).sqrt());
             let standard_error = treatment_standard_error.hypot(control_standard_error);
             let margin = 1.96 * standard_error;
             let lower = mean_effect - margin;
@@ -882,8 +882,9 @@ fn multi_arm_maximum_absolute_effect(
     {
         return Err(CausalError::InvalidMultiArmStudy);
     }
-    let mut means: Vec<OnlineMean> =
-        std::iter::repeat_with(OnlineMean::default).take(arm_counts.len()).collect();
+    let mut means: Vec<OnlineMean> = std::iter::repeat_with(OnlineMean::default)
+        .take(arm_counts.len())
+        .collect();
     for (outcome, arm_index) in outcomes.iter().zip(assignment.iter()) {
         let Some(mean) = means.get_mut(*arm_index) else {
             return Err(CausalError::UnknownArm);
@@ -1197,8 +1198,14 @@ mod tests {
         assert_eq!(estimate.treatment_mean, 0.0);
         assert_eq!(estimate.control_mean, 0.0);
         assert!((estimate.standard_error / (f64::MAX * 0.4) - 1.0).abs() < 1.0e-12);
-        assert!(estimate.normal_approximation_95_percent_interval.0.is_finite());
-        assert!(estimate.normal_approximation_95_percent_interval.1.is_finite());
+        assert!(estimate
+            .normal_approximation_95_percent_interval
+            .0
+            .is_finite());
+        assert!(estimate
+            .normal_approximation_95_percent_interval
+            .1
+            .is_finite());
     }
 
     #[test]
@@ -1434,11 +1441,16 @@ mod tests {
         assert!((effect.mean_effect / (0.4 * magnitude) - 1.0).abs() < 1.0e-12);
         assert!(effect.standard_error.is_finite());
         assert!(
-            (effect.standard_error / magnitude - (std::f64::consts::SQRT_2 * 0.1)).abs()
-                < 1.0e-12
+            (effect.standard_error / magnitude - (std::f64::consts::SQRT_2 * 0.1)).abs() < 1.0e-12
         );
-        assert!(effect.normal_approximation_95_percent_interval.0.is_finite());
-        assert!(effect.normal_approximation_95_percent_interval.1.is_finite());
+        assert!(effect
+            .normal_approximation_95_percent_interval
+            .0
+            .is_finite());
+        assert!(effect
+            .normal_approximation_95_percent_interval
+            .1
+            .is_finite());
     }
 
     #[test]
