@@ -723,7 +723,8 @@ impl AdaptiveNumericDeltaModel {
             // their own residual baselines, so a regime shift is still detectable
             // when those actions are sampled later.
             for key in detected_keys {
-                self.residual_monitors.insert(key, ResidualMonitor::default());
+                self.residual_monitors
+                    .insert(key, ResidualMonitor::default());
             }
             self.stable_observations = 0;
         } else if prediction_errors_observed > 0 {
