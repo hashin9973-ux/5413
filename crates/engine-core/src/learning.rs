@@ -1036,9 +1036,9 @@ mod tests {
             max_window_size: 16,
             stable_observations_to_expand: 8,
             minimum_model_samples: 2,
-            minimum_residual_samples: 12,
-            consecutive_outliers: 3,
-            change_threshold_sigma: 4.0,
+            minimum_residual_samples: 8,
+            consecutive_outliers: 2,
+            change_threshold_sigma: 3.0,
         }
     }
 
