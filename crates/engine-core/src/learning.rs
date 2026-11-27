@@ -1157,7 +1157,10 @@ impl std::fmt::Display for LearningError {
             Self::InvalidWindowSize => write!(formatter, "learner window size must be positive"),
             Self::InvalidAdaptivePolicy => write!(formatter, "adaptive learning policy is invalid"),
             Self::InvalidCrossActionAdaptivePolicy => {
-                write!(formatter, "cross-action adaptive learning policy is invalid")
+                write!(
+                    formatter,
+                    "cross-action adaptive learning policy is invalid"
+                )
             }
         }
     }
