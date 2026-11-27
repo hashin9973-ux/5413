@@ -84,7 +84,8 @@ pub use experimentation::{
     ExperimentScore,
 };
 pub use learning::{
-    FieldPrediction, LearningError, NumericDeltaModel, TransitionSample, WindowedNumericDeltaModel,
+    AdaptiveLearningPolicy, AdaptiveLearningUpdate, AdaptiveNumericDeltaModel, FieldPrediction,
+    LearningError, NumericDeltaModel, TransitionSample, WindowedNumericDeltaModel,
 };
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
