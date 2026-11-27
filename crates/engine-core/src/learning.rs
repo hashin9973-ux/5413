@@ -574,7 +574,6 @@ pub struct AdaptiveLearningUpdate {
 #[derive(Clone, Debug, Default)]
 struct ResidualMonitor {
     statistics: DeltaStatistics,
-    consecutive_outliers: usize,
 }
 
 impl ResidualMonitor {
@@ -610,11 +609,10 @@ impl ResidualMonitor {
         }
 
         if is_outlier {
-            self.consecutive_outliers = self.consecutive_outliers.saturating_add(1);
-            return Ok(self.consecutive_outliers >= policy.consecutive_outliers);
+            // Do not absorb a likely regime shift into the old baseline.
+            return Ok(true);
         }
 
-        self.consecutive_outliers = 0;
         self.statistics = self.statistics.updated(residual, "prediction residual")?;
         Ok(false)
     }
@@ -631,6 +629,7 @@ pub struct AdaptiveNumericDeltaModel {
     model: WindowedNumericDeltaModel,
     residual_monitors: BTreeMap<(String, String), ResidualMonitor>,
     stable_observations: usize,
+    consecutive_global_outliers: usize,
     change_points_detected: u64,
 }
 
@@ -642,6 +641,7 @@ impl AdaptiveNumericDeltaModel {
             policy,
             residual_monitors: BTreeMap::new(),
             stable_observations: 0,
+            consecutive_global_outliers: 0,
             change_points_detected: 0,
         })
     }
@@ -679,7 +679,7 @@ impl AdaptiveNumericDeltaModel {
 
         let predictions = self.model.predict_next(&sample.action_id, &sample.before)?;
         let mut prediction_errors_observed = 0;
-        let mut detected_keys = Vec::new();
+        let mut any_outlier = false;
         for (field, before_value) in before {
             let Some(after_value) = after.get(field) else {
                 continue;
@@ -706,13 +706,18 @@ impl AdaptiveNumericDeltaModel {
             }
             prediction_errors_observed += 1;
             let key = (sample.action_id.clone(), field.clone());
-            let monitor = self.residual_monitors.entry(key.clone()).or_default();
-            if monitor.observe(residual, self.policy)? {
-                detected_keys.push(key);
-            }
+            let monitor = self.residual_monitors.entry(key).or_default();
+            any_outlier |= monitor.observe(residual, self.policy)?;
         }
 
-        let change_detected = !detected_keys.is_empty();
+        if any_outlier {
+            self.consecutive_global_outliers =
+                self.consecutive_global_outliers.saturating_add(1);
+        } else if prediction_errors_observed > 0 {
+            self.consecutive_global_outliers = 0;
+        }
+        let change_detected =
+            self.consecutive_global_outliers >= self.policy.consecutive_outliers;
         if change_detected {
             self.change_points_detected = self
                 .change_points_detected
@@ -723,6 +728,7 @@ impl AdaptiveNumericDeltaModel {
             // together so stale action-specific evidence cannot trigger delayed
             // alarms after a later phase has already begun.
             self.residual_monitors.clear();
+            self.consecutive_global_outliers = 0;
             self.stable_observations = 0;
         } else if prediction_errors_observed > 0 {
             self.stable_observations = self.stable_observations.saturating_add(1);
