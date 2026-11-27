@@ -255,8 +255,7 @@ fn main() {
             "recent-window learner must out-survive the cumulative baseline"
         );
         assert!(
-            count_survivors(true, WINDOW_SIZES[0], exploration_rate) * 10
-                >= SEEDS as usize * 9,
+            count_survivors(true, WINDOW_SIZES[0], exploration_rate) * 10 >= SEEDS as usize * 9,
             "recent-window learner must survive at least 90% of benchmark episodes"
         );
         print_row(exploration_rate, 0, baseline, false);
