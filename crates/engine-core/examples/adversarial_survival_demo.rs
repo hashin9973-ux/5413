@@ -181,7 +181,11 @@ impl Agent {
         self.adaptive_model
             .as_ref()
             .map(AdaptiveNumericDeltaModel::window_size)
-            .or_else(|| self.recent_model.as_ref().map(WindowedNumericDeltaModel::window_size))
+            .or_else(|| {
+                self.recent_model
+                    .as_ref()
+                    .map(WindowedNumericDeltaModel::window_size)
+            })
     }
 }
 
