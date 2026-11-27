@@ -108,6 +108,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [ ] Common benchmark protocol across discrete, continuous, workflow, and relational environments
 - [x] Per-seed sample-efficiency curves against caller-declared reference strategies, with area under improvement and samples-to-target metrics
 - [x] Aggregate repeated learning-curve seeds only within matching protocol signatures, with per-budget standard errors, AUC uncertainty, and target-reach statistics
+- [x] Overflow-resistant signed trapezoidal AUC integration for few-shot transfer and repeated-seed learning-efficiency curves
 - [x] Executable paired benchmark-protocol runner across seeds and sample budgets, with strict result-provenance checks, resource/evaluation budgets, aggregate summaries, and immutable persistence
 - [ ] Confidence intervals robust to non-normal seed distributions
 - [ ] Calibration, robustness, and out-of-distribution benchmark suites
