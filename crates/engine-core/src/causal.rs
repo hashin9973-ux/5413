@@ -5,6 +5,7 @@
 //! outcome measurement, and no-interference assumptions are valid. The engine
 //! cannot verify those design assumptions from outcome values alone.
 
+use crate::regression_metrics::{OnlineMean, ScaledSumSquares};
 use crate::value::DataValue;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -131,34 +132,45 @@ impl PairedRandomizedStudy {
             });
         }
 
-        let differences: Vec<f64> = self
-            .pairs
-            .iter()
-            .map(|pair| pair.treatment_outcome - pair.control_outcome)
-            .collect();
-        let count = differences.len() as f64;
-        let observed_mean = differences.iter().sum::<f64>() / count;
-        if !observed_mean.is_finite() {
+        let (scale, differences) = normalized_paired_differences(&self.pairs);
+        let mut observed_mean = OnlineMean::default();
+        for difference in &differences {
+            if !observed_mean.push_finite(*difference) {
+                return Err(CausalError::NumericalOverflow);
+            }
+        }
+        let observed_mean = observed_mean
+            .mean()
+            .ok_or(CausalError::NumericalOverflow)?;
+        let observed_statistic = scale * observed_mean.abs();
+        if !observed_statistic.is_finite() {
             return Err(CausalError::NumericalOverflow);
         }
-        let observed_statistic = observed_mean.abs();
-        let tolerance = 8.0 * f64::EPSILON * observed_statistic.max(1.0);
+        let observed_statistic_normalized = observed_mean.abs();
+        let tolerance = if scale == 0.0 {
+            f64::INFINITY
+        } else {
+            8.0 * f64::EPSILON * observed_statistic_normalized.max(scale.recip())
+        };
         let mut extreme_assignment_count = 0_u64;
 
         for assignment in 0..assignment_count {
-            let mut signed_sum = 0.0;
+            let mut signed_mean = OnlineMean::default();
             for (index, difference) in differences.iter().enumerate() {
-                if (assignment >> index) & 1 == 0 {
-                    signed_sum += difference;
+                let signed_difference = if (assignment >> index) & 1 == 0 {
+                    *difference
                 } else {
-                    signed_sum -= difference;
+                    -*difference
+                };
+                if !signed_mean.push_finite(signed_difference) {
+                    return Err(CausalError::NumericalOverflow);
                 }
             }
-            let statistic = (signed_sum / count).abs();
-            if !statistic.is_finite() {
-                return Err(CausalError::NumericalOverflow);
-            }
-            if statistic + tolerance >= observed_statistic {
+            let statistic = signed_mean
+                .mean()
+                .ok_or(CausalError::NumericalOverflow)?
+                .abs();
+            if statistic + tolerance >= observed_statistic_normalized {
                 extreme_assignment_count = extreme_assignment_count
                     .checked_add(1)
                     .ok_or(CausalError::NumericalOverflow)?;
@@ -178,31 +190,34 @@ impl PairedRandomizedStudy {
 
     pub fn estimate(&self) -> Result<CausalEffectEstimate, CausalError> {
         self.validate()?;
-        let count = self.pairs.len() as f64;
-        let differences: Vec<f64> = self
-            .pairs
-            .iter()
-            .map(|pair| pair.treatment_outcome - pair.control_outcome)
-            .collect();
-        let mean_effect = differences.iter().sum::<f64>() / count;
-        let treatment_mean = self
-            .pairs
-            .iter()
-            .map(|pair| pair.treatment_outcome)
-            .sum::<f64>()
-            / count;
-        let control_mean = self
-            .pairs
-            .iter()
-            .map(|pair| pair.control_outcome)
-            .sum::<f64>()
-            / count;
-        let sum_squared = differences
-            .iter()
-            .map(|difference| (difference - mean_effect).powi(2))
-            .sum::<f64>();
-        let sample_variance = sum_squared / (count - 1.0);
-        let standard_error = (sample_variance / count).sqrt();
+        let (scale, differences) = normalized_paired_differences(&self.pairs);
+        let mut difference_mean = OnlineMean::default();
+        let mut treatment_mean = OnlineMean::default();
+        let mut control_mean = OnlineMean::default();
+        for (pair, difference) in self.pairs.iter().zip(&differences) {
+            if !difference_mean.push_finite(*difference)
+                || !treatment_mean.push_finite(pair.treatment_outcome)
+                || !control_mean.push_finite(pair.control_outcome)
+            {
+                return Err(CausalError::NumericalOverflow);
+            }
+        }
+        let normalized_mean_effect = difference_mean
+            .mean()
+            .ok_or(CausalError::NumericalOverflow)?;
+        let mean_effect = scale * normalized_mean_effect;
+        let treatment_mean = treatment_mean.mean().ok_or(CausalError::NumericalOverflow)?;
+        let control_mean = control_mean.mean().ok_or(CausalError::NumericalOverflow)?;
+        let mut deviations = ScaledSumSquares::default();
+        for difference in &differences {
+            if !deviations.push_nonnegative((*difference - normalized_mean_effect).abs()) {
+                return Err(CausalError::NumericalOverflow);
+            }
+        }
+        let normalized_rms = deviations
+            .root_mean_square()
+            .ok_or(CausalError::NumericalOverflow)?;
+        let standard_error = scale * (normalized_rms / ((self.pairs.len() - 1) as f64).sqrt());
         let margin = 1.96 * standard_error;
         let lower = mean_effect - margin;
         let upper = mean_effect + margin;
@@ -537,7 +552,8 @@ impl RandomizedMultiArmStudy {
         let control = by_arm
             .get(self.control_arm_id.as_str())
             .ok_or(CausalError::InvalidMultiArmStudy)?;
-        let (control_mean, control_variance) = mean_and_sample_variance(control)?;
+        let (control_mean, control_scale, control_normalized_rms) =
+            mean_and_scaled_sample_spread(control)?;
         let control_count = control.len();
         let mut effects = Vec::with_capacity(self.allocation_plan.len() - 1);
 
@@ -545,11 +561,14 @@ impl RandomizedMultiArmStudy {
             if *arm_id == self.control_arm_id {
                 continue;
             }
-            let (treatment_mean, treatment_variance) = mean_and_sample_variance(treatment_values)?;
+            let (treatment_mean, treatment_scale, treatment_normalized_rms) =
+                mean_and_scaled_sample_spread(treatment_values)?;
             let mean_effect = treatment_mean - control_mean;
-            let standard_error = (treatment_variance / treatment_values.len() as f64
-                + control_variance / control_count as f64)
-                .sqrt();
+            let treatment_standard_error = treatment_scale
+                * (treatment_normalized_rms / ((treatment_values.len() - 1) as f64).sqrt());
+            let control_standard_error = control_scale
+                * (control_normalized_rms / ((control_count - 1) as f64).sqrt());
+            let standard_error = treatment_standard_error.hypot(control_standard_error);
             let margin = 1.96 * standard_error;
             let lower = mean_effect - margin;
             let upper = mean_effect + margin;
@@ -863,25 +882,29 @@ fn multi_arm_maximum_absolute_effect(
     {
         return Err(CausalError::InvalidMultiArmStudy);
     }
-    let mut sums = vec![0.0_f64; arm_counts.len()];
+    let mut means: Vec<OnlineMean> =
+        std::iter::repeat_with(OnlineMean::default).take(arm_counts.len()).collect();
     for (outcome, arm_index) in outcomes.iter().zip(assignment.iter()) {
-        if *arm_index >= sums.len() {
+        let Some(mean) = means.get_mut(*arm_index) else {
             return Err(CausalError::UnknownArm);
+        };
+        if !mean.push_finite(*outcome) {
+            return Err(CausalError::NumericalOverflow);
         }
-        sums[*arm_index] += outcome;
     }
-    let control_mean = sums[control_index] / arm_counts[control_index] as f64;
-    if !control_mean.is_finite() {
-        return Err(CausalError::NumericalOverflow);
-    }
+    let control_mean = means[control_index]
+        .mean()
+        .ok_or(CausalError::NumericalOverflow)?;
     let mut maximum = 0.0_f64;
     for arm_index in 0..arm_counts.len() {
         if arm_index == control_index {
             continue;
         }
-        let treatment_mean = sums[arm_index] / arm_counts[arm_index] as f64;
+        let treatment_mean = means[arm_index]
+            .mean()
+            .ok_or(CausalError::NumericalOverflow)?;
         let effect = (treatment_mean - control_mean).abs();
-        if !treatment_mean.is_finite() || !effect.is_finite() {
+        if !effect.is_finite() {
             return Err(CausalError::NumericalOverflow);
         }
         maximum = maximum.max(effect);
@@ -913,21 +936,65 @@ fn next_multiset_permutation(values: &mut [usize]) -> bool {
     true
 }
 
-fn mean_and_sample_variance(values: &[f64]) -> Result<(f64, f64), CausalError> {
+fn normalized_paired_differences(pairs: &[PairedOutcome]) -> (f64, Vec<f64>) {
+    let scale = pairs
+        .iter()
+        .flat_map(|pair| [pair.control_outcome.abs(), pair.treatment_outcome.abs()])
+        .fold(0.0_f64, f64::max);
+    if scale == 0.0 {
+        return (0.0, vec![0.0; pairs.len()]);
+    }
+
+    let differences = pairs
+        .iter()
+        .map(|pair| {
+            let difference = pair.treatment_outcome - pair.control_outcome;
+            if difference.is_finite() {
+                difference / scale
+            } else {
+                pair.treatment_outcome / scale - pair.control_outcome / scale
+            }
+        })
+        .collect();
+    (scale, differences)
+}
+
+fn mean_and_scaled_sample_spread(values: &[f64]) -> Result<(f64, f64, f64), CausalError> {
     if values.len() < 2 {
         return Err(CausalError::InvalidMultiArmAllocation);
     }
-    let count = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / count;
-    let sum_squared = values
+    let mut mean = OnlineMean::default();
+    let scale = values
         .iter()
-        .map(|value| (value - mean).powi(2))
-        .sum::<f64>();
-    let variance = sum_squared / (count - 1.0);
-    if !mean.is_finite() || !variance.is_finite() {
-        return Err(CausalError::NumericalOverflow);
+        .map(|value| value.abs())
+        .fold(0.0_f64, f64::max);
+    for value in values {
+        if !mean.push_finite(*value) {
+            return Err(CausalError::NumericalOverflow);
+        }
     }
-    Ok((mean, variance))
+    let mean = mean.mean().ok_or(CausalError::NumericalOverflow)?;
+    let normalized_mean = if scale == 0.0 { 0.0 } else { mean / scale };
+    let mut deviations = ScaledSumSquares::default();
+    for value in values {
+        let normalized_deviation = if scale == 0.0 {
+            0.0
+        } else {
+            let difference = *value - mean;
+            if difference.is_finite() {
+                difference / scale
+            } else {
+                *value / scale - normalized_mean
+            }
+        };
+        if !deviations.push_nonnegative(normalized_deviation.abs()) {
+            return Err(CausalError::NumericalOverflow);
+        }
+    }
+    let normalized_rms = deviations
+        .root_mean_square()
+        .ok_or(CausalError::NumericalOverflow)?;
+    Ok((mean, scale, normalized_rms))
 }
 
 // Abramowitz-Stegun-style normal CDF approximation.
@@ -1109,6 +1176,59 @@ mod tests {
     }
 
     #[test]
+    fn paired_estimator_handles_large_finite_differences_without_squared_overflow() {
+        let magnitude = f64::MAX * 0.2;
+        let mut study = study();
+        study.pairs = vec![
+            PairedOutcome {
+                pair_id: "large-a".to_owned(),
+                control_outcome: -magnitude,
+                treatment_outcome: magnitude,
+            },
+            PairedOutcome {
+                pair_id: "large-b".to_owned(),
+                control_outcome: magnitude,
+                treatment_outcome: -magnitude,
+            },
+        ];
+
+        let estimate = study.estimate().expect("finite paired estimate");
+        assert_eq!(estimate.mean_effect, 0.0);
+        assert_eq!(estimate.treatment_mean, 0.0);
+        assert_eq!(estimate.control_mean, 0.0);
+        assert!((estimate.standard_error / (f64::MAX * 0.4) - 1.0).abs() < 1.0e-12);
+        assert!(estimate.normal_approximation_95_percent_interval.0.is_finite());
+        assert!(estimate.normal_approximation_95_percent_interval.1.is_finite());
+    }
+
+    #[test]
+    fn paired_exact_inference_handles_overflowing_intermediate_signed_sums() {
+        let mut study = study();
+        study.pairs = vec![
+            PairedOutcome {
+                pair_id: "extreme-a".to_owned(),
+                control_outcome: -f64::MAX * 0.5,
+                treatment_outcome: f64::MAX * 0.5,
+            },
+            PairedOutcome {
+                pair_id: "extreme-b".to_owned(),
+                control_outcome: f64::MAX * 0.5,
+                treatment_outcome: -f64::MAX * 0.5,
+            },
+        ];
+
+        let inference = study
+            .exact_randomization_inference(RandomizationInferencePolicy {
+                maximum_assignments: 4,
+                attest_independent_fair_pair_swaps: true,
+            })
+            .expect("finite exact randomization inference");
+        assert_eq!(inference.observed_absolute_mean_effect, 0.0);
+        assert_eq!(inference.extreme_assignment_count, 4);
+        assert_eq!(inference.exact_two_sided_p_value, 1.0);
+    }
+
+    #[test]
     fn exact_paired_randomization_inference_enumerates_every_sign_assignment() {
         let study = PairedRandomizedStudy {
             experiment_id: "exact-paired-v1".to_owned(),
@@ -1268,6 +1388,97 @@ mod tests {
         );
         assert!(treatment_a.normal_approximation_95_percent_interval.0 < treatment_a.mean_effect);
         assert!(treatment_a.normal_approximation_95_percent_interval.1 > treatment_a.mean_effect);
+    }
+
+    #[test]
+    fn multi_arm_estimator_handles_large_finite_outcomes_without_variance_overflow() {
+        let magnitude = f64::MAX;
+        let study = RandomizedMultiArmStudy {
+            experiment_id: "large-multi-arm-v1".to_owned(),
+            dataset_id: "large-multi-arm-data-v1".to_owned(),
+            control_arm_id: "control".to_owned(),
+            outcome_label: "score".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            assignment_seed: 91,
+            randomization_protocol: "complete-randomization-v1".to_owned(),
+            allocation_plan: BTreeMap::from([
+                ("control".to_owned(), 2),
+                ("treatment".to_owned(), 2),
+            ]),
+            outcomes: vec![
+                RandomizedArmOutcome {
+                    unit_id: "c1".to_owned(),
+                    arm_id: "control".to_owned(),
+                    outcome: -0.1 * magnitude,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "c2".to_owned(),
+                    arm_id: "control".to_owned(),
+                    outcome: 0.1 * magnitude,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "t1".to_owned(),
+                    arm_id: "treatment".to_owned(),
+                    outcome: 0.3 * magnitude,
+                },
+                RandomizedArmOutcome {
+                    unit_id: "t2".to_owned(),
+                    arm_id: "treatment".to_owned(),
+                    outcome: 0.5 * magnitude,
+                },
+            ],
+        };
+
+        let report = study.estimate().expect("finite multi-arm estimate");
+        let effect = report.effects.first().expect("treatment effect");
+        assert!((effect.mean_effect / (0.4 * magnitude) - 1.0).abs() < 1.0e-12);
+        assert!(effect.standard_error.is_finite());
+        assert!((effect.standard_error / (0.2_f64.sqrt() * magnitude * 0.1)).is_finite());
+        assert!(effect.normal_approximation_95_percent_interval.0.is_finite());
+        assert!(effect.normal_approximation_95_percent_interval.1.is_finite());
+    }
+
+    #[test]
+    fn exact_multi_arm_inference_handles_arm_sum_overflow() {
+        let magnitude = f64::MAX;
+        let mut outcomes = Vec::new();
+        for (arm_id, values) in [
+            ("control", [0.7, 0.8]),
+            ("treatment-a", [0.6, 0.7]),
+            ("treatment-b", [0.5, 0.6]),
+        ] {
+            for (index, value) in values.into_iter().enumerate() {
+                outcomes.push(RandomizedArmOutcome {
+                    unit_id: format!("{arm_id}-{index}"),
+                    arm_id: arm_id.to_owned(),
+                    outcome: value * magnitude,
+                });
+            }
+        }
+        let study = RandomizedMultiArmStudy {
+            experiment_id: "large-exact-multi-arm-v1".to_owned(),
+            dataset_id: "large-exact-multi-arm-data-v1".to_owned(),
+            control_arm_id: "control".to_owned(),
+            outcome_label: "score".to_owned(),
+            assignment_design: AssignmentDesign::Randomized,
+            assignment_seed: 19,
+            randomization_protocol: "complete-randomization-v1".to_owned(),
+            allocation_plan: BTreeMap::from([
+                ("control".to_owned(), 2),
+                ("treatment-a".to_owned(), 2),
+                ("treatment-b".to_owned(), 2),
+            ]),
+            outcomes,
+        };
+
+        let inference = study
+            .exact_randomization_inference(MultiArmRandomizationInferencePolicy {
+                maximum_assignments: 90,
+                attest_complete_random_assignment: true,
+            })
+            .expect("finite exact multi-arm inference");
+        assert_eq!(inference.assignment_count, 90);
+        assert!(inference.observed_maximum_absolute_effect.is_finite());
     }
 
     #[test]
