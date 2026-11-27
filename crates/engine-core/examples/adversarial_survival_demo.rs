@@ -6,7 +6,10 @@
 //! The experiment compares a cumulative NumericDeltaModel with a recent-window
 //! variant that can discard stale evidence after opponent strategy changes.
 
-use engine_core::{DataValue, NumericDeltaModel, TransitionSample, WindowedNumericDeltaModel};
+use engine_core::{
+    AdaptiveLearningPolicy, AdaptiveNumericDeltaModel, DataValue, NumericDeltaModel,
+    TransitionSample, WindowedNumericDeltaModel,
+};
 
 const ACTIONS: [&str; 3] = ["evade", "guard", "counter"];
 const HEALTH_FIELD: &str = "health";
@@ -58,23 +61,52 @@ struct Metrics {
     phase_recovery_steps: usize,
     phase_recoveries: usize,
     phase_changes: usize,
+    change_detections: usize,
+    window_size_sum: usize,
+    window_observations: usize,
+}
+
+#[derive(Clone, Copy)]
+enum LearnerKind {
+    Cumulative,
+    FixedWindow,
+    Adaptive,
 }
 
 struct Agent {
     model: NumericDeltaModel,
     recent_model: Option<WindowedNumericDeltaModel>,
+    adaptive_model: Option<AdaptiveNumericDeltaModel>,
     exploration_rate: f64,
     rng: u64,
 }
 
 impl Agent {
-    fn new(seed: u64, adaptive: bool, recent_window: usize, exploration_rate: f64) -> Self {
+    fn new(
+        seed: u64,
+        learner: LearnerKind,
+        recent_window: usize,
+        adaptive_policy: AdaptiveLearningPolicy,
+        exploration_rate: f64,
+    ) -> Self {
+        let recent_model = match learner {
+            LearnerKind::FixedWindow => Some(
+                WindowedNumericDeltaModel::new(recent_window)
+                    .expect("positive recent window configured by benchmark"),
+            ),
+            LearnerKind::Cumulative | LearnerKind::Adaptive => None,
+        };
+        let adaptive_model = match learner {
+            LearnerKind::Adaptive => Some(
+                AdaptiveNumericDeltaModel::new(adaptive_policy)
+                    .expect("valid adaptive policy configured by benchmark"),
+            ),
+            LearnerKind::Cumulative | LearnerKind::FixedWindow => None,
+        };
         Self {
             model: NumericDeltaModel::default(),
-            recent_model: adaptive.then(|| {
-                WindowedNumericDeltaModel::new(recent_window)
-                    .expect("positive recent window configured by benchmark")
-            }),
+            recent_model,
+            adaptive_model,
             exploration_rate,
             rng: seed.max(1),
         }
@@ -90,7 +122,9 @@ impl Agent {
     }
 
     fn predict_delta(&self, action: &str, state: &DataValue) -> Option<f64> {
-        let predictions = if let Some(model) = &self.recent_model {
+        let predictions = if let Some(model) = &self.adaptive_model {
+            model.predict_next(action, state).ok()?
+        } else if let Some(model) = &self.recent_model {
             model.predict_next(action, state).ok()?
         } else {
             self.model.predict_next(action, state).ok()?
@@ -124,16 +158,30 @@ impl Agent {
         (self.random() >> 11) as f64 / ((1_u64 << 53) as f64)
     }
 
-    fn observe(&mut self, sample: TransitionSample) {
-        if let Some(model) = &mut self.recent_model {
+    fn observe(&mut self, sample: TransitionSample) -> bool {
+        if let Some(model) = &mut self.adaptive_model {
+            model
+                .observe_transition(&sample)
+                .expect("finite survival transition")
+                .change_detected
+        } else if let Some(model) = &mut self.recent_model {
             model
                 .observe_transition(&sample)
                 .expect("finite survival transition");
+            false
         } else {
             self.model
                 .observe_transition(&sample)
                 .expect("finite survival transition");
+            false
         }
+    }
+
+    fn window_size(&self) -> Option<usize> {
+        self.adaptive_model
+            .as_ref()
+            .map(AdaptiveNumericDeltaModel::window_size)
+            .or_else(|| self.recent_model.as_ref().map(WindowedNumericDeltaModel::window_size))
     }
 }
 
@@ -158,8 +206,20 @@ fn survival_delta(action: usize, preferred: usize) -> f64 {
     }
 }
 
-fn run_episode(seed: u64, adaptive: bool, recent_window: usize, exploration_rate: f64) -> Metrics {
-    let mut agent = Agent::new(seed, adaptive, recent_window, exploration_rate);
+fn run_episode(
+    seed: u64,
+    learner: LearnerKind,
+    recent_window: usize,
+    adaptive_policy: AdaptiveLearningPolicy,
+    exploration_rate: f64,
+) -> Metrics {
+    let mut agent = Agent::new(
+        seed,
+        learner,
+        recent_window,
+        adaptive_policy,
+        exploration_rate,
+    );
     let mut metrics = Metrics::default();
     let mut health = INITIAL_HEALTH;
     let mut previous_phase = 0;
@@ -189,11 +249,17 @@ fn run_episode(seed: u64, adaptive: bool, recent_window: usize, exploration_rate
             metrics.predictions += 1;
         }
 
-        agent.observe(TransitionSample {
+        if agent.observe(TransitionSample {
             action_id: ACTIONS[action].to_owned(),
             before: state,
             after: next_state,
-        });
+        }) {
+            metrics.change_detections += 1;
+        }
+        if let Some(window_size) = agent.window_size() {
+            metrics.window_size_sum += window_size;
+            metrics.window_observations += 1;
+        }
 
         health = next_health;
         metrics.reward += delta;
@@ -214,13 +280,19 @@ fn run_episode(seed: u64, adaptive: bool, recent_window: usize, exploration_rate
     metrics
 }
 
-fn summarize(adaptive: bool, recent_window: usize, exploration_rate: f64) -> Metrics {
+fn summarize(
+    learner: LearnerKind,
+    recent_window: usize,
+    adaptive_policy: AdaptiveLearningPolicy,
+    exploration_rate: f64,
+) -> Metrics {
     let mut total = Metrics::default();
     for seed in 1..=SEEDS {
         let metrics = run_episode(
             seed.wrapping_mul(0x9E37_79B9),
-            adaptive,
+            learner,
             recent_window,
+            adaptive_policy,
             exploration_rate,
         );
         total.survival_steps += metrics.survival_steps;
@@ -230,65 +302,157 @@ fn summarize(adaptive: bool, recent_window: usize, exploration_rate: f64) -> Met
         total.phase_recovery_steps += metrics.phase_recovery_steps;
         total.phase_recoveries += metrics.phase_recoveries;
         total.phase_changes += metrics.phase_changes;
+        total.change_detections += metrics.change_detections;
+        total.window_size_sum += metrics.window_size_sum;
+        total.window_observations += metrics.window_observations;
     }
     total
 }
 
 fn main() {
+    let adaptive_policy = AdaptiveLearningPolicy {
+        min_window_size: 4,
+        max_window_size: 32,
+        stable_observations_to_expand: 12,
+        minimum_model_samples: 2,
+        minimum_residual_samples: 12,
+        consecutive_outliers: 3,
+        change_threshold_sigma: 4.0,
+    };
     println!("Adversarial survival experiment");
     println!("seeds={SEEDS}, horizon={EPISODE_STEPS}, hidden irregular opponent schedule");
     println!("no action, energy, or compute budget; survival ends only at zero health");
+    println!("adaptive policy: minimum 4, maximum 32, expansion after 12 stable predictions");
     println!();
-    println!("explore window  survival  full-horizon  prediction  recovery  recovery");
-    println!("rate     size   steps      survivors     MAE         success   lag");
+    println!("explore learner      survival  full-horizon  prediction  recovery  recovery  changes  avg-window");
+    println!("rate    strategy     steps      survivors     MAE         success   lag");
 
     for exploration_rate in EXPLORATION_RATES {
-        let baseline = summarize(false, usize::MAX, exploration_rate);
-        let fastest_adaptation = summarize(true, WINDOW_SIZES[0], exploration_rate);
-        assert!(
-            fastest_adaptation.survival_steps > baseline.survival_steps,
-            "recent-window learner must out-survive the cumulative baseline"
+        let baseline = summarize(
+            LearnerKind::Cumulative,
+            usize::MAX,
+            adaptive_policy,
+            exploration_rate,
+        );
+        let fixed_four = summarize(
+            LearnerKind::FixedWindow,
+            WINDOW_SIZES[0],
+            adaptive_policy,
+            exploration_rate,
+        );
+        let adaptive = summarize(
+            LearnerKind::Adaptive,
+            WINDOW_SIZES[0],
+            adaptive_policy,
+            exploration_rate,
         );
         assert!(
-            count_survivors(true, WINDOW_SIZES[0], exploration_rate) * 10 >= SEEDS as usize * 9,
-            "recent-window learner must survive at least 90% of benchmark episodes"
+            fixed_four.survival_steps > baseline.survival_steps,
+            "the four-transition baseline must out-survive the cumulative learner"
         );
-        print_row(exploration_rate, 0, baseline, false);
-        for window in WINDOW_SIZES {
-            let adaptive = summarize(true, window, exploration_rate);
-            print_row(exploration_rate, window, adaptive, true);
+        assert!(
+            count_survivors(
+                LearnerKind::FixedWindow,
+                WINDOW_SIZES[0],
+                adaptive_policy,
+                exploration_rate,
+            ) * 10
+                >= SEEDS as usize * 9,
+            "the fixed recent-window learner must survive at least 90% of benchmark episodes"
+        );
+        print_row(
+            exploration_rate,
+            "cumulative",
+            baseline,
+            count_survivors(
+                LearnerKind::Cumulative,
+                usize::MAX,
+                adaptive_policy,
+                exploration_rate,
+            ),
+        );
+        print_row(
+            exploration_rate,
+            "fixed-4",
+            fixed_four,
+            count_survivors(
+                LearnerKind::FixedWindow,
+                WINDOW_SIZES[0],
+                adaptive_policy,
+                exploration_rate,
+            ),
+        );
+        print_row(
+            exploration_rate,
+            "adaptive",
+            adaptive,
+            count_survivors(
+                LearnerKind::Adaptive,
+                WINDOW_SIZES[0],
+                adaptive_policy,
+                exploration_rate,
+            ),
+        );
+        for window in WINDOW_SIZES.iter().copied().skip(1) {
+            let fixed = summarize(
+                LearnerKind::FixedWindow,
+                window,
+                adaptive_policy,
+                exploration_rate,
+            );
+            print_row(
+                exploration_rate,
+                &format!("fixed-{window}"),
+                fixed,
+                count_survivors(
+                    LearnerKind::FixedWindow,
+                    window,
+                    adaptive_policy,
+                    exploration_rate,
+                ),
+            );
         }
         println!();
     }
 }
 
-fn print_row(exploration_rate: f64, window: usize, metrics: Metrics, adaptive: bool) {
+fn print_row(
+    exploration_rate: f64,
+    learner: &str,
+    metrics: Metrics,
+    full_horizon_survivors: usize,
+) {
     let prediction_mae = metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
     let recovery_rate = metrics.phase_recoveries as f64 / metrics.phase_changes.max(1) as f64;
     let recovery_lag = metrics.phase_recovery_steps as f64 / metrics.phase_recoveries.max(1) as f64;
+    let average_window = metrics.window_size_sum as f64 / metrics.window_observations.max(1) as f64;
     println!(
-        "{:<8.2} {:<6} {:<10.2} {:<13} {:<11.4} {:<9.2} {:.2}",
+        "{:<8.2} {:<12} {:<10.2} {:<13} {:<11.4} {:<9.2} {:<9.2} {:<8.2} {:.2}",
         exploration_rate,
-        if window == 0 {
-            "all".to_owned()
-        } else {
-            window.to_string()
-        },
+        learner,
         metrics.survival_steps as f64 / SEEDS as f64,
-        count_survivors(adaptive, window, exploration_rate),
+        full_horizon_survivors,
         prediction_mae,
         recovery_rate,
-        recovery_lag
+        recovery_lag,
+        metrics.change_detections as f64 / SEEDS as f64,
+        average_window
     );
 }
 
-fn count_survivors(adaptive: bool, recent_window: usize, exploration_rate: f64) -> usize {
+fn count_survivors(
+    learner: LearnerKind,
+    recent_window: usize,
+    adaptive_policy: AdaptiveLearningPolicy,
+    exploration_rate: f64,
+) -> usize {
     (1..=SEEDS)
         .filter(|seed| {
             run_episode(
                 seed.wrapping_mul(0x9E37_79B9),
-                adaptive,
+                learner,
                 recent_window,
+                adaptive_policy,
                 exploration_rate,
             )
             .survival_steps
