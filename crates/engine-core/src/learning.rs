@@ -630,6 +630,7 @@ pub struct AdaptiveNumericDeltaModel {
     residual_monitors: BTreeMap<(String, String), ResidualMonitor>,
     stable_observations: usize,
     consecutive_global_outliers: usize,
+    detection_cooldown_remaining: usize,
     change_points_detected: u64,
 }
 
@@ -642,6 +643,7 @@ impl AdaptiveNumericDeltaModel {
             residual_monitors: BTreeMap::new(),
             stable_observations: 0,
             consecutive_global_outliers: 0,
+            detection_cooldown_remaining: 0,
             change_points_detected: 0,
         })
     }
@@ -678,6 +680,10 @@ impl AdaptiveNumericDeltaModel {
             .ok_or(LearningError::ExpectedObjectState)?;
 
         let predictions = self.model.predict_next(&sample.action_id, &sample.before)?;
+        let detection_enabled = self.detection_cooldown_remaining == 0;
+        if !detection_enabled {
+            self.detection_cooldown_remaining -= 1;
+        }
         let mut prediction_errors_observed = 0;
         let mut any_outlier = false;
         for (field, before_value) in before {
@@ -692,7 +698,7 @@ impl AdaptiveNumericDeltaModel {
             let Some(prediction) = predictions.get(field) else {
                 continue;
             };
-            if prediction.sample_count < self.policy.minimum_model_samples {
+            if !detection_enabled || prediction.sample_count < self.policy.minimum_model_samples {
                 continue;
             }
 
@@ -727,6 +733,9 @@ impl AdaptiveNumericDeltaModel {
             // alarms after a later phase has already begun.
             self.residual_monitors.clear();
             self.consecutive_global_outliers = 0;
+            self.detection_cooldown_remaining = self.policy.min_window_size;
+            self.stable_observations = 0;
+        } else if any_outlier {
             self.stable_observations = 0;
         } else if prediction_errors_observed > 0 {
             self.stable_observations = self.stable_observations.saturating_add(1);
@@ -1122,6 +1131,34 @@ mod tests {
         assert!(second.change_detected);
         assert_eq!(second.window_size, policy.min_window_size);
         assert_eq!(second.change_points_detected, 1);
+    }
+
+    #[test]
+    fn adaptive_learner_cools_down_after_confirmed_change() {
+        let mut policy = adaptive_policy();
+        policy.consecutive_outliers = 1;
+        let mut model =
+            AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive policy");
+
+        for _ in 0..12 {
+            model
+                .observe_transition(&numeric_sample(1.0))
+                .expect("stable transition");
+        }
+
+        let changed = model
+            .observe_transition(&numeric_sample(-1.0))
+            .expect("confirmed change");
+        assert!(changed.change_detected);
+        assert_eq!(changed.window_size, policy.min_window_size);
+
+        for _ in 0..policy.min_window_size {
+            let update = model
+                .observe_transition(&numeric_sample(-1.0))
+                .expect("post-change calibration");
+            assert!(!update.change_detected);
+            assert_eq!(update.change_points_detected, 1);
+        }
     }
 
     #[test]
