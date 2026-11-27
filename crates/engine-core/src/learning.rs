@@ -1700,7 +1700,7 @@ mod tests {
         let mut model =
             CrossActionAdaptiveNumericDeltaModel::new(policy).expect("valid cross-action policy");
 
-        for count in
+        for _ in
             0..(policy.minimum_model_samples as usize + policy.minimum_residual_samples as usize)
         {
             let update = model
