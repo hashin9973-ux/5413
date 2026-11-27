@@ -1911,7 +1911,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn few_shot_transfer_curve_rejects_non_monotonic_shots() {
         let curve = FewShotTransferCurve {
