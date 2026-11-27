@@ -1,6 +1,6 @@
 use crate::experience::{ExperienceEvent, ExperienceRecord};
 use crate::value::DataValue;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TransitionSample {
@@ -440,6 +440,81 @@ impl NumericDeltaModel {
     }
 }
 
+/// Online action-delta learner that retains only the most recent transitions.
+///
+/// A bounded recent window adapts when an environment's dynamics drift or an
+/// adversary changes strategy. Updates are transactional: invalid samples leave
+/// the retained history, predictions, and lifetime transition count unchanged.
+#[derive(Clone, Debug)]
+pub struct WindowedNumericDeltaModel {
+    window_size: usize,
+    history: VecDeque<TransitionSample>,
+    model: NumericDeltaModel,
+    transitions_seen: u64,
+}
+
+impl WindowedNumericDeltaModel {
+    pub fn new(window_size: usize) -> Result<Self, LearningError> {
+        if window_size == 0 {
+            return Err(LearningError::InvalidWindowSize);
+        }
+        Ok(Self {
+            window_size,
+            history: VecDeque::with_capacity(window_size),
+            model: NumericDeltaModel::default(),
+            transitions_seen: 0,
+        })
+    }
+
+    /// Adds one transition and rebuilds sufficient statistics from the retained
+    /// window. The lifetime counter is independent of the window's sample count.
+    pub fn observe_transition(
+        &mut self,
+        sample: &TransitionSample,
+    ) -> Result<usize, LearningError> {
+        let next_transitions_seen = self
+            .transitions_seen
+            .checked_add(1)
+            .ok_or(LearningError::SampleCountExhausted)?;
+        let mut history = self.history.clone();
+        history.push_back(sample.clone());
+        while history.len() > self.window_size {
+            history.pop_front();
+        }
+
+        let mut model = NumericDeltaModel::default();
+        let mut updated_fields = 0;
+        for retained in &history {
+            updated_fields = model.observe_transition(retained)?;
+        }
+
+        self.history = history;
+        self.model = model;
+        self.transitions_seen = next_transitions_seen;
+        Ok(updated_fields)
+    }
+
+    pub fn predict_next(
+        &self,
+        action_id: &str,
+        current_state: &DataValue,
+    ) -> Result<BTreeMap<String, FieldPrediction>, LearningError> {
+        self.model.predict_next(action_id, current_state)
+    }
+
+    pub fn window_size(&self) -> usize {
+        self.window_size
+    }
+
+    pub fn retained_transitions(&self) -> usize {
+        self.history.len()
+    }
+
+    pub fn transitions_seen(&self) -> u64 {
+        self.transitions_seen
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LearningError {
     ExpectedObjectState,
@@ -448,6 +523,7 @@ pub enum LearningError {
     NonFinitePrediction(String),
     SampleCountExhausted,
     InvalidSerializedState,
+    InvalidWindowSize,
 }
 
 impl std::fmt::Display for LearningError {
@@ -467,6 +543,7 @@ impl std::fmt::Display for LearningError {
             Self::InvalidSerializedState => {
                 write!(formatter, "serialized learner state is invalid")
             }
+            Self::InvalidWindowSize => write!(formatter, "learner window size must be positive"),
         }
     }
 }
@@ -611,6 +688,80 @@ mod tests {
                 .expect("restored prediction"),
             prediction
         );
+    }
+
+    #[test]
+    fn windowed_delta_model_forgets_stale_dynamics_and_tracks_lifetime_samples() {
+        let mut cumulative = NumericDeltaModel::default();
+        let mut recent = WindowedNumericDeltaModel::new(2).expect("positive window");
+        for delta in [1.0, 1.0, -1.0, -1.0] {
+            let sample = TransitionSample {
+                action_id: "adapt".to_owned(),
+                before: state(0.0, "before"),
+                after: state(delta, "after"),
+            };
+            cumulative.observe_transition(&sample).expect("cumulative update");
+            recent.observe_transition(&sample).expect("recent update");
+        }
+
+        let current = state(0.0, "current");
+        let cumulative_prediction = cumulative
+            .predict_next("adapt", &current)
+            .expect("cumulative prediction");
+        let recent_prediction = recent
+            .predict_next("adapt", &current)
+            .expect("recent prediction");
+        assert_eq!(
+            cumulative_prediction.get("position").expect("cumulative field").mean_delta,
+            0.0
+        );
+        assert_eq!(
+            recent_prediction.get("position").expect("recent field").mean_delta,
+            -1.0
+        );
+        assert_eq!(recent.window_size(), 2);
+        assert_eq!(recent.retained_transitions(), 2);
+        assert_eq!(recent.transitions_seen(), 4);
+    }
+
+    #[test]
+    fn windowed_delta_model_rejects_invalid_updates_transactionally() {
+        let mut model = WindowedNumericDeltaModel::new(3).expect("positive window");
+        let valid = TransitionSample {
+            action_id: "advance".to_owned(),
+            before: state(0.0, "before"),
+            after: state(1.0, "after"),
+        };
+        model.observe_transition(&valid).expect("valid update");
+        let before = model
+            .predict_next("advance", &state(0.0, "current"))
+            .expect("prediction before invalid update");
+        let invalid = TransitionSample {
+            action_id: "advance".to_owned(),
+            before: DataValue::object([("position".to_owned(), DataValue::Number(-f64::MAX))]),
+            after: DataValue::object([("position".to_owned(), DataValue::Number(f64::MAX))]),
+        };
+
+        assert_eq!(
+            model.observe_transition(&invalid),
+            Err(LearningError::NonFiniteDelta("position".to_owned()))
+        );
+        assert_eq!(model.transitions_seen(), 1);
+        assert_eq!(model.retained_transitions(), 1);
+        assert_eq!(
+            model
+                .predict_next("advance", &state(0.0, "current"))
+                .expect("prediction remains unchanged"),
+            before
+        );
+    }
+
+    #[test]
+    fn rejects_zero_sized_recent_window() {
+        assert!(matches!(
+            WindowedNumericDeltaModel::new(0),
+            Err(LearningError::InvalidWindowSize)
+        ));
     }
 
     #[test]
