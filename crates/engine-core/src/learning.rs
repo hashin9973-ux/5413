@@ -134,9 +134,8 @@ impl DeltaStatistics {
             self.scale / scale
         };
         let previous_mean = self.normalized_mean * previous_scale_ratio;
-        let previous_sum_squared_deviations = self.normalized_sum_squared_deviations
-            * previous_scale_ratio
-            * previous_scale_ratio;
+        let previous_sum_squared_deviations =
+            self.normalized_sum_squared_deviations * previous_scale_ratio * previous_scale_ratio;
         let normalized_value = if scale == 0.0 { 0.0 } else { value / scale };
 
         // All values are normalized by the largest magnitude seen so far. The
@@ -144,8 +143,8 @@ impl DeltaStatistics {
         let delta = normalized_value - previous_mean;
         let normalized_mean = previous_mean + delta / count as f64;
         let delta_after_update = normalized_value - normalized_mean;
-        let normalized_sum_squared_deviations = previous_sum_squared_deviations
-            + delta * delta_after_update;
+        let normalized_sum_squared_deviations =
+            previous_sum_squared_deviations + delta * delta_after_update;
 
         if !scale.is_finite()
             || !normalized_mean.is_finite()
@@ -170,8 +169,7 @@ impl DeltaStatistics {
         if self.count < 2 {
             0.0
         } else {
-            self.scale
-                * (self.normalized_sum_squared_deviations / (self.count - 1) as f64).sqrt()
+            self.scale * (self.normalized_sum_squared_deviations / (self.count - 1) as f64).sqrt()
         }
     }
 }
@@ -430,10 +428,7 @@ impl NumericDeltaModel {
                 }
             };
 
-            if statistics
-                .insert((action_id, field), restored)
-                .is_some()
-            {
+            if statistics.insert((action_id, field), restored).is_some() {
                 return Err(LearningError::InvalidSerializedState);
             }
         }
@@ -603,10 +598,10 @@ mod tests {
             .expect("representable mean and standard deviation");
         let estimate = prediction.get("position").expect("position prediction");
         assert!(estimate.mean_delta.abs() <= f64::EPSILON * magnitude);
-        assert!((estimate.delta_standard_deviation / f64::MAX
-            - std::f64::consts::FRAC_1_SQRT_2)
-            .abs()
-            < 1.0e-12);
+        assert!(
+            (estimate.delta_standard_deviation / f64::MAX - std::f64::consts::FRAC_1_SQRT_2).abs()
+                < 1.0e-12
+        );
 
         let restored = NumericDeltaModel::from_artifact_value(&model.to_artifact_value())
             .expect("versioned learner artifact restores");
@@ -628,14 +623,14 @@ mod tests {
             (
                 "statistics".to_owned(),
                 DataValue::Sequence(vec![DataValue::object([
-                    ("action_id".to_owned(), DataValue::Text("advance".to_owned())),
+                    (
+                        "action_id".to_owned(),
+                        DataValue::Text("advance".to_owned()),
+                    ),
                     ("field".to_owned(), DataValue::Text("position".to_owned())),
                     ("count".to_owned(), DataValue::Text("2".to_owned())),
                     ("mean".to_owned(), DataValue::Number(0.0)),
-                    (
-                        "sum_squared_deviations".to_owned(),
-                        DataValue::Number(2.0),
-                    ),
+                    ("sum_squared_deviations".to_owned(), DataValue::Number(2.0)),
                 ])]),
             ),
         ]);
