@@ -13,8 +13,8 @@ const ACTIONS: [&str; 3] = ["evade", "guard", "counter"];
 const HEALTH_FIELD: &str = "health";
 const EPISODE_STEPS: usize = 240;
 const SEEDS: u64 = 64;
-const RECENT_WINDOW: usize = 12;
-const EXPLORATION_RATE: f64 = 0.12;
+const WINDOW_SIZES: [usize; 6] = [4, 8, 12, 20, 32, 48];
+const EXPLORATION_RATES: [f64; 3] = [0.05, 0.12, 0.20];
 const INITIAL_HEALTH: f64 = 4.0;
 
 #[derive(Clone, Copy)]
@@ -57,6 +57,7 @@ struct Metrics {
     prediction_absolute_error: f64,
     predictions: usize,
     phase_recovery_steps: usize,
+    phase_recoveries: usize,
     phase_changes: usize,
 }
 
@@ -64,15 +65,19 @@ struct Agent {
     model: NumericDeltaModel,
     history: VecDeque<TransitionSample>,
     adaptive: bool,
+    recent_window: usize,
+    exploration_rate: f64,
     rng: u64,
 }
 
 impl Agent {
-    fn new(seed: u64, adaptive: bool) -> Self {
+    fn new(seed: u64, adaptive: bool, recent_window: usize, exploration_rate: f64) -> Self {
         Self {
             model: NumericDeltaModel::default(),
             history: VecDeque::new(),
             adaptive,
+            recent_window,
+            exploration_rate,
             rng: seed.max(1),
         }
     }
@@ -87,7 +92,7 @@ impl Agent {
     }
 
     fn choose_action(&mut self, health: f64) -> usize {
-        if self.random_unit() < EXPLORATION_RATE {
+        if self.random_unit() < self.exploration_rate {
             return (self.random() as usize) % ACTIONS.len();
         }
 
@@ -117,7 +122,7 @@ impl Agent {
 
     fn observe(&mut self, sample: TransitionSample) {
         self.history.push_back(sample.clone());
-        while self.history.len() > RECENT_WINDOW {
+        while self.history.len() > self.recent_window {
             self.history.pop_front();
         }
         if self.adaptive {
@@ -156,8 +161,13 @@ fn survival_delta(action: usize, preferred: usize) -> f64 {
     }
 }
 
-fn run_episode(seed: u64, adaptive: bool) -> Metrics {
-    let mut agent = Agent::new(seed, adaptive);
+fn run_episode(
+    seed: u64,
+    adaptive: bool,
+    recent_window: usize,
+    exploration_rate: f64,
+) -> Metrics {
+    let mut agent = Agent::new(seed, adaptive, recent_window, exploration_rate);
     let mut metrics = Metrics::default();
     let mut health = INITIAL_HEALTH;
     let mut previous_phase = 0;
@@ -201,6 +211,7 @@ fn run_episode(seed: u64, adaptive: bool) -> Metrics {
             recovery_steps += 1;
             if action == preferred_action {
                 metrics.phase_recovery_steps += recovery_steps;
+                metrics.phase_recoveries += 1;
                 recovering = false;
             }
         }
@@ -211,66 +222,73 @@ fn run_episode(seed: u64, adaptive: bool) -> Metrics {
     metrics
 }
 
-fn summarize(adaptive: bool) -> Metrics {
+fn summarize(adaptive: bool, recent_window: usize, exploration_rate: f64) -> Metrics {
     let mut total = Metrics::default();
     for seed in 1..=SEEDS {
-        let metrics = run_episode(seed.wrapping_mul(0x9E37_79B9), adaptive);
+        let metrics = run_episode(
+            seed.wrapping_mul(0x9E37_79B9),
+            adaptive,
+            recent_window,
+            exploration_rate,
+        );
         total.survival_steps += metrics.survival_steps;
         total.reward += metrics.reward;
         total.prediction_absolute_error += metrics.prediction_absolute_error;
         total.predictions += metrics.predictions;
         total.phase_recovery_steps += metrics.phase_recovery_steps;
+        total.phase_recoveries += metrics.phase_recoveries;
         total.phase_changes += metrics.phase_changes;
     }
     total
 }
 
 fn main() {
-    let baseline = summarize(false);
-    let adaptive = summarize(true);
-    let average = |value: usize| value as f64 / SEEDS as f64;
-    let prediction_mae =
-        |metrics: Metrics| metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
-    let recovery = |metrics: Metrics| {
-        metrics.phase_recovery_steps as f64 / metrics.phase_changes.max(1) as f64
-    };
-
     println!("Adversarial survival experiment");
-    println!("seeds={SEEDS}, horizon={EPISODE_STEPS}, recent_window={RECENT_WINDOW}");
-    println!("opponent=hidden rotating counter-strategy; health is the only survival condition");
+    println!("seeds={SEEDS}, horizon={EPISODE_STEPS}, hidden irregular opponent schedule");
+    println!("no action, energy, or compute budget; survival ends only at zero health");
     println!();
-    println!("metric                         cumulative      recent-window");
+    println!("explore window  survival  full-horizon  prediction  recovery  recovery");
+    println!("rate     size   steps      survivors     MAE         success   lag");
+
+    for exploration_rate in EXPLORATION_RATES {
+        let baseline = summarize(false, usize::MAX, exploration_rate);
+        print_row(exploration_rate, 0, baseline);
+        for window in WINDOW_SIZES {
+            let adaptive = summarize(true, window, exploration_rate);
+            print_row(exploration_rate, window, adaptive);
+        }
+        println!();
+    }
+}
+
+fn print_row(exploration_rate: f64, window: usize, metrics: Metrics) {
+    let prediction_mae =
+        metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
+    let recovery_rate = metrics.phase_recoveries as f64 / metrics.phase_changes.max(1) as f64;
+    let recovery_lag =
+        metrics.phase_recovery_steps as f64 / metrics.phase_recoveries.max(1) as f64;
     println!(
-        "mean survival steps            {:>10.2}      {:>10.2}",
-        average(baseline.survival_steps),
-        average(adaptive.survival_steps)
-    );
-    println!(
-        "mean cumulative survival delta {:>10.2}      {:>10.2}",
-        baseline.reward / SEEDS as f64,
-        adaptive.reward / SEEDS as f64
-    );
-    println!(
-        "prediction MAE                 {:>10.4}      {:>10.4}",
-        prediction_mae(baseline),
-        prediction_mae(adaptive)
-    );
-    println!(
-        "mean phase recovery steps      {:>10.2}      {:>10.2}",
-        recovery(baseline),
-        recovery(adaptive)
-    );
-    println!(
-        "episodes survived to horizon   {:>10}      {:>10}",
-        count_survivors(false),
-        count_survivors(true)
+        "{:<8.2} {:<6} {:<10.2} {:<13} {:<11.4} {:<9.2} {:.2}",
+        exploration_rate,
+        if window == 0 { "all".to_owned() } else { window.to_string() },
+        metrics.survival_steps as f64 / SEEDS as f64,
+        count_survivors(window, exploration_rate),
+        prediction_mae,
+        recovery_rate,
+        recovery_lag
     );
 }
 
-fn count_survivors(adaptive: bool) -> usize {
+fn count_survivors(recent_window: usize, exploration_rate: f64) -> usize {
     (1..=SEEDS)
         .filter(|seed| {
-            run_episode(seed.wrapping_mul(0x9E37_79B9), adaptive).survival_steps == EPISODE_STEPS
+            run_episode(
+                seed.wrapping_mul(0x9E37_79B9),
+                recent_window != usize::MAX,
+                recent_window,
+                exploration_rate,
+            )
+            .survival_steps == EPISODE_STEPS
         })
         .count()
 }
