@@ -86,7 +86,7 @@ impl Agent {
                 // exploiting a measured one.
                 return index;
             };
-            if best.is_none_or(|(_, score)| estimate.mean_delta > score) {
+            if best.map_or(true, |(_, score)| estimate.mean_delta > score) {
                 best = Some((index, estimate.mean_delta));
             }
         }
