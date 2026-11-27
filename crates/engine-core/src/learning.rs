@@ -615,9 +615,7 @@ impl ResidualMonitor {
         }
 
         self.consecutive_outliers = 0;
-        self.statistics = self
-            .statistics
-            .updated(residual, "prediction residual")?;
+        self.statistics = self.statistics.updated(residual, "prediction residual")?;
         Ok(false)
     }
 }
@@ -1127,14 +1125,8 @@ mod tests {
         let before_changes = model.change_points_detected();
         let invalid = TransitionSample {
             action_id: "adapt".to_owned(),
-            before: DataValue::object([(
-                "position".to_owned(),
-                DataValue::Number(-f64::MAX),
-            )]),
-            after: DataValue::object([(
-                "position".to_owned(),
-                DataValue::Number(f64::MAX),
-            )]),
+            before: DataValue::object([("position".to_owned(), DataValue::Number(-f64::MAX))]),
+            after: DataValue::object([("position".to_owned(), DataValue::Number(f64::MAX))]),
         };
         assert_eq!(
             model.observe_transition(&invalid),
