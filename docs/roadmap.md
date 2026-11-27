@@ -52,6 +52,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Action-conditioned statistical delta model
 - [x] Overflow-resistant online delta mean/variance with versioned learner artifacts and legacy-state migration
 - [x] Transactional recent-window numeric delta learner with a lifetime sample counter for adaptation to non-stationary dynamics
+- [x] Configurable prediction-residual change detection with transactional adaptive memory shrink and gradual stable-period expansion; stationary-noise false-alarm regression test (experimental, not established as superior to a fixed short window)
 - [x] Contextual numeric ridge-regression model with dynamically discovered features
 - [x] Empirical model ensemble with separate aleatoric and disagreement-based epistemic uncertainty estimates
 - [x] Overflow-resistant ensemble mean and population-spread calculations, scaled aleatoric/epistemic aggregation, stable total-standard-deviation composition, and invalid uncertainty rejection
@@ -130,7 +131,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 
 ## Milestone 9 — Controlled algorithm improvement
 
-- [x] Reproducible adversarial survival benchmark with randomized hidden opponent phases, 64 seeded episodes, cumulative-vs-recent-window learner comparison, and exploration/window-size sweeps measured by survival, prediction error, and phase recovery
+- [x] Reproducible adversarial survival benchmark with randomized hidden opponent phases, 64 seeded episodes, cumulative/fixed/adaptive learner comparison, exploration/window-size sweeps, survival and prediction metrics, detector delay/misses/false alarms, and a 5,000-transition stationary-noise control
 - [ ] Operator proposals from measured failure analysis
 - [ ] Sandboxed implementation experiments
 - [ ] Reproducible build and benchmark pipeline
