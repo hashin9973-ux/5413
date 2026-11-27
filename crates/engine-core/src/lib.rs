@@ -83,7 +83,9 @@ pub use experimentation::{
     rank_experiments, ExperimentCandidate, ExperimentError, ExperimentPolicy, ExperimentRanking,
     ExperimentScore,
 };
-pub use learning::{FieldPrediction, LearningError, NumericDeltaModel, TransitionSample};
+pub use learning::{
+    FieldPrediction, LearningError, NumericDeltaModel, TransitionSample, WindowedNumericDeltaModel,
+};
 pub use mapping::{
     FieldMapping, MappingError, MappingReport, MappingResult, MappingTransform,
     RepresentationMapping, RepresentationRef,
