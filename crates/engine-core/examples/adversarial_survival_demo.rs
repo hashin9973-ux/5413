@@ -62,6 +62,10 @@ struct Metrics {
     phase_recoveries: usize,
     phase_changes: usize,
     change_detections: usize,
+    detected_phase_changes: usize,
+    missed_phase_changes: usize,
+    detection_lag_steps: usize,
+    false_positive_detections: usize,
     window_size_sum: usize,
     window_observations: usize,
 }
@@ -229,6 +233,7 @@ fn run_episode(
     let mut previous_phase = 0;
     let mut recovering = false;
     let mut recovery_steps = 0;
+    let mut awaiting_detection: Option<usize> = None;
     let schedule_cycle: usize = OPPONENT.iter().map(|phase| phase.duration).sum();
     let schedule_offset = (seed % schedule_cycle as u64) as usize;
 
@@ -236,6 +241,10 @@ fn run_episode(
         let (phase, preferred_action) = opponent_phase(step + schedule_offset);
         if step > 0 && phase != previous_phase {
             metrics.phase_changes += 1;
+            if awaiting_detection.is_some() {
+                metrics.missed_phase_changes += 1;
+            }
+            awaiting_detection = Some(0);
             recovering = true;
             recovery_steps = 0;
         }
@@ -259,6 +268,15 @@ fn run_episode(
             after: next_state,
         }) {
             metrics.change_detections += 1;
+            if let Some(lag) = awaiting_detection.take() {
+                metrics.detected_phase_changes += 1;
+                metrics.detection_lag_steps += lag + 1;
+            } else {
+                metrics.false_positive_detections += 1;
+            }
+        }
+        if let Some(lag) = awaiting_detection.as_mut() {
+            *lag += 1;
         }
         if let Some(window_size) = agent.window_size() {
             metrics.window_size_sum += window_size;
@@ -280,6 +298,9 @@ fn run_episode(
         if health <= 0.0 {
             break;
         }
+    }
+    if awaiting_detection.is_some() {
+        metrics.missed_phase_changes += 1;
     }
     metrics
 }
@@ -307,6 +328,10 @@ fn summarize(
         total.phase_recoveries += metrics.phase_recoveries;
         total.phase_changes += metrics.phase_changes;
         total.change_detections += metrics.change_detections;
+        total.detected_phase_changes += metrics.detected_phase_changes;
+        total.missed_phase_changes += metrics.missed_phase_changes;
+        total.detection_lag_steps += metrics.detection_lag_steps;
+        total.false_positive_detections += metrics.false_positive_detections;
         total.window_size_sum += metrics.window_size_sum;
         total.window_observations += metrics.window_observations;
     }
@@ -327,9 +352,17 @@ fn main() {
     println!("seeds={SEEDS}, horizon={EPISODE_STEPS}, hidden irregular opponent schedule");
     println!("no action, energy, or compute budget; survival ends only at zero health");
     println!("adaptive policy: minimum 4, maximum 32, expansion after 12 stable predictions");
+    let stationary_false_alarms = stationary_false_alarms(adaptive_policy);
+    println!(
+        "stationary-noise control: {stationary_false_alarms} false alarms over 5,000 transitions"
+    );
+    assert_eq!(
+        stationary_false_alarms, 0,
+        "stationary control must not trigger a change-point alarm"
+    );
     println!();
-    println!("explore learner      survival  full-horizon  prediction  recovery  recovery  changes  avg-window");
-    println!("rate    strategy     steps      survivors     MAE         success   lag");
+    println!("explore learner      survival  survivors  pred-MAE  recover  rec-lag  detected  det-lag  missed  false+  avg-window");
+    println!("rate    strategy     steps      /64");
 
     for exploration_rate in EXPLORATION_RATES {
         let baseline = summarize(
@@ -431,7 +464,7 @@ fn print_row(
     let recovery_lag = metrics.phase_recovery_steps as f64 / metrics.phase_recoveries.max(1) as f64;
     let average_window = metrics.window_size_sum as f64 / metrics.window_observations.max(1) as f64;
     println!(
-        "{:<8.2} {:<12} {:<10.2} {:<13} {:<11.4} {:<9.2} {:<9.2} {:<8.2} {:.2}",
+        "{:<8.2} {:<12} {:<10.2} {:<10} {:<9.4} {:<8.2} {:<8.2} {:<9.2} {:<8.2} {:<7.2} {:<7.2} {:.2}",
         exploration_rate,
         learner,
         metrics.survival_steps as f64 / SEEDS as f64,
@@ -439,7 +472,10 @@ fn print_row(
         prediction_mae,
         recovery_rate,
         recovery_lag,
-        metrics.change_detections as f64 / SEEDS as f64,
+        metrics.detected_phase_changes as f64 / SEEDS as f64,
+        metrics.detection_lag_steps as f64 / metrics.detected_phase_changes.max(1) as f64,
+        metrics.missed_phase_changes as f64 / SEEDS as f64,
+        metrics.false_positive_detections as f64 / SEEDS as f64,
         average_window
     );
 }
@@ -463,4 +499,29 @@ fn count_survivors(
                 == EPISODE_STEPS
         })
         .count()
+}
+
+fn stationary_false_alarms(policy: AdaptiveLearningPolicy) -> u64 {
+    let mut model =
+        AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive benchmark policy");
+    let mut random = 0xD1B5_4A32_D192_ED03_u64;
+    for _ in 0..5_000 {
+        let mut noise = 0.0;
+        for _ in 0..12 {
+            random ^= random << 13;
+            random ^= random >> 7;
+            random ^= random << 17;
+            noise += ((random >> 11) as f64 / ((1_u64 << 53) as f64)) - 0.5;
+        }
+        let delta = 1.0 + noise / 12.0_f64.sqrt() * 0.7;
+        let sample = TransitionSample {
+            action_id: "stationary".to_owned(),
+            before: DataValue::object([("signal".to_owned(), DataValue::Number(0.0))]),
+            after: DataValue::object([("signal".to_owned(), DataValue::Number(delta))]),
+        };
+        model
+            .observe_transition(&sample)
+            .expect("finite stationary noisy transition");
+    }
+    model.change_points_detected()
 }
