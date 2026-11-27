@@ -161,12 +161,7 @@ fn survival_delta(action: usize, preferred: usize) -> f64 {
     }
 }
 
-fn run_episode(
-    seed: u64,
-    adaptive: bool,
-    recent_window: usize,
-    exploration_rate: f64,
-) -> Metrics {
+fn run_episode(seed: u64, adaptive: bool, recent_window: usize, exploration_rate: f64) -> Metrics {
     let mut agent = Agent::new(seed, adaptive, recent_window, exploration_rate);
     let mut metrics = Metrics::default();
     let mut health = INITIAL_HEALTH;
@@ -262,15 +257,18 @@ fn main() {
 }
 
 fn print_row(exploration_rate: f64, window: usize, metrics: Metrics, adaptive: bool) {
-    let prediction_mae =
-        metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
+    let prediction_mae = metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
     let recovery_rate = metrics.phase_recoveries as f64 / metrics.phase_changes.max(1) as f64;
     let recovery_lag =
         metrics.phase_recovery_steps as f64 / metrics.phase_recoveries.max(1) as f64;
     println!(
         "{:<8.2} {:<6} {:<10.2} {:<13} {:<11.4} {:<9.2} {:.2}",
         exploration_rate,
-        if window == 0 { "all".to_owned() } else { window.to_string() },
+        if window == 0 {
+            "all".to_owned()
+        } else {
+            window.to_string()
+        },
         metrics.survival_steps as f64 / SEEDS as f64,
         count_survivors(adaptive, window, exploration_rate),
         prediction_mae,
@@ -288,7 +286,8 @@ fn count_survivors(adaptive: bool, recent_window: usize, exploration_rate: f64) 
                 recent_window,
                 exploration_rate,
             )
-            .survival_steps == EPISODE_STEPS
+            .survival_steps
+                == EPISODE_STEPS
         })
         .count()
 }
