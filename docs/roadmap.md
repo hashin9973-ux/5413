@@ -59,6 +59,7 @@ The roadmap distinguishes implemented capabilities from research directions. A c
 - [x] Held-out model evaluation with MAE, RMSE, spread, empirical coverage, and dataset-ID leakage guard
 - [x] Stable contextual residual-spread fitting for very large finite residuals without intermediate square overflow
 - [x] Action-specific residual calibration with bounded cross-action CUSUM-style surprise accumulation, evidence decay, transactional adaptive memory updates, and isolated-outlier stationary-noise regression coverage (experimental; benchmark superiority not established)
+  - Its drift allowance, evidence threshold, per-transition cap, and decay are empirical policy parameters, not confidence levels, p-values, or false-alarm guarantees.
 - [ ] Temporal sequence models and relational dynamics
 - [ ] Symbolic transition-rule induction and competing hypotheses
 - [ ] Better calibrated predictive distributions and proper scoring rules
