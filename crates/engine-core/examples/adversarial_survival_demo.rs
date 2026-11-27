@@ -252,16 +252,16 @@ fn main() {
 
     for exploration_rate in EXPLORATION_RATES {
         let baseline = summarize(false, usize::MAX, exploration_rate);
-        print_row(exploration_rate, 0, baseline);
+        print_row(exploration_rate, 0, baseline, false);
         for window in WINDOW_SIZES {
             let adaptive = summarize(true, window, exploration_rate);
-            print_row(exploration_rate, window, adaptive);
+            print_row(exploration_rate, window, adaptive, true);
         }
         println!();
     }
 }
 
-fn print_row(exploration_rate: f64, window: usize, metrics: Metrics) {
+fn print_row(exploration_rate: f64, window: usize, metrics: Metrics, adaptive: bool) {
     let prediction_mae =
         metrics.prediction_absolute_error / metrics.predictions.max(1) as f64;
     let recovery_rate = metrics.phase_recoveries as f64 / metrics.phase_changes.max(1) as f64;
@@ -272,19 +272,19 @@ fn print_row(exploration_rate: f64, window: usize, metrics: Metrics) {
         exploration_rate,
         if window == 0 { "all".to_owned() } else { window.to_string() },
         metrics.survival_steps as f64 / SEEDS as f64,
-        count_survivors(window, exploration_rate),
+        count_survivors(adaptive, window, exploration_rate),
         prediction_mae,
         recovery_rate,
         recovery_lag
     );
 }
 
-fn count_survivors(recent_window: usize, exploration_rate: f64) -> usize {
+fn count_survivors(adaptive: bool, recent_window: usize, exploration_rate: f64) -> usize {
     (1..=SEEDS)
         .filter(|seed| {
             run_episode(
                 seed.wrapping_mul(0x9E37_79B9),
-                recent_window != usize::MAX,
+                adaptive,
                 recent_window,
                 exploration_rate,
             )
