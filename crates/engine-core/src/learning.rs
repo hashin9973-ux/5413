@@ -1089,8 +1089,7 @@ mod tests {
     #[test]
     fn adaptive_learner_detects_interleaved_action_changes() {
         let policy = adaptive_policy();
-        let mut model =
-            AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive policy");
+        let mut model = AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive policy");
 
         for _ in 0..12 {
             for action_id in ["left", "right"] {
@@ -1101,10 +1100,7 @@ mod tests {
                             "position".to_owned(),
                             DataValue::Number(0.0),
                         )]),
-                        after: DataValue::object([(
-                            "position".to_owned(),
-                            DataValue::Number(1.0),
-                        )]),
+                        after: DataValue::object([("position".to_owned(), DataValue::Number(1.0))]),
                     })
                     .expect("stable action transition");
             }
