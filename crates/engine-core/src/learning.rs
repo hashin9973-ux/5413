@@ -1089,6 +1089,48 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_learner_detects_interleaved_action_changes() {
+        let policy = adaptive_policy();
+        let mut model =
+            AdaptiveNumericDeltaModel::new(policy).expect("valid adaptive policy");
+
+        for _ in 0..12 {
+            for action_id in ["left", "right"] {
+                model
+                    .observe_transition(&TransitionSample {
+                        action_id: action_id.to_owned(),
+                        before: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(0.0),
+                        )]),
+                        after: DataValue::object([(
+                            "position".to_owned(),
+                            DataValue::Number(1.0),
+                        )]),
+                    })
+                    .expect("stable action transition");
+            }
+        }
+
+        let changed_sample = |action_id: &str| TransitionSample {
+            action_id: action_id.to_owned(),
+            before: DataValue::object([("position".to_owned(), DataValue::Number(0.0))]),
+            after: DataValue::object([("position".to_owned(), DataValue::Number(-1.0))]),
+        };
+
+        let first = model
+            .observe_transition(&changed_sample("left"))
+            .expect("first surprising action");
+        assert!(!first.change_detected);
+        let second = model
+            .observe_transition(&changed_sample("right"))
+            .expect("second surprising action");
+        assert!(second.change_detected);
+        assert_eq!(second.window_size, policy.min_window_size);
+        assert_eq!(second.change_points_detected, 1);
+    }
+
+    #[test]
     fn adaptive_learner_avoids_false_alarms_under_stationary_noise() {
         let mut model =
             AdaptiveNumericDeltaModel::new(adaptive_policy()).expect("valid adaptive policy");
