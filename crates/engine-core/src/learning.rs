@@ -417,7 +417,9 @@ impl NumericDeltaModel {
                     .and_then(DataValue::as_f64)
                     .filter(|value| value.is_finite() && *value >= 0.0)
                     .ok_or(LearningError::InvalidSerializedState)?;
-                if scale == 0.0 && (normalized_mean != 0.0 || normalized_sum_squared_deviations != 0.0) {
+                if scale == 0.0
+                    && (normalized_mean != 0.0 || normalized_sum_squared_deviations != 0.0)
+                {
                     return Err(LearningError::InvalidSerializedState);
                 }
                 DeltaStatistics {
@@ -532,6 +534,7 @@ mod tests {
             .expect("prediction");
         assert!(!prediction.contains_key("position"));
     }
+
     #[test]
     fn learns_extreme_finite_deltas_without_overflowing_variance() {
         let magnitude = f64::MAX / 2.0;
@@ -604,7 +607,6 @@ mod tests {
         assert!((estimate.mean_delta - (4.0 / 3.0)).abs() < 1.0e-12);
         assert!((estimate.delta_standard_deviation - (19.0_f64 / 3.0).sqrt()).abs() < 1.0e-12);
     }
-
 }
 
 #[cfg(test)]
