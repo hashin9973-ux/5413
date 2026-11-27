@@ -112,8 +112,9 @@ pub struct FieldPrediction {
 #[derive(Clone, Debug, Default)]
 struct DeltaStatistics {
     count: u64,
-    mean: f64,
-    sum_squared_deviations: f64,
+    scale: f64,
+    normalized_mean: f64,
+    normalized_sum_squared_deviations: f64,
 }
 
 impl DeltaStatistics {
@@ -126,29 +127,51 @@ impl DeltaStatistics {
             .count
             .checked_add(1)
             .ok_or(LearningError::SampleCountExhausted)?;
-        let delta = value - self.mean;
-        let mean = self.mean + delta / count as f64;
-        let delta_after_update = value - mean;
-        let sum_squared_deviations = self.sum_squared_deviations + delta * delta_after_update;
+        let scale = self.scale.max(value.abs());
+        let previous_scale_ratio = if scale == 0.0 {
+            0.0
+        } else {
+            self.scale / scale
+        };
+        let previous_mean = self.normalized_mean * previous_scale_ratio;
+        let previous_sum_squared_deviations = self.normalized_sum_squared_deviations
+            * previous_scale_ratio
+            * previous_scale_ratio;
+        let normalized_value = if scale == 0.0 { 0.0 } else { value / scale };
 
-        if !mean.is_finite() || !sum_squared_deviations.is_finite() {
+        // All values are normalized by the largest magnitude seen so far. The
+        // Welford update therefore avoids both overflowing deltas and raw squares.
+        let delta = normalized_value - previous_mean;
+        let normalized_mean = previous_mean + delta / count as f64;
+        let delta_after_update = normalized_value - normalized_mean;
+        let normalized_sum_squared_deviations = previous_sum_squared_deviations
+            + delta * delta_after_update;
+
+        if !scale.is_finite()
+            || !normalized_mean.is_finite()
+            || !normalized_sum_squared_deviations.is_finite()
+        {
             return Err(LearningError::NonFiniteDelta(field.to_owned()));
         }
 
         Ok(Self {
             count,
-            mean,
-            sum_squared_deviations,
+            scale,
+            normalized_mean,
+            normalized_sum_squared_deviations: normalized_sum_squared_deviations.max(0.0),
         })
+    }
+
+    fn mean(&self) -> f64 {
+        self.scale * self.normalized_mean
     }
 
     fn standard_deviation(&self) -> f64 {
         if self.count < 2 {
             0.0
         } else {
-            (self.sum_squared_deviations / (self.count - 1) as f64)
-                .max(0.0)
-                .sqrt()
+            self.scale
+                * (self.normalized_sum_squared_deviations / (self.count - 1) as f64).sqrt()
         }
     }
 }
@@ -238,9 +261,10 @@ impl NumericDeltaModel {
                 continue;
             };
 
-            let predicted_value = current_number + statistics.mean;
+            let mean_delta = statistics.mean();
+            let predicted_value = current_number + mean_delta;
             let deviation = statistics.standard_deviation();
-            if !predicted_value.is_finite() || !deviation.is_finite() {
+            if !mean_delta.is_finite() || !predicted_value.is_finite() || !deviation.is_finite() {
                 return Err(LearningError::NonFinitePrediction(field.clone()));
             }
 
@@ -248,7 +272,7 @@ impl NumericDeltaModel {
                 field.clone(),
                 FieldPrediction {
                     predicted_value,
-                    mean_delta: statistics.mean,
+                    mean_delta,
                     delta_standard_deviation: deviation,
                     sample_count: statistics.count,
                 },
@@ -261,7 +285,7 @@ impl NumericDeltaModel {
         self.transitions_seen
     }
 
-    /// Exports sufficient statistics in a deterministic, versionable data form.
+    /// Exports versioned sufficient statistics in a deterministic data form.
     pub fn to_artifact_value(&self) -> DataValue {
         let statistics = self
             .statistics
@@ -271,15 +295,20 @@ impl NumericDeltaModel {
                     ("action_id".to_owned(), DataValue::Text(action_id.clone())),
                     ("field".to_owned(), DataValue::Text(field.clone())),
                     ("count".to_owned(), DataValue::Text(stats.count.to_string())),
-                    ("mean".to_owned(), DataValue::Number(stats.mean)),
+                    ("scale".to_owned(), DataValue::Number(stats.scale)),
                     (
-                        "sum_squared_deviations".to_owned(),
-                        DataValue::Number(stats.sum_squared_deviations),
+                        "normalized_mean".to_owned(),
+                        DataValue::Number(stats.normalized_mean),
+                    ),
+                    (
+                        "normalized_sum_squared_deviations".to_owned(),
+                        DataValue::Number(stats.normalized_sum_squared_deviations),
                     ),
                 ])
             })
             .collect();
         DataValue::object([
+            ("artifact_version".to_owned(), DataValue::Integer(2)),
             (
                 "transitions_seen".to_owned(),
                 DataValue::Text(self.transitions_seen.to_string()),
@@ -288,14 +317,16 @@ impl NumericDeltaModel {
         ])
     }
 
-    /// Restores sufficient statistics after strict shape, range, and finiteness checks.
+    /// Restores current artifacts and migrates the original unversioned format.
     pub fn from_artifact_value(value: &DataValue) -> Result<Self, LearningError> {
         let fields = value
             .as_object()
             .ok_or(LearningError::InvalidSerializedState)?;
-        if fields.len() != 2 {
-            return Err(LearningError::InvalidSerializedState);
-        }
+        let legacy_format = match fields.get("artifact_version") {
+            None if fields.len() == 2 => true,
+            Some(DataValue::Integer(2)) if fields.len() == 3 => false,
+            _ => return Err(LearningError::InvalidSerializedState),
+        };
         let transitions_seen = match fields.get("transitions_seen") {
             Some(DataValue::Text(value)) => value
                 .parse::<u64>()
@@ -312,9 +343,6 @@ impl NumericDeltaModel {
             let entry = entry
                 .as_object()
                 .ok_or(LearningError::InvalidSerializedState)?;
-            if entry.len() != 5 {
-                return Err(LearningError::InvalidSerializedState);
-            }
             let action_id = match entry.get("action_id") {
                 Some(DataValue::Text(value)) if !value.trim().is_empty() => value.clone(),
                 _ => return Err(LearningError::InvalidSerializedState),
@@ -329,31 +357,79 @@ impl NumericDeltaModel {
                     .map_err(|_| LearningError::InvalidSerializedState)?,
                 _ => return Err(LearningError::InvalidSerializedState),
             };
-            let mean = entry
-                .get("mean")
-                .and_then(DataValue::as_f64)
-                .ok_or(LearningError::InvalidSerializedState)?;
-            let sum_squared_deviations = entry
-                .get("sum_squared_deviations")
-                .and_then(DataValue::as_f64)
-                .ok_or(LearningError::InvalidSerializedState)?;
-            if count == 0
-                || count > transitions_seen
-                || !mean.is_finite()
-                || !sum_squared_deviations.is_finite()
-                || sum_squared_deviations < 0.0
-            {
+            if count == 0 || count > transitions_seen {
                 return Err(LearningError::InvalidSerializedState);
             }
+
+            let restored = if legacy_format {
+                if entry.len() != 5 {
+                    return Err(LearningError::InvalidSerializedState);
+                }
+                let mean = entry
+                    .get("mean")
+                    .and_then(DataValue::as_f64)
+                    .filter(|value| value.is_finite())
+                    .ok_or(LearningError::InvalidSerializedState)?;
+                let sum_squared_deviations = entry
+                    .get("sum_squared_deviations")
+                    .and_then(DataValue::as_f64)
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .ok_or(LearningError::InvalidSerializedState)?;
+                let root_sum_squared_deviations = sum_squared_deviations.sqrt();
+                let magnitude = mean.abs().max(root_sum_squared_deviations);
+                // Leave headroom so all historical observations remain bounded
+                // after migration: |x| <= |mean| + sqrt(M2).
+                let scale = if magnitude == 0.0 {
+                    0.0
+                } else if magnitude > f64::MAX / 2.0 {
+                    f64::MAX
+                } else {
+                    magnitude * 2.0
+                };
+                let normalized_mean = if scale == 0.0 { 0.0 } else { mean / scale };
+                let normalized_root = if scale == 0.0 {
+                    0.0
+                } else {
+                    root_sum_squared_deviations / scale
+                };
+                DeltaStatistics {
+                    count,
+                    scale,
+                    normalized_mean,
+                    normalized_sum_squared_deviations: normalized_root * normalized_root,
+                }
+            } else {
+                if entry.len() != 6 {
+                    return Err(LearningError::InvalidSerializedState);
+                }
+                let scale = entry
+                    .get("scale")
+                    .and_then(DataValue::as_f64)
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .ok_or(LearningError::InvalidSerializedState)?;
+                let normalized_mean = entry
+                    .get("normalized_mean")
+                    .and_then(DataValue::as_f64)
+                    .filter(|value| value.is_finite() && value.abs() <= 1.0 + 1.0e-12)
+                    .ok_or(LearningError::InvalidSerializedState)?;
+                let normalized_sum_squared_deviations = entry
+                    .get("normalized_sum_squared_deviations")
+                    .and_then(DataValue::as_f64)
+                    .filter(|value| value.is_finite() && *value >= 0.0)
+                    .ok_or(LearningError::InvalidSerializedState)?;
+                if scale == 0.0 && (normalized_mean != 0.0 || normalized_sum_squared_deviations != 0.0) {
+                    return Err(LearningError::InvalidSerializedState);
+                }
+                DeltaStatistics {
+                    count,
+                    scale,
+                    normalized_mean,
+                    normalized_sum_squared_deviations,
+                }
+            };
+
             if statistics
-                .insert(
-                    (action_id, field),
-                    DeltaStatistics {
-                        count,
-                        mean,
-                        sum_squared_deviations,
-                    },
-                )
+                .insert((action_id, field), restored)
                 .is_some()
             {
                 return Err(LearningError::InvalidSerializedState);
@@ -456,6 +532,79 @@ mod tests {
             .expect("prediction");
         assert!(!prediction.contains_key("position"));
     }
+    #[test]
+    fn learns_extreme_finite_deltas_without_overflowing_variance() {
+        let magnitude = f64::MAX / 2.0;
+        let mut model = NumericDeltaModel::default();
+        for delta in [magnitude, -magnitude] {
+            model
+                .observe_transition(&TransitionSample {
+                    action_id: "advance".to_owned(),
+                    before: state(0.0, "before"),
+                    after: state(delta, "after"),
+                })
+                .expect("finite delta should update normalized statistics");
+        }
+
+        let prediction = model
+            .predict_next("advance", &state(0.0, "current"))
+            .expect("representable mean and standard deviation");
+        let estimate = prediction.get("position").expect("position prediction");
+        assert!(estimate.mean_delta.abs() <= f64::EPSILON * magnitude);
+        assert!((estimate.delta_standard_deviation / f64::MAX
+            - std::f64::consts::FRAC_1_SQRT_2)
+            .abs()
+            < 1.0e-12);
+
+        let restored = NumericDeltaModel::from_artifact_value(&model.to_artifact_value())
+            .expect("versioned learner artifact restores");
+        assert_eq!(
+            restored
+                .predict_next("advance", &state(0.0, "current"))
+                .expect("restored prediction"),
+            prediction
+        );
+    }
+
+    #[test]
+    fn migrates_legacy_numeric_delta_artifacts() {
+        let legacy = DataValue::object([
+            (
+                "transitions_seen".to_owned(),
+                DataValue::Text("2".to_owned()),
+            ),
+            (
+                "statistics".to_owned(),
+                DataValue::Sequence(vec![DataValue::object([
+                    ("action_id".to_owned(), DataValue::Text("advance".to_owned())),
+                    ("field".to_owned(), DataValue::Text("position".to_owned())),
+                    ("count".to_owned(), DataValue::Text("2".to_owned())),
+                    ("mean".to_owned(), DataValue::Number(0.0)),
+                    (
+                        "sum_squared_deviations".to_owned(),
+                        DataValue::Number(2.0),
+                    ),
+                ])]),
+            ),
+        ]);
+        let mut model =
+            NumericDeltaModel::from_artifact_value(&legacy).expect("legacy artifact migrates");
+        model
+            .observe_transition(&TransitionSample {
+                action_id: "advance".to_owned(),
+                before: state(0.0, "before"),
+                after: state(4.0, "after"),
+            })
+            .expect("migrated model remains trainable");
+
+        let prediction = model
+            .predict_next("advance", &state(0.0, "current"))
+            .expect("prediction after migration");
+        let estimate = prediction.get("position").expect("position prediction");
+        assert!((estimate.mean_delta - (4.0 / 3.0)).abs() < 1.0e-12);
+        assert!((estimate.delta_standard_deviation - (19.0_f64 / 3.0).sqrt()).abs() < 1.0e-12);
+    }
+
 }
 
 #[cfg(test)]
