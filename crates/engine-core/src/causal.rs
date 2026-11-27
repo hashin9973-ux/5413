@@ -897,13 +897,11 @@ fn multi_arm_maximum_absolute_effect(
         .mean()
         .ok_or(CausalError::NumericalOverflow)?;
     let mut maximum = 0.0_f64;
-    for arm_index in 0..arm_counts.len() {
+    for (arm_index, mean) in means.iter().enumerate() {
         if arm_index == control_index {
             continue;
         }
-        let treatment_mean = means[arm_index]
-            .mean()
-            .ok_or(CausalError::NumericalOverflow)?;
+        let treatment_mean = mean.mean().ok_or(CausalError::NumericalOverflow)?;
         let effect = (treatment_mean - control_mean).abs();
         if !effect.is_finite() {
             return Err(CausalError::NumericalOverflow);
